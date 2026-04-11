@@ -6,12 +6,14 @@
  *   - write a valid auth file to a per-test XDG_CONFIG_HOME
  *   - drive the command via cli.parse(..., { run: false }) + runMatchedCommand()
  *
- * These tests never make real network calls and never touch .claude/
- * (the Phase 4 writer is a planning stub — Phase 5 will add real writes).
+ * These tests never make real network calls. Phase 5 turned the writer into
+ * a real filesystem writer, so every test also chdirs into a per-test
+ * tempdir (`<tmp>/project`) before running the command — that isolates any
+ * `.claude/` or `CLAUDE.md` side effects from the repo the tests run from.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
@@ -90,19 +92,29 @@ async function runGet(argv: string[]): Promise<CaptureResult> {
 // ---------------------------------------------------------------------------
 
 let tmp: string;
+let projectRoot: string;
 let priorXdg: string | undefined;
 let priorIsTTY: boolean | undefined;
+let priorCwd: string;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "10x-cli-get-"));
+  projectRoot = join(tmp, "project");
+  mkdirSync(projectRoot, { recursive: true });
   priorXdg = process.env["XDG_CONFIG_HOME"];
   process.env["XDG_CONFIG_HOME"] = tmp;
   priorIsTTY = process.stdout.isTTY;
   process.stdout.isTTY = false; // force JSON mode
+  // `applyBundle` writes into `process.cwd()` now that Phase 5 has a real
+  // writer; chdir to a per-test project root so tests can't clobber the
+  // repo they're running from.
+  priorCwd = process.cwd();
+  process.chdir(projectRoot);
   resetApiContentMock();
 });
 
 afterEach(() => {
+  process.chdir(priorCwd);
   if (priorXdg === undefined) delete process.env["XDG_CONFIG_HOME"];
   else process.env["XDG_CONFIG_HOME"] = priorXdg;
   if (priorIsTTY === undefined) delete (process.stdout as { isTTY?: boolean }).isTTY;

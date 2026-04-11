@@ -175,27 +175,20 @@ function renderGetResult(
   lines.push(`${bundle.lessonId} — ${bundle.title}`);
   if (bundle.summary) lines.push(bundle.summary);
   lines.push("");
-  // Phase 4: applyBundle is a planning stub, so every invocation behaves
-  // like a dry run regardless of the --dry-run flag. Phase 5 will flip
-  // the header to "Wrote to .claude/:" for the default path.
-  lines.push("Would write to .claude/:");
+  lines.push(dryRun ? "Would write to .claude/:" : "Wrote to .claude/:");
   for (const skill of writeResult.skills) {
-    lines.push(`  [skill]  ${skill.path}`);
+    lines.push(`  [${skill.action}] skill  ${skill.path}`);
   }
   for (const prompt of writeResult.prompts) {
-    lines.push(`  [prompt] ${prompt.path}`);
+    lines.push(`  [${prompt.action}] prompt ${prompt.path}`);
   }
   if (bundle.rules.length > 0) {
     lines.push(
-      `  [rules]  CLAUDE.md (${bundle.rules.length} block${bundle.rules.length === 1 ? "" : "s"})`,
+      `  [${writeResult.rules.action}] rules  CLAUDE.md (${bundle.rules.length} block${bundle.rules.length === 1 ? "" : "s"})`,
     );
   }
   for (const config of writeResult.configs) {
-    lines.push(`  [config] ${config.path}`);
-  }
-  if (!dryRun) {
-    lines.push("");
-    lines.push("(File writing lands in phase 5 — today this is planning-only.)");
+    lines.push(`  [${config.action}] config ${config.path}`);
   }
   output(ctx, lines.join("\n"), undefined);
 }
