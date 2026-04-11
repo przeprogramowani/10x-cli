@@ -8,6 +8,41 @@
  * - Errors use a stable envelope: { status: "error", error: { code, message } }.
  * - Exit codes are semantic:
  *     0 SUCCESS, 1 ERROR, 2 USAGE, 3 AUTH_REQUIRED, 4 FORBIDDEN, 5 NOT_FOUND.
+ *
+ * -------------------------------------------------------------------------
+ * Message Style Guide — read before adding new user-facing strings.
+ * -------------------------------------------------------------------------
+ *
+ * Voice & structure
+ *   - One sentence per message field, sentence-case, end with a period.
+ *   - Error messages describe what happened in *concrete* terms — real
+ *     module number, real formatted date, real email — never a
+ *     restatement of the machine code (the code already appears in the
+ *     "ERROR <code>:" prefix and in the JSON envelope).
+ *   - Hints are a full imperative sentence starting with a verb and
+ *     ending with a period. They always include a runnable command the
+ *     student can paste — "Run '10x auth' to log in." not "Try authing."
+ *
+ * Formatting
+ *   - Timestamps: always pipe through `formatReleaseAt()` from
+ *     `src/lib/format.ts` — never print raw ISO-8601 on stderr. JSON
+ *     consumers still get the raw ISO via the catalog / module endpoints.
+ *   - Command references: single-quoted, exact form the user can paste —
+ *     '10x list 1', '10x get m1l1', '10x auth'. Never `10x list`.
+ *   - Module references in messages accept BOTH forms (bare int + 'm'
+ *     prefix) and hints should show both, e.g. "'10x list 1' or
+ *     '10x list m1'", so the student discovers the alternative.
+ *   - Lesson references in messages use the canonical `m<N>l<N>` form
+ *     (what `get` accepts) — never uppercase, never hyphenated.
+ *
+ * NEVER
+ *   - Echo an API `error` field (e.g. "module_locked", "not_found") as
+ *     the human message. Those strings are machine codes, not copy.
+ *     Build the sentence yourself from `payload`.
+ *   - Add a trailing newline to the `humanMessage` passed to `output()` —
+ *     `output()` appends one itself.
+ *   - Mix data and prose on stdout. Data goes through `output(ctx, "", data)`
+ *     only when ctx.json is true; prose goes to stderr via `output()`.
  */
 
 export type ExitCode = 0 | 1 | 2 | 3 | 4 | 5;

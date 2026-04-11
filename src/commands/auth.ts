@@ -56,7 +56,7 @@ function runStatus(ctx: OutputContext): void {
     outputError(
       ctx,
       "auth_required",
-      "Not authenticated.",
+      "You're not signed in.",
       ExitCodes.AUTH_REQUIRED,
       "Run '10x auth' to log in.",
     );
@@ -69,29 +69,41 @@ function runStatus(ctx: OutputContext): void {
     outputError(
       ctx,
       "auth_expired",
-      `Session expired (was ${auth.email}).`,
+      `Your session for ${auth.email} has expired.`,
       ExitCodes.AUTH_REQUIRED,
-      "Run '10x auth' to re-authenticate.",
+      "Run '10x auth' to log in again.",
     );
   }
 
-  output(ctx, `Authenticated as ${auth.email} (expires ${formatExpiry(expiresAt)})`, {
-    email: auth.email,
-    expires_at: auth.expires_at,
-    is_valid: true,
-  });
+  output(
+    ctx,
+    `Signed in as ${auth.email} — session expires ${formatExpiry(expiresAt)}.`,
+    {
+      email: auth.email,
+      expires_at: auth.expires_at,
+      is_valid: true,
+    },
+  );
 }
 
+/**
+ * Human-readable relative expiry for the auth status line.
+ *
+ * Returns a full-word phrase — "in 29 days", "in 3 hours", "in 5 minutes" —
+ * matching the long-form voice used by formatReleaseAt(). The auth session
+ * is typically hours-to-days away, so we don't bother with the calendar
+ * date: "in 29 days" is more useful at a glance than "March 2, 2027".
+ */
 function formatExpiry(expiresAt: Date): string {
-  if (!Number.isFinite(expiresAt.getTime())) return "unknown";
+  if (!Number.isFinite(expiresAt.getTime())) return "at an unknown time";
   const diffMs = expiresAt.getTime() - Date.now();
-  if (diffMs <= 0) return "expired";
+  if (diffMs <= 0) return "now";
   const days = Math.floor(diffMs / (24 * 60 * 60 * 1_000));
-  if (days >= 1) return `in ${days}d`;
+  if (days >= 1) return `in ${days} day${days === 1 ? "" : "s"}`;
   const hours = Math.floor(diffMs / (60 * 60 * 1_000));
-  if (hours >= 1) return `in ${hours}h`;
+  if (hours >= 1) return `in ${hours} hour${hours === 1 ? "" : "s"}`;
   const mins = Math.max(1, Math.floor(diffMs / (60 * 1_000)));
-  return `in ${mins}m`;
+  return `in ${mins} minute${mins === 1 ? "" : "s"}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +219,7 @@ async function collectEmail(ctx: OutputContext, options: AuthFlags): Promise<str
         "invalid_email",
         `'${options.email}' does not look like an email address.`,
         ExitCodes.USAGE,
+        "Pass your 10xDevs email, for example '10x auth --email you@example.com'.",
       );
     }
     return trimmed;
@@ -218,7 +231,7 @@ async function collectEmail(ctx: OutputContext, options: AuthFlags): Promise<str
       "missing_email",
       "Email is required in non-interactive mode.",
       ExitCodes.USAGE,
-      "Pass --email <address>.",
+      "Pass --email, for example '10x auth --email you@example.com'.",
     );
   }
 
@@ -265,9 +278,9 @@ function handleLoginError(
     outputError(
       ctx,
       "no_access",
-      error || "No active 10xDevs course membership for this email.",
+      "This email has no active 10xDevs course membership.",
       ExitCodes.FORBIDDEN,
-      "Enroll at https://10xdevs.pl, then try again.",
+      "Enroll at https://10xdevs.pl, then run '10x auth' again.",
     );
   }
 
@@ -275,8 +288,9 @@ function handleLoginError(
     outputError(
       ctx,
       "rate_limited",
-      error || "Too many magic link requests. Please wait a few minutes.",
+      "Too many magic-link requests for this email.",
       ExitCodes.ERROR,
+      "Wait a few minutes, then run '10x auth' again.",
     );
   }
 
@@ -284,9 +298,9 @@ function handleLoginError(
     outputError(
       ctx,
       "email_delivery_failed",
-      error || "Failed to send the magic link email.",
+      "Could not send the magic-link email.",
       ExitCodes.ERROR,
-      "Try again in a few minutes; if it persists, contact support.",
+      "Try '10x auth' again in a few minutes. If it keeps failing, contact support.",
     );
   }
 
@@ -294,11 +308,17 @@ function handleLoginError(
     outputError(
       ctx,
       "network_error",
-      error || "Could not reach the 10x-toolkit API.",
+      "Could not reach the 10x-toolkit API.",
       ExitCodes.ERROR,
-      "Check your internet connection and try again.",
+      "Check your internet connection and run '10x auth' again.",
     );
   }
 
-  outputError(ctx, code || "auth_error", error || "Authentication failed.", ExitCodes.ERROR);
+  outputError(
+    ctx,
+    code || "auth_error",
+    "Authentication failed.",
+    ExitCodes.ERROR,
+    error ? `Server said: ${error}` : undefined,
+  );
 }
