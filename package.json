@@ -1,0 +1,41 @@
+{
+  "name": "@przeprogramowani/10x-cli",
+  "version": "0.1.0",
+  "description": "Open-source CLI for 10xDevs course content",
+  "type": "module",
+  "bin": {
+    "10x": "./dist/index.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outfile dist/index.mjs --target node",
+    "build:binary": "bun build --compile --minify src/index.ts --outfile dist/10x",
+    "generate-types": "bun run scripts/generate-types.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "bun run --bun node_modules/oxlint/bin/oxlint ."
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "cac": "^7.0.0",
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.12",
+    "@types/node": "^22.0.0",
+    "openapi-typescript": "^7.4.0",
+    "oxlint": "^0.16.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
