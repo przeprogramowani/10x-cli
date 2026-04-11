@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -63,6 +64,20 @@ export function saveAuth(data: AuthData): void {
   const dir = configDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  // mkdirSync's `mode` is only honored when the directory is freshly created.
+  // If ~/.config/10x-cli already exists with looser perms (common on Linux
+  // distros that ship ~/.config as 0755), tighten it to owner-only. The file
+  // itself is still the load-bearing protection (auth.json is written 0o600
+  // below); this just hides the directory listing from other local users.
+  // Best-effort: weird filesystems (NFS, etc.) may reject chmod — don't fail
+  // auth over it.
+  if (process.platform !== "win32") {
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      // intentionally ignored — file mode 0o600 is the actual safety net
+    }
   }
   const file = authFilePath();
   // Write atomically via temp file so a crash mid-write cannot leave a

@@ -13,7 +13,7 @@ describe("output", () => {
 
   it("forces json mode when stdout is not a TTY", () => {
     const ctx = resolveContext({ json: false });
-    // Vitest pipes stdout, so isTTY is falsy — json mode should be implicit.
+    // bun test pipes stdout, so isTTY is falsy — json mode should be implicit.
     expect(ctx.json).toBe(true);
   });
 
