@@ -114,6 +114,7 @@ describe("requireAuth concurrency (file lock)", () => {
           refresh_token: "rt-rotated",
           expires_at: newExpires,
         },
+        responseHeaders: new Headers(),
       };
     };
 
@@ -218,6 +219,7 @@ describe("requireAuth concurrency (file lock)", () => {
             refresh_token: "rt-rotated",
             expires_at: newExpires,
           },
+          responseHeaders: new Headers(),
         };
       },
     });

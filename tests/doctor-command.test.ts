@@ -157,10 +157,11 @@ function parseDoctor(stdout: string): DoctorReport {
 
 function healthyApi() {
   apiContentMockState.fetchHealthImpl = () => ({
-    ok: true,
+    ok: true as const,
     status: 200,
     data: { status: "ok" },
     latencyMs: 42,
+    responseHeaders: new Headers(),
   });
 }
 

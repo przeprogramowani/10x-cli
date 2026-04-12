@@ -155,7 +155,7 @@ function makeBundle(overrides: Partial<LessonBundle> = {}): LessonBundle {
 }
 
 function lessonOk(bundle: LessonBundle): ApiResult<LessonBundle> {
-  return { ok: true, status: 200, data: bundle };
+  return { ok: true, status: 200, data: bundle, responseHeaders: new Headers() };
 }
 
 function lessonErr(

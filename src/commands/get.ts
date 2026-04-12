@@ -124,6 +124,15 @@ function handleLessonError(
     );
   }
 
+  if (code === "signature_error" || code === "signature_missing" || code === "signature_internal_error") {
+    outputError(
+      ctx,
+      code,
+      error,
+      ExitCodes.ERROR,
+    );
+  }
+
   if (status === 0) {
     outputError(
       ctx,

@@ -47,6 +47,7 @@ async function main(): Promise<void> {
               refresh_token: newRefresh,
               expires_at: newExpires!,
             },
+            responseHeaders: new Headers(),
           };
         },
       },

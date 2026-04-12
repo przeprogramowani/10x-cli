@@ -125,6 +125,7 @@ describe("requireAuth", () => {
             refresh_token: "rt-new",
             expires_at: new Date(FIXED_NOW.getTime() + 30 * 60 * 1_000).toISOString(),
           },
+          responseHeaders: new Headers(),
         };
       },
     });

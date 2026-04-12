@@ -12,6 +12,7 @@
 
 import type { ApiResult } from "./api-client";
 import { apiGet, resolveApiBase } from "./api-client";
+import { verifyBundleSignature, SignatureError, REQUIRE_SIGNATURES } from "./signing";
 
 /** Module summary as returned by /api/catalog/:course and /api/modules/:course. */
 export interface ModuleSummary {
@@ -113,16 +114,52 @@ export function fetchModuleDetail(
   );
 }
 
-export function fetchLesson(
+export async function fetchLesson(
   course: string,
   lessonId: string,
   token: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<ApiResult<LessonBundle>> {
-  return apiGet<LessonBundle>(
+  const result = await apiGet<LessonBundle>(
     `/api/lessons/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}`,
     { token, signal: options.signal },
   );
+
+  if (!result.ok) return result;
+
+  const signature = result.responseHeaders.get("X-Bundle-Signature");
+  const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
+
+  if (signature && keyIdRaw) {
+    const keyId = Number(keyIdRaw);
+    const responseBody = JSON.stringify(result.data);
+    try {
+      verifyBundleSignature(responseBody, signature, keyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        status: 0,
+        code: err instanceof SignatureError ? "signature_error" : "signature_internal_error",
+        error: message,
+      };
+    }
+  } else if (REQUIRE_SIGNATURES) {
+    return {
+      ok: false,
+      status: 0,
+      code: "signature_missing",
+      error:
+        "Bundle is missing a signature. The API may be misconfigured or compromised. " +
+        "Do NOT use the content. Report this to the course team.",
+    };
+  } else {
+    process.stderr.write(
+      "Warning: bundle is not signed. Signature verification skipped.\n",
+    );
+  }
+
+  return result;
 }
 
 /**
