@@ -11,8 +11,56 @@
 
 export const DEFAULT_API_BASE = "https://10x-toolkit-api.przeprogramowani.workers.dev";
 
+/**
+ * Exact hostname allowlist for `API_BASE_URL`. We intentionally keep this
+ * very small — the production host is stable, and loose validation of this
+ * env var is a one-step path to token harvest (attacker sets one env var,
+ * redirects `/auth/login` + `/auth/verify` to a host they control). See the
+ * 2026-04-11 security review finding F3.
+ *
+ * If a staging/preview host needs to be reachable, add it here explicitly
+ * rather than relaxing the validation rules.
+ */
+const PROD_HOSTNAME = "10x-toolkit-api.przeprogramowani.workers.dev";
+const DEV_HOSTNAMES = new Set(["localhost", "127.0.0.1"]);
+
 export function resolveApiBase(): string {
-  return process.env["API_BASE_URL"] ?? DEFAULT_API_BASE;
+  const override = process.env["API_BASE_URL"];
+  if (!override) return DEFAULT_API_BASE;
+
+  let url: URL;
+  try {
+    url = new URL(override);
+  } catch {
+    throw new Error(
+      `API_BASE_URL is not a valid URL: ${JSON.stringify(override)}`,
+    );
+  }
+
+  // Path prefixes are rejected — the client composes its own paths like
+  // `/auth/login`, so a base with a path would both break routing and
+  // enable nested-path tricks (e.g. `https://prod/@attacker.com/`).
+  if (url.pathname !== "/" && url.pathname !== "") {
+    throw new Error(
+      `API_BASE_URL must not include a path (got ${JSON.stringify(url.pathname)})`,
+    );
+  }
+  if (url.search !== "" || url.hash !== "") {
+    throw new Error("API_BASE_URL must not include a query string or fragment");
+  }
+
+  // Production: exact https match on the canonical hostname.
+  if (url.protocol === "https:" && url.hostname === PROD_HOSTNAME) {
+    return `${url.protocol}//${url.host}`;
+  }
+  // Local dev: plain http on loopback only, any port.
+  if (url.protocol === "http:" && DEV_HOSTNAMES.has(url.hostname)) {
+    return `${url.protocol}//${url.host}`;
+  }
+
+  throw new Error(
+    `API_BASE_URL must be ${DEFAULT_API_BASE} or http://localhost[:port] (got ${JSON.stringify(override)})`,
+  );
 }
 
 export interface ApiErrorPayload {

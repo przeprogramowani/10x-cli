@@ -281,6 +281,31 @@ describe("writer — unsafe artifact names", () => {
     expect(() => applyBundle(bundle, tmp)).toThrow(/unsafe config name/);
   });
 
+  it("rejects Windows-specific unsafe names (NTFS ADS, reserved devices, trailing dot/space)", () => {
+    const cases: string[] = [
+      "foo:bar", // NTFS Alternate Data Stream
+      "CON", // Windows reserved device name
+      "nul.txt", // reserved device with extension
+      "com1", // reserved device, lowercase
+      "LPT9.log",
+      "trailing.", // NTFS strips trailing dot
+      "trailing ", // NTFS strips trailing space
+      'bad"name', // NTFS reserved char
+      "pipe|name",
+      "star*name",
+      "quest?name",
+      "lt<name",
+      "gt>name",
+    ];
+    for (const unsafe of cases) {
+      const bundle = bundleA();
+      bundle.skills[0]!.name = unsafe;
+      expect(() => applyBundle(bundle, tmp)).toThrow(/unsafe skill name/);
+    }
+    // Confirm nothing was written across all iterations.
+    expect(existsSync(join(tmp, ".claude"))).toBe(false);
+  });
+
   it("cleanup silently skips tampered manifest entries instead of rm -rf escaping claudeDir", () => {
     // First apply a clean bundle so a manifest exists.
     applyBundle(bundleA(), tmp);

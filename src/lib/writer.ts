@@ -278,5 +278,13 @@ function isSafeName(name: string): boolean {
   if (name.startsWith(".")) return false; // blocks '', '.', '..', '.hidden'
   if (name.includes("/") || name.includes("\\")) return false;
   if (name.includes("\0")) return false;
+  // Windows-specific hardening — phase 6 ships a windows-x64 binary, so
+  // these names become reachable on NTFS even though the writer targets
+  // POSIX paths under `.claude/`.
+  if (name.includes(":")) return false; // NTFS Alternate Data Streams
+  if (/[<>"|?*]/.test(name)) return false; // NTFS reserved chars
+  if (/[. ]$/.test(name)) return false; // NTFS strips trailing dot/space
+  const base = name.split(".")[0]!.toUpperCase();
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) return false;
   return true;
 }

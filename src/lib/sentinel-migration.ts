@@ -41,6 +41,19 @@ export function applyRulesBlock(
   existingContent: string,
   rulesBody: string,
 ): RulesBlockResult {
+  // Guard: if the rules body itself contains any sentinel marker string, an
+  // attacker or buggy lesson could trick the next re-apply's `stripBlock`
+  // into treating the embedded marker as the real one — permanently
+  // destroying student content beyond the sentinel. See F5 in the
+  // 2026-04-11 security review for the full breakdown.
+  for (const marker of [OLD_BEGIN, OLD_END, NEW_BEGIN, NEW_END]) {
+    if (rulesBody.includes(marker)) {
+      throw new Error(
+        `rules body contains a sentinel marker (${JSON.stringify(marker)}) — refusing to write to prevent CLAUDE.md corruption`,
+      );
+    }
+  }
+
   const warnings: string[] = [];
   let content = existingContent;
 

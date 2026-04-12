@@ -91,16 +91,39 @@ export function outputError(
   hint?: string,
 ): never {
   if (ctx.json) {
+    // JSON.stringify escapes control chars on the JSON path — no sanitization
+    // needed. Preserve the raw strings so JSON consumers can see exactly what
+    // the API returned if they want to debug.
     process.stdout.write(
       `${JSON.stringify({ status: "error", error: { code, message, hint } })}\n`,
     );
   } else {
-    process.stderr.write(`ERROR ${code}: ${message}\n`);
+    // Human stderr path: the message/hint may contain text interpolated from
+    // an untrusted API `error` field (e.g. `Server said: ${error}`). Strip
+    // ANSI CSI sequences and C0/C1 control characters so a compromised
+    // delivery API cannot blank/spoof the user's terminal.
+    process.stderr.write(`ERROR ${code}: ${sanitize(message)}\n`);
     if (hint) {
-      process.stderr.write(`  → ${hint}\n`);
+      process.stderr.write(`  → ${sanitize(hint)}\n`);
     }
   }
   process.exit(exitCode);
+}
+
+/**
+ * Strip terminal control sequences from untrusted text before writing to
+ * stderr. Removes ANSI CSI escapes (`ESC [ ... final`) first, then any
+ * remaining C0 (U+0000–U+001F) or C1 (U+007F–U+009F) control characters —
+ * this also takes out bare ESC, BEL, and OSC/DCS introducers.
+ *
+ * Exported for tests only. Production callers go through `outputError`.
+ */
+export function sanitize(s: string): string {
+  return s
+    // CSI: ESC [ <params> <intermediates> <final>
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    // All remaining C0 + C1 control characters (including bare ESC / BEL).
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 }
 
 export function verbose(ctx: OutputContext, message: string): void {

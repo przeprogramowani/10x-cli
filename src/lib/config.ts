@@ -83,7 +83,27 @@ export function saveAuth(data: AuthData): void {
   // Write atomically via temp file so a crash mid-write cannot leave a
   // half-written credentials file on disk.
   const tmp = `${file}.tmp`;
+  // If a prior crash left a stale `.tmp` file on disk, remove it before
+  // writing. `writeFileSync`'s `mode` option is only honored when Node
+  // *creates* a new file — when opening an existing one it keeps the old
+  // mode, so a leftover tmp at 0o644 (e.g. from an older buggy build or a
+  // sudo-run that umasked 0o022) would otherwise propagate loose perms
+  // onto `auth.json` after the rename.
+  rmSync(tmp, { force: true });
   writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+  // Belt and braces: explicit chmod in case the filesystem silently
+  // ignored the create-time mode (some NFS and noexec mounts do). The
+  // primary barrier is still the `writeFileSync` mode + the 0o700 parent
+  // directory; this is defense in depth for the credentials file. Wrapped
+  // in try/catch to match the dir-chmod pattern above — don't fail auth
+  // on a weird filesystem.
+  if (process.platform !== "win32") {
+    try {
+      chmodSync(tmp, 0o600);
+    } catch {
+      // intentionally ignored — see comment above
+    }
+  }
   // renameSync is atomic on POSIX and replaces the target.
   renameSync(tmp, file);
 }

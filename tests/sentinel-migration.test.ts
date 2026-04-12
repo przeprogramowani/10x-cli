@@ -100,3 +100,31 @@ describe("applyRulesBlock — migration from internal-pkg", () => {
     expect(count).toBe(1);
   });
 });
+
+describe("applyRulesBlock — sentinel injection guard (F5)", () => {
+  it("throws when rulesBody contains the NEW_END sentinel", () => {
+    const body = `normal rule\n${NEW_END}\nhidden payload`;
+    expect(() => applyRulesBlock("", body)).toThrow(/sentinel marker/);
+  });
+
+  it("throws when rulesBody contains the NEW_BEGIN sentinel", () => {
+    const body = `${NEW_BEGIN}\ninjected block`;
+    expect(() => applyRulesBlock("", body)).toThrow(/sentinel marker/);
+  });
+
+  it("throws when rulesBody contains the OLD_END sentinel", () => {
+    const body = `some rule\n${OLD_END}`;
+    expect(() => applyRulesBlock("", body)).toThrow(/sentinel marker/);
+  });
+
+  it("throws when rulesBody contains the OLD_BEGIN sentinel", () => {
+    const body = `${OLD_BEGIN}\nlegacy injection`;
+    expect(() => applyRulesBlock("", body)).toThrow(/sentinel marker/);
+  });
+
+  it("does not throw for normal rules content", () => {
+    const body = "Use TDD. Always write tests.";
+    const { content } = applyRulesBlock("# My project\n", body);
+    expect(content).toContain(body);
+  });
+});
