@@ -1,47 +1,70 @@
-# @przeprogramowani/10x-cli
+# 10x-cli
 
-Open-source CLI for [10xDevs](https://10xdevs.pl) course content. Authenticate with your Circle-registered email, fetch lesson packs, and auto-apply skills, prompts, rules, and configs to `.claude/`.
-
-> **Status:** Early scaffold. Commands are stubs — full implementation lands in Phases 3–6 of the [design plan](../10x-toolkit/thoughts/shared/plans/2026-04-07-10x-cli-design.md).
+CLI tool for [10xDevs](https://10xdevs.pl) course content. Fetch and apply AI coding skills,
+prompts, and configs directly into your workspace.
 
 ## Install
 
 ```bash
-# npm global (Phase 6)
-npm i -g @przeprogramowani/10x-cli
+# npm (recommended)
+npm install -g @przeprogramowani/10x-cli
 
-# or standalone binary (Phase 6)
-curl -fsSL https://10xdevs.pl/cli/install.sh | sh
+# Or download a standalone binary from GitHub Releases
+# https://github.com/przeprogramowani/10x-cli/releases
 ```
 
-## Usage
+## Quick Start
 
 ```bash
-10x auth            # magic-link login
-10x list            # browse modules/lessons
-10x get <ref>       # fetch + apply a lesson to .claude/
-10x doctor          # diagnose auth, API, config, .claude/
+10x auth        # Authenticate with your email
+10x list        # Browse available modules and lessons
+10x get m1l1    # Fetch and apply lesson artifacts
+10x doctor      # Check everything is working
 ```
 
-Global flags:
+## Commands
 
-- `--json` — machine-readable output (auto-detected when piped)
-- `--verbose` — request/response diagnostics on stderr
+| Command | Description |
+|---------|-------------|
+| `10x auth` | Magic-link login with your Circle-registered email |
+| `10x list` | Browse modules and lessons in your course |
+| `10x get <ref>` | Fetch a lesson and apply artifacts to `.claude/` |
+| `10x doctor` | Diagnose auth, API connectivity, and local config |
+
+### Global Flags
+
+- `--json` — Machine-readable JSON output (auto-detected when piped)
+- `--verbose` — Request/response diagnostics on stderr
+- `--version` — Print CLI version
+- `--help` — Show help
+
+### Lesson References
+
+Lessons are referenced by module and lesson number:
+
+- `m1l1` — Module 1, Lesson 1
+- `m2l3` — Module 2, Lesson 3
 
 ## Development
 
 ```bash
 bun install
-bun run generate-types     # fetch /openapi.json → src/generated/api-types.ts
-bun run dev -- --help       # run CLI via source
-bun run build               # produce dist/index.mjs
-bun run build:binary        # produce standalone ~59MB binary
-bun test                    # vitest
-bun run typecheck
-bun run lint
+bun run dev -- --help       # Run CLI from source
+bun run build               # Build dist/index.mjs (node target)
+bun run build:binary        # Build standalone binary (~59MB)
+bun test                    # Run tests
+bun run typecheck           # tsc --noEmit
+bun run lint                # oxlint
 ```
 
-The CLI targets the 10x-toolkit delivery API at `10x-toolkit-api.przeprogramowani.workers.dev`. Override via `API_BASE_URL` env var in development.
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Commit using [conventional commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, etc.)
+4. Push and open a pull request
+
+CI runs lint, typecheck, tests, and build checks on every PR. Releases are automated on merge to `master` via conventional-commit analysis.
 
 ## License
 

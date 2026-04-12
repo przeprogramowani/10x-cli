@@ -18,6 +18,8 @@
  * uniform across the CLI.
  */
 
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import lockfile from "proper-lockfile";
 import { type AuthData, authFilePath, readAuth, saveAuth } from "./config";
 import { refreshTokenRequest } from "./auth-flow";
@@ -82,6 +84,10 @@ async function acquireRefreshLock(
   lockTarget: string,
 ): Promise<() => Promise<void>> {
   try {
+    // Ensure the parent directory exists — proper-lockfile creates
+    // `<target>.lock` but not its parent tree. On a fresh CI runner
+    // or first-run machine, ~/.config/10x-cli/ may not exist yet.
+    mkdirSync(dirname(lockTarget), { recursive: true });
     return await lockfile.lock(lockTarget, {
       realpath: false,
       stale: LOCK_STALE_MS,
