@@ -80,6 +80,9 @@ export type ApiResult<T> =
       payload?: ApiErrorPayload;
     };
 
+/** Default request timeout (30 seconds) for calls without a caller-supplied signal. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 interface RequestOptions {
   token?: string;
   signal?: AbortSignal;
@@ -110,7 +113,7 @@ async function request<T>(
   const init: RequestInit = {
     method,
     headers,
-    signal: options.signal,
+    signal: options.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   };
   if (body !== undefined) {
     init.body = JSON.stringify(body);

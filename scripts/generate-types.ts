@@ -24,7 +24,7 @@ async function main() {
   const header = [
     "/* eslint-disable */",
     "/**",
-    ` * Auto-generated from ${specUrl}`,
+    " * Auto-generated from the delivery API OpenAPI spec.",
     " * Do not edit by hand — run `bun run generate-types` to regenerate.",
     " */",
     "",

@@ -23,7 +23,6 @@
   "dependencies": {
     "@clack/prompts": "^0.9.1",
     "cac": "^7.0.0",
-    "open": "^10.1.0",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
