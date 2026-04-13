@@ -28,8 +28,39 @@ npm install -g @przeprogramowani/10x-cli
 |---------|-------------|
 | `10x auth` | Magic-link login with your Circle-registered email |
 | `10x list` | Browse modules and lessons in your course |
-| `10x get <ref>` | Fetch a lesson and apply artifacts to `.claude/` |
+| `10x get <ref>` | Fetch a lesson and apply artifacts to your workspace |
 | `10x doctor` | Diagnose auth, API connectivity, and local config |
+
+### `10x get` Flags
+
+| Flag | Description |
+|------|-------------|
+| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `generic` |
+| `--print` | Output artifact content to stdout instead of writing files |
+| `--type <type>` | Filter by artifact type: `skills`, `prompts`, `rules`, `configs` |
+| `--name <name>` | Filter by artifact name (requires `--type`) |
+| `--dry-run` | Show what would be written without touching the filesystem |
+| `--course <slug>` | Override the course slug (default: `10xdevs3`) |
+
+#### Examples
+
+```bash
+# Fetch full lesson — writes skills, prompts, rules, configs
+10x get m1l1
+
+# Write only skills (skip prompts, rules, configs)
+10x get m1l1 --type skills
+
+# Write a single artifact
+10x get m1l1 --type skills --name code-review
+
+# Print to stdout (pipe-friendly)
+10x get m1l1 --print --type skills --name code-review
+10x get m1l1 --print --type skills --name code-review | pbcopy
+
+# Use with a different AI coding tool
+10x get m1l1 --tool cursor
+```
 
 ### Global Flags
 
@@ -44,6 +75,20 @@ Lessons are referenced by module and lesson number:
 
 - `m1l1` — Module 1, Lesson 1
 - `m2l3` — Module 2, Lesson 3
+
+### Multi-Tool Support
+
+On first run, the CLI prompts you to choose your AI coding tool. Artifacts are written to the correct directory for your tool:
+
+| Tool | Directory | Rules file |
+|------|-----------|------------|
+| Claude Code | `.claude/` | `CLAUDE.md` |
+| Cursor | `.cursor/` | `.cursor/rules/10x-course.mdc` |
+| GitHub Copilot | `.github/` | `.github/copilot-instructions.md` |
+| Codex CLI | `.agents/` | `AGENTS.md` |
+| Generic | `.ai/` | `AGENTS.md` |
+
+Override anytime with `--tool <name>`. Your choice is saved in `~/.config/10x-cli/config.json`.
 
 ## Development
 

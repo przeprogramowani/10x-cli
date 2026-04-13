@@ -2,6 +2,14 @@
   "name": "@przeprogramowani/10x-cli",
   "version": "0.2.0",
   "description": "Open-source CLI for 10xDevs course content",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/przeprogramowani/10x-cli.git"
+  },
+  "homepage": "https://github.com/przeprogramowani/10x-cli",
+  "bugs": {
+    "url": "https://github.com/przeprogramowani/10x-cli/issues"
+  },
   "type": "module",
   "bin": {
     "10x": "./dist/index.mjs"

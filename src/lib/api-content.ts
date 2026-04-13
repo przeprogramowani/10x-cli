@@ -76,6 +76,13 @@ export interface LessonBundle {
   configs: BundleArtifact[];
 }
 
+/** Individual artifact as returned by /api/artifacts/:course/:lessonId/:type/:name. */
+export interface ArtifactResponse {
+  type: string;
+  name: string;
+  content: string;
+}
+
 export interface HealthResponse {
   status: string;
 }
@@ -156,6 +163,56 @@ export async function fetchLesson(
   } else {
     process.stderr.write(
       "Warning: bundle is not signed. Signature verification skipped.\n",
+    );
+  }
+
+  return result;
+}
+
+export async function fetchArtifact(
+  course: string,
+  lessonId: string,
+  type: string,
+  name: string,
+  tool: string,
+  token: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<ApiResult<ArtifactResponse>> {
+  const params = new URLSearchParams({ tool });
+  const path = `/api/artifacts/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}?${params}`;
+  const result = await apiGet<ArtifactResponse>(path, { token, signal: options.signal });
+
+  if (!result.ok) return result;
+
+  const signature = result.responseHeaders.get("X-Bundle-Signature");
+  const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
+
+  if (signature && keyIdRaw) {
+    const keyId = Number(keyIdRaw);
+    const responseBody = JSON.stringify(result.data);
+    try {
+      verifyBundleSignature(responseBody, signature, keyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        status: 0,
+        code: err instanceof SignatureError ? "signature_error" : "signature_internal_error",
+        error: message,
+      };
+    }
+  } else if (REQUIRE_SIGNATURES) {
+    return {
+      ok: false,
+      status: 0,
+      code: "signature_missing",
+      error:
+        "Artifact is missing a signature. The API may be misconfigured or compromised. " +
+        "Do NOT use the content. Report this to the course team.",
+    };
+  } else {
+    process.stderr.write(
+      "Warning: artifact is not signed. Signature verification skipped.\n",
     );
   }
 

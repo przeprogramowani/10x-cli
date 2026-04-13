@@ -73,6 +73,13 @@ export interface ApplyOptions {
    * Defaults to the `claude-code` profile for backward compatibility.
    */
   profile?: ToolProfile;
+  /**
+   * When true, write only the artifacts present in the bundle without
+   * cleaning up stale artifacts or updating the manifest. Used by
+   * `--type`/`--name` filters to write a subset without clobbering
+   * previously written artifacts.
+   */
+  partial?: boolean;
 }
 
 /**
@@ -84,6 +91,7 @@ export function applyBundle(
   options: ApplyOptions = {},
 ): WriteResult {
   const dryRun = options.dryRun === true;
+  const partial = options.partial === true;
   const course = options.course ?? DEFAULT_COURSE;
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
 
@@ -155,7 +163,7 @@ export function applyBundle(
   });
 
   // --- cleanup of stale artifacts from the previous lesson --------------
-  if (!dryRun) {
+  if (!dryRun && !partial) {
     const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
     for (const entry of removed.skills) rmSync(entry.path, { recursive: true, force: true });
     for (const entry of removed.prompts) rmSync(entry.path, { force: true });
@@ -163,7 +171,7 @@ export function applyBundle(
   }
 
   // --- manifest ---------------------------------------------------------
-  if (!dryRun) {
+  if (!dryRun && !partial) {
     const nextManifest: CliManifest = {
       package: CLI_PACKAGE_NAME,
       version: CLI_VERSION,

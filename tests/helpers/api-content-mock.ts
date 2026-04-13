@@ -14,6 +14,7 @@
 import { mock } from "bun:test";
 import type { ApiResult } from "../../src/lib/api-client";
 import type {
+  ArtifactResponse,
   CatalogResponse,
   HealthResponse,
   LessonBundle,
@@ -26,6 +27,7 @@ const realFetchCatalog = real.fetchCatalog;
 const realFetchModules = real.fetchModules;
 const realFetchModuleDetail = real.fetchModuleDetail;
 const realFetchLesson = real.fetchLesson;
+const realFetchArtifact = real.fetchArtifact;
 const realFetchHealth = real.fetchHealth;
 const realApiBaseUrl = real.apiBaseUrl;
 
@@ -52,6 +54,16 @@ export interface ApiContentMockState {
         lessonId: string,
         token: string,
       ) => Promise<ApiResult<LessonBundle>> | ApiResult<LessonBundle>);
+  fetchArtifactImpl:
+    | null
+    | ((
+        course: string,
+        lessonId: string,
+        type: string,
+        name: string,
+        tool: string,
+        token: string,
+      ) => Promise<ApiResult<ArtifactResponse>> | ApiResult<ArtifactResponse>);
   fetchHealthImpl: null | (() => Promise<HealthOutcome> | HealthOutcome);
   apiBaseUrlImpl: null | (() => string);
 }
@@ -61,6 +73,7 @@ export const apiContentMockState: ApiContentMockState = {
   fetchModulesImpl: null,
   fetchModuleDetailImpl: null,
   fetchLessonImpl: null,
+  fetchArtifactImpl: null,
   fetchHealthImpl: null,
   apiBaseUrlImpl: null,
 };
@@ -92,6 +105,18 @@ mock.module("../../src/lib/api-content", () => ({
     apiContentMockState.fetchLessonImpl
       ? Promise.resolve(apiContentMockState.fetchLessonImpl(course, lessonId, token))
       : realFetchLesson(course, lessonId, token, options),
+  fetchArtifact: (
+    course: string,
+    lessonId: string,
+    type: string,
+    name: string,
+    tool: string,
+    token: string,
+    options?: { signal?: AbortSignal },
+  ) =>
+    apiContentMockState.fetchArtifactImpl
+      ? Promise.resolve(apiContentMockState.fetchArtifactImpl(course, lessonId, type, name, tool, token))
+      : realFetchArtifact(course, lessonId, type, name, tool, token, options),
   fetchHealth: (options?: { timeoutMs?: number }) =>
     apiContentMockState.fetchHealthImpl
       ? Promise.resolve(apiContentMockState.fetchHealthImpl())
@@ -105,6 +130,7 @@ export function resetApiContentMock(): void {
   apiContentMockState.fetchModulesImpl = null;
   apiContentMockState.fetchModuleDetailImpl = null;
   apiContentMockState.fetchLessonImpl = null;
+  apiContentMockState.fetchArtifactImpl = null;
   apiContentMockState.fetchHealthImpl = null;
   apiContentMockState.apiBaseUrlImpl = null;
 }

@@ -1,5 +1,5 @@
 import type { CAC } from "cac";
-import { fetchLesson, type LessonBundle } from "../lib/api-content";
+import { fetchArtifact, fetchLesson, type LessonBundle } from "../lib/api-content";
 import { requireAuth } from "../lib/auth-guard";
 import { formatReleaseAt } from "../lib/format";
 import { parseLessonRef } from "../lib/lesson-ref";
@@ -16,10 +16,20 @@ import { resolveToolProfile } from "../lib/tool-prompt";
 import type { ToolProfile } from "../lib/tool-profile";
 import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
 
+const ARTIFACT_TYPES = ["skills", "prompts", "rules", "configs"] as const;
+type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+
+function isArtifactType(s: string): s is ArtifactType {
+  return (ARTIFACT_TYPES as readonly string[]).includes(s);
+}
+
 interface GetFlags extends GlobalFlags {
   dryRun?: boolean;
   course?: string;
   tool?: string;
+  print?: boolean;
+  type?: string;
+  name?: string;
 }
 
 /** Default course slug. Hardcoded for v1 per plan; configurable later. */
@@ -31,6 +41,9 @@ export function registerGetCommand(cli: CAC): void {
     .option("--dry-run", "Show what would be written without touching the filesystem")
     .option("--course <course>", "Override the course slug (default: 10xdevs3)")
     .option("--tool <tool>", "AI coding tool (claude-code, cursor, copilot, codex, generic)")
+    .option("--print", "Print artifact content to stdout instead of writing to files")
+    .option("--type <type>", "Artifact type filter: skills, prompts, rules, configs")
+    .option("--name <name>", "Artifact name filter (requires --type)")
     .action(async (ref: string, options: GetFlags) => {
       const ctx = resolveContext(options);
       await runGet(ctx, ref, options);
@@ -53,9 +66,34 @@ export async function runGet(
     );
   }
 
+  // Validate --type/--name early, before auth or fetch
+  if (options.name && !options.type) {
+    outputError(
+      ctx,
+      "missing_type",
+      "Specify --type when using --name.",
+      ExitCodes.USAGE,
+      "Usage: 10x get m1l1 --type skills --name code-review",
+    );
+  }
+  if (options.type && !isArtifactType(options.type)) {
+    outputError(
+      ctx,
+      "invalid_type",
+      `Unknown artifact type '${options.type}'.`,
+      ExitCodes.USAGE,
+      `Supported types: ${ARTIFACT_TYPES.join(", ")}`,
+    );
+  }
+
   const auth = await requireAuth(ctx);
   const course = options.course ?? DEFAULT_COURSE;
   const profile = await resolveToolProfile(options.tool);
+
+  if (options.print) {
+    await runPrintMode(ctx, parsed.lessonId, course, profile, auth.access_token, options);
+    return;
+  }
 
   verbose(ctx, `fetching lesson ${course}/${parsed.lessonId}`);
   const result = await fetchLesson(course, parsed.lessonId, auth.access_token);
@@ -68,13 +106,141 @@ export async function runGet(
   const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
   if (orphanWarning) verbose(ctx, orphanWarning);
 
-  const bundle: LessonBundle = result.data;
+  const isFiltered = options.type !== undefined;
+  const bundle: LessonBundle = filterBundle(ctx, result.data, options);
   const writeResult = applyBundle(bundle, process.cwd(), {
     dryRun: options.dryRun === true,
     profile,
+    partial: isFiltered,
   });
 
   renderGetResult(ctx, bundle, writeResult, options.dryRun === true, profile);
+}
+
+/**
+ * Filter a bundle by --type and optionally --name. Returns the original
+ * bundle unchanged when neither flag is set.
+ */
+function filterBundle(
+  ctx: OutputContext,
+  bundle: LessonBundle,
+  options: GetFlags,
+): LessonBundle {
+  if (!options.type) {
+    if (options.name) {
+      outputError(
+        ctx,
+        "missing_type",
+        "Specify --type when using --name.",
+        ExitCodes.USAGE,
+        "Usage: 10x get m1l1 --type skills --name code-review",
+      );
+    }
+    return bundle;
+  }
+
+  if (!isArtifactType(options.type)) {
+    outputError(
+      ctx,
+      "invalid_type",
+      `Unknown artifact type '${options.type}'.`,
+      ExitCodes.USAGE,
+      `Supported types: ${ARTIFACT_TYPES.join(", ")}`,
+    );
+  }
+
+  const type = options.type as ArtifactType;
+  const empty: LessonBundle = {
+    ...bundle,
+    skills: [],
+    prompts: [],
+    rules: [],
+    configs: [],
+  };
+
+  if (options.name) {
+    const match = bundle[type].find((a) => a.name === options.name);
+    if (!match) {
+      outputError(
+        ctx,
+        "artifact_not_found",
+        `No ${type} artifact named '${options.name}' in ${bundle.lessonId}.`,
+        ExitCodes.NOT_FOUND,
+        `Available ${type}: ${bundle[type].map((a) => a.name).join(", ") || "(none)"}`,
+      );
+    }
+    return { ...empty, [type]: [match] };
+  }
+
+  return { ...empty, [type]: bundle[type] };
+}
+
+async function runPrintMode(
+  ctx: OutputContext,
+  lessonId: string,
+  course: string,
+  profile: ToolProfile,
+  token: string,
+  options: GetFlags,
+): Promise<void> {
+  if (!options.type) {
+    outputError(
+      ctx,
+      "missing_type",
+      "Specify --type for --print mode.",
+      ExitCodes.USAGE,
+      "Usage: 10x get m1l1 --print --type skills [--name code-review]",
+    );
+  }
+
+  if (!isArtifactType(options.type)) {
+    outputError(
+      ctx,
+      "invalid_type",
+      `Unknown artifact type '${options.type}'.`,
+      ExitCodes.USAGE,
+      `Supported types: ${ARTIFACT_TYPES.join(", ")}`,
+    );
+  }
+
+  if (options.name) {
+    // Fetch single artifact from /api/artifacts endpoint
+    verbose(ctx, `fetching artifact ${course}/${lessonId}/${options.type}/${options.name}`);
+    const result = await fetchArtifact(
+      course,
+      lessonId,
+      options.type,
+      options.name,
+      profile.toolId,
+      token,
+    );
+
+    if (!result.ok) {
+      handleLessonError(ctx, result.status, result.code, result.error, result.payload);
+    }
+
+    if (ctx.json) {
+      output(ctx, "", result.data);
+    } else {
+      process.stdout.write(result.data.content);
+    }
+  } else {
+    // Fetch full bundle, filter by type, concatenate
+    verbose(ctx, `fetching lesson ${course}/${lessonId} (filtering by ${options.type})`);
+    const result = await fetchLesson(course, lessonId, token);
+
+    if (!result.ok) {
+      handleLessonError(ctx, result.status, result.code, result.error, result.payload);
+    }
+
+    const artifacts = result.data[options.type as ArtifactType];
+    if (ctx.json) {
+      output(ctx, "", artifacts);
+    } else {
+      const contents = artifacts.map((a) => a.content);
+      process.stdout.write(contents.join("\n---\n"));
+    }
+  }
 }
 
 function handleLessonError(
