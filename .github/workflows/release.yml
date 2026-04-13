@@ -6,7 +6,8 @@ on:
     types: [completed]
     branches: [master]
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   version:
@@ -31,7 +32,18 @@ jobs:
       - name: Bump version
         id: bump
         run: |
-          output=$(node scripts/auto-version.mjs 2>&1) || { echo "should_release=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          rc=0
+          output=$(node scripts/auto-version.mjs 2>&1) || rc=$?
+          if [ "$rc" -eq 1 ]; then
+            echo "No release needed — skipping."
+            echo "$output"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            echo "::error::auto-version.mjs crashed (exit $rc):"
+            echo "$output"
+            exit 1
+          fi
           version=$(echo "$output" | grep '^NEW_VERSION=' | cut -d= -f2)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "should_release=true" >> "$GITHUB_OUTPUT"
@@ -45,8 +57,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json
           git commit -m "chore(release): ${VERSION}"
-          git tag "${VERSION}"
-          git push origin master --follow-tags
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin master "${VERSION}"
 
   build-binaries:
     needs: [version]
@@ -63,7 +75,7 @@ jobs:
           - os: macos-latest
             target: bun-darwin-arm64
             artifact: 10x-darwin-arm64
-          - os: macos-13
+          - os: macos-14
             target: bun-darwin-x64
             artifact: 10x-darwin-x64
           - os: windows-latest
