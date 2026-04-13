@@ -37,19 +37,36 @@ export interface RulesBlockResult {
  * marker — mirrors the repair strategy in `internal-pkg/src/install.ts`
  * (`existing = existing.slice(0, idx)`).
  */
+/**
+ * Apply rules with the default (10x-cli) sentinel markers. Delegates to
+ * `applyRulesBlockWithMarkers()` for backward compatibility.
+ */
 export function applyRulesBlock(
   existingContent: string,
   rulesBody: string,
+): RulesBlockResult {
+  return applyRulesBlockWithMarkers(existingContent, rulesBody, NEW_BEGIN, NEW_END);
+}
+
+/**
+ * Apply rules with custom sentinel markers. Strips legacy and current
+ * marker pairs, then appends a fresh block using the given markers.
+ */
+export function applyRulesBlockWithMarkers(
+  existingContent: string,
+  rulesBody: string,
+  beginMarker: string,
+  endMarker: string,
 ): RulesBlockResult {
   // Guard: if the rules body itself contains any sentinel marker string, an
   // attacker or buggy lesson could trick the next re-apply's `stripBlock`
   // into treating the embedded marker as the real one — permanently
   // destroying student content beyond the sentinel. See F5 in the
   // 2026-04-11 security review for the full breakdown.
-  for (const marker of [OLD_BEGIN, OLD_END, NEW_BEGIN, NEW_END]) {
+  for (const marker of [OLD_BEGIN, OLD_END, beginMarker, endMarker]) {
     if (rulesBody.includes(marker)) {
       throw new Error(
-        `rules body contains a sentinel marker (${JSON.stringify(marker)}) — refusing to write to prevent CLAUDE.md corruption`,
+        `rules body contains a sentinel marker (${JSON.stringify(marker)}) — refusing to write to prevent rules file corruption`,
       );
     }
   }
@@ -60,9 +77,9 @@ export function applyRulesBlock(
   // 1. Strip legacy `@przeprogramowani/10x-toolkit` block.
   content = stripBlock(content, OLD_BEGIN, OLD_END, "@przeprogramowani/10x-toolkit", warnings);
 
-  // 2. Strip existing `@przeprogramowani/10x-cli` block (for idempotent
-  //    re-apply; also covers the rare coexistence case after step 1).
-  content = stripBlock(content, NEW_BEGIN, NEW_END, "@przeprogramowani/10x-cli", warnings);
+  // 2. Strip existing block (for idempotent re-apply; also covers the
+  //    rare coexistence case after step 1).
+  content = stripBlock(content, beginMarker, endMarker, "@przeprogramowani/10x-cli", warnings);
 
   // 3. Normalize whitespace around the surgery site — collapse runs of 3+
   //    newlines and trim leading/trailing whitespace so the next append has
@@ -70,7 +87,7 @@ export function applyRulesBlock(
   content = content.replace(/\n{3,}/g, "\n\n").trim();
 
   // 4. Append a fresh block.
-  const block = `${NEW_BEGIN}\n\n${rulesBody.trim()}\n\n${NEW_END}`;
+  const block = `${beginMarker}\n\n${rulesBody.trim()}\n\n${endMarker}`;
   const result = content.length > 0 ? `${content}\n\n${block}\n` : `${block}\n`;
 
   return { content: result, warnings };

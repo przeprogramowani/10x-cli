@@ -12,11 +12,14 @@ import {
   resolveContext,
   verbose,
 } from "../lib/output";
-import { applyBundle, type WriteResult } from "../lib/writer";
+import { resolveToolProfile } from "../lib/tool-prompt";
+import type { ToolProfile } from "../lib/tool-profile";
+import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
 
 interface GetFlags extends GlobalFlags {
   dryRun?: boolean;
   course?: string;
+  tool?: string;
 }
 
 /** Default course slug. Hardcoded for v1 per plan; configurable later. */
@@ -24,9 +27,10 @@ const DEFAULT_COURSE = "10xdevs3";
 
 export function registerGetCommand(cli: CAC): void {
   cli
-    .command("get <ref>", "Fetch and apply a lesson pack to .claude/")
+    .command("get <ref>", "Fetch and apply a lesson pack")
     .option("--dry-run", "Show what would be written without touching the filesystem")
     .option("--course <course>", "Override the course slug (default: 10xdevs3)")
+    .option("--tool <tool>", "AI coding tool (claude-code, cursor, copilot, codex, generic)")
     .action(async (ref: string, options: GetFlags) => {
       const ctx = resolveContext(options);
       await runGet(ctx, ref, options);
@@ -51,6 +55,7 @@ export async function runGet(
 
   const auth = await requireAuth(ctx);
   const course = options.course ?? DEFAULT_COURSE;
+  const profile = await resolveToolProfile(options.tool);
 
   verbose(ctx, `fetching lesson ${course}/${parsed.lessonId}`);
   const result = await fetchLesson(course, parsed.lessonId, auth.access_token);
@@ -59,12 +64,17 @@ export async function runGet(
     handleLessonError(ctx, result.status, result.code, result.error, result.payload);
   }
 
+  // Orphan detection: warn if artifacts exist under a different tool
+  const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
+  if (orphanWarning) verbose(ctx, orphanWarning);
+
   const bundle: LessonBundle = result.data;
   const writeResult = applyBundle(bundle, process.cwd(), {
     dryRun: options.dryRun === true,
+    profile,
   });
 
-  renderGetResult(ctx, bundle, writeResult, options.dryRun === true);
+  renderGetResult(ctx, bundle, writeResult, options.dryRun === true, profile);
 }
 
 function handleLessonError(
@@ -157,12 +167,14 @@ function renderGetResult(
   bundle: LessonBundle,
   writeResult: WriteResult,
   dryRun: boolean,
+  profile: ToolProfile,
 ): void {
   if (ctx.json) {
     output(ctx, "", {
       lessonId: bundle.lessonId,
       title: bundle.title,
       summary: bundle.summary,
+      tool: profile.toolId,
       dry_run: dryRun,
       writes: {
         skills: writeResult.skills,
@@ -180,11 +192,12 @@ function renderGetResult(
     return;
   }
 
+  const targetDir = profile.manifestDir;
   const lines: string[] = [];
   lines.push(`${bundle.lessonId} — ${bundle.title}`);
   if (bundle.summary) lines.push(bundle.summary);
   lines.push("");
-  lines.push(dryRun ? "Would write to .claude/:" : "Wrote to .claude/:");
+  lines.push(dryRun ? `Would write to ${targetDir}/:` : `Wrote to ${targetDir}/:`);
   for (const skill of writeResult.skills) {
     lines.push(`  [${skill.action}] skill  ${skill.path}`);
   }
@@ -193,7 +206,7 @@ function renderGetResult(
   }
   if (bundle.rules.length > 0) {
     lines.push(
-      `  [${writeResult.rules.action}] rules  CLAUDE.md (${bundle.rules.length} block${bundle.rules.length === 1 ? "" : "s"})`,
+      `  [${writeResult.rules.action}] rules  ${profile.rulesFile} (${bundle.rules.length} block${bundle.rules.length === 1 ? "" : "s"})`,
     );
   }
   for (const config of writeResult.configs) {

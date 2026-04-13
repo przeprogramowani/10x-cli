@@ -1,23 +1,15 @@
 /**
- * Artifact writer — Phase 5 real implementation.
+ * Artifact writer — applies lesson bundles to a project directory.
  *
- * Takes a `LessonBundle` fetched from the delivery API and applies it to a
- * project's `.claude/` directory, honoring the same sentinel marker and
- * config-skip conventions as `internal-pkg`. A `.10x-cli-manifest.json`
- * file tracks what was written so that the next apply can clean up
- * artifacts exclusive to the previous lesson.
- *
- * File layout (stable across v1):
- *   <projectRoot>/.claude/skills/<name>/SKILL.md       ← skills
- *   <projectRoot>/.claude/prompts/<name>.md            ← prompts
- *   <projectRoot>/CLAUDE.md                            ← rules (sentinel block)
- *   <projectRoot>/.claude/config-templates/<name>      ← configs (skip-on-exists)
- *   <projectRoot>/.claude/.10x-cli-manifest.json       ← manifest
+ * Takes a `LessonBundle` fetched from the delivery API and applies it to the
+ * project directory using tool-specific paths from a `ToolProfile`. Honors
+ * sentinel markers and config-skip conventions. A manifest file tracks what
+ * was written so that the next apply can clean up stale artifacts.
  *
  * `--dry-run` returns the same `WriteResult` shape without touching the
  * filesystem. Re-apply is idempotent: a second run reports `unchanged`
  * (skills/prompts/rules) or `skipped` (configs) and produces a byte-identical
- * manifest + CLAUDE.md.
+ * manifest + rules file.
  */
 
 import {
@@ -32,10 +24,12 @@ import type { LessonBundle } from "./api-content";
 import {
   CLI_PACKAGE_NAME,
   type CliManifest,
+  MANIFEST_FILENAME,
   readManifest,
   writeManifest,
 } from "./manifest";
-import { applyRulesBlock } from "./sentinel-migration";
+import { applyRulesBlockWithMarkers } from "./sentinel-migration";
+import { PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
 import pkgJson from "../../package.json";
 
 const CLI_VERSION = pkgJson.version;
@@ -74,6 +68,11 @@ export interface ApplyOptions {
    * the `get` command's default; tests and future commands can override.
    */
   course?: string;
+  /**
+   * Tool profile controlling directory layout and sentinel markers.
+   * Defaults to the `claude-code` profile for backward compatibility.
+   */
+  profile?: ToolProfile;
 }
 
 /**
@@ -86,20 +85,22 @@ export function applyBundle(
 ): WriteResult {
   const dryRun = options.dryRun === true;
   const course = options.course ?? DEFAULT_COURSE;
+  const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
 
-  const claudeDir = join(projectRoot, ".claude");
-  const prevManifest = readManifest(claudeDir);
+  const manifestDir = join(projectRoot, profile.manifestDir);
+  const prevManifest = readManifest(manifestDir);
 
   // Refuse to write anything if the bundle contains names that could
-  // escape `.claude/` — see `assertSafeName` below. This runs before any
-  // filesystem mutation so a malformed/tampered bundle aborts cleanly.
+  // escape the target directory — see `assertSafeName` below. This runs
+  // before any filesystem mutation so a malformed/tampered bundle aborts
+  // cleanly.
   for (const skill of bundle.skills) assertSafeName(skill.name, "skill");
   for (const prompt of bundle.prompts) assertSafeName(prompt.name, "prompt");
   for (const config of bundle.configs) assertSafeName(config.name, "config");
 
   // --- skills -----------------------------------------------------------
   const skills: ArtifactWrite[] = bundle.skills.map((skill) => {
-    const target = join(claudeDir, "skills", skill.name, "SKILL.md");
+    const target = join(projectRoot, profile.skillPath(skill.name));
     const action = computeFileAction(target, skill.content);
     if (!dryRun && action !== "unchanged") {
       writeFileAt(target, skill.content);
@@ -109,8 +110,7 @@ export function applyBundle(
 
   // --- prompts ----------------------------------------------------------
   const prompts: ArtifactWrite[] = bundle.prompts.map((prompt) => {
-    const fileName = `${prompt.name}.md`;
-    const target = join(claudeDir, "prompts", fileName);
+    const target = join(projectRoot, profile.promptPath(prompt.name));
     const action = computeFileAction(target, prompt.content);
     if (!dryRun && action !== "unchanged") {
       writeFileAt(target, prompt.content);
@@ -118,31 +118,35 @@ export function applyBundle(
     return { name: prompt.name, path: target, action };
   });
 
-  // --- rules (CLAUDE.md sentinel block) ---------------------------------
-  const claudeMdPath = join(projectRoot, "CLAUDE.md");
-  const existingClaudeMd = readFileOrEmpty(claudeMdPath);
+  // --- rules (sentinel block in rules file) -----------------------------
+  const rulesFilePath = join(projectRoot, profile.rulesFile);
+  const existingRules = readFileOrEmpty(rulesFilePath);
   let rulesAction: ArtifactAction;
   if (bundle.rules.length === 0) {
-    // No rules in this bundle → leave CLAUDE.md untouched.
     rulesAction = "unchanged";
   } else {
     const rulesBody = bundle.rules.map((r) => r.content.trim()).join("\n\n");
-    const { content: newClaudeMd } = applyRulesBlock(existingClaudeMd, rulesBody);
-    if (newClaudeMd === existingClaudeMd) {
+    const { content: newRules } = applyRulesBlockWithMarkers(
+      existingRules,
+      rulesBody,
+      profile.sentinelBegin,
+      profile.sentinelEnd,
+    );
+    if (newRules === existingRules) {
       rulesAction = "unchanged";
-    } else if (existingClaudeMd.length === 0) {
+    } else if (existingRules.length === 0) {
       rulesAction = "created";
     } else {
       rulesAction = "updated";
     }
     if (!dryRun && rulesAction !== "unchanged") {
-      writeFileAt(claudeMdPath, newClaudeMd);
+      writeFileAt(rulesFilePath, newRules);
     }
   }
 
   // --- configs (skip-on-exists) -----------------------------------------
   const configs: ArtifactWrite[] = bundle.configs.map((config) => {
-    const target = join(claudeDir, "config-templates", config.name);
+    const target = join(projectRoot, profile.configPath(config.name));
     const action: ArtifactAction = existsSync(target) ? "skipped" : "created";
     if (!dryRun && action === "created") {
       writeFileAt(target, config.content);
@@ -151,10 +155,8 @@ export function applyBundle(
   });
 
   // --- cleanup of stale artifacts from the previous lesson --------------
-  // Computed and executed in real mode; in dry-run mode we compute nothing
-  // and touch nothing — the preview contract stays at the four-field shape.
   if (!dryRun) {
-    const removed = computeRemovals(prevManifest, bundle, claudeDir);
+    const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
     for (const entry of removed.skills) rmSync(entry.path, { recursive: true, force: true });
     for (const entry of removed.prompts) rmSync(entry.path, { force: true });
     for (const entry of removed.configs) rmSync(entry.path, { force: true });
@@ -168,13 +170,14 @@ export function applyBundle(
       lastApplied: new Date().toISOString(),
       lessonId: bundle.lessonId,
       course,
+      tool: profile.toolId,
       files: {
         skills: bundle.skills.map((s) => s.name),
         prompts: bundle.prompts.map((p) => `${p.name}.md`),
         configs: bundle.configs.map((c) => c.name),
       },
     };
-    writeManifest(claudeDir, nextManifest);
+    writeManifest(manifestDir, nextManifest);
   }
 
   return {
@@ -223,7 +226,8 @@ interface RemovalPlan {
 function computeRemovals(
   prevManifest: CliManifest | null,
   bundle: LessonBundle,
-  claudeDir: string,
+  profile: ToolProfile,
+  projectRoot: string,
 ): RemovalPlan {
   const empty: RemovalPlan = { skills: [], prompts: [], configs: [] };
   if (!prevManifest) return empty;
@@ -237,24 +241,49 @@ function computeRemovals(
   for (const skillName of prevManifest.files.skills) {
     if (currentSkills.has(skillName)) continue;
     // Defense in depth: a tampered manifest could have names that escape
-    // claudeDir via `..`. Skip rather than rmSync anything scary.
+    // the target dir via `..`. Skip rather than rmSync anything scary.
     if (!isSafeName(skillName)) continue;
-    removed.skills.push({ name: skillName, path: join(claudeDir, "skills", skillName) });
+    // Skill paths include the directory, so remove the parent dir
+    const skillTarget = join(projectRoot, profile.skillPath(skillName));
+    removed.skills.push({ name: skillName, path: dirname(skillTarget) });
   }
   for (const promptFile of prevManifest.files.prompts) {
     if (currentPrompts.has(promptFile)) continue;
     if (!isSafeName(promptFile)) continue;
-    removed.prompts.push({ name: promptFile, path: join(claudeDir, "prompts", promptFile) });
+    // Prompt filenames in the manifest include .md; strip it for the path lookup
+    const promptName = promptFile.replace(/\.md$/, "");
+    removed.prompts.push({
+      name: promptFile,
+      path: join(projectRoot, profile.promptPath(promptName)),
+    });
   }
   for (const configFile of prevManifest.files.configs) {
     if (currentConfigs.has(configFile)) continue;
     if (!isSafeName(configFile)) continue;
     removed.configs.push({
       name: configFile,
-      path: join(claudeDir, "config-templates", configFile),
+      path: join(projectRoot, profile.configPath(configFile)),
     });
   }
   return removed;
+}
+
+/**
+ * Check if artifacts exist under a different tool's manifest directory.
+ * Returns a warning string if orphaned artifacts are found, or null.
+ */
+export function detectOrphanedArtifacts(
+  projectRoot: string,
+  currentProfile: ToolProfile,
+): string | null {
+  for (const profile of Object.values(PROFILES)) {
+    if (profile.toolId === currentProfile.toolId) continue;
+    const otherManifest = join(projectRoot, profile.manifestDir, MANIFEST_FILENAME);
+    if (existsSync(otherManifest)) {
+      return `Found existing 10x artifacts in ${profile.manifestDir}/ from ${profile.displayName}.\n  Manually remove ${profile.manifestDir}/ if you no longer need it.\n  Your new artifacts will be written to ${currentProfile.manifestDir}/`;
+    }
+  }
+  return null;
 }
 
 /**

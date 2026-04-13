@@ -20,12 +20,14 @@ export interface CliManifest {
   lastApplied: string; // ISO-8601
   lessonId: string;
   course: string;
+  /** Tool profile ID used for this install (e.g. "claude-code", "cursor"). */
+  tool?: string;
   files: {
-    /** Skill directory names under `.claude/skills/`. */
+    /** Skill directory names under the tool's skills dir. */
     skills: string[];
-    /** Prompt filenames (including `.md`) under `.claude/prompts/`. */
+    /** Prompt filenames (including `.md`) under the tool's prompts dir. */
     prompts: string[];
-    /** Config filenames under `.claude/config-templates/`. */
+    /** Config filenames under the tool's config-templates dir. */
     configs: string[];
   };
 }

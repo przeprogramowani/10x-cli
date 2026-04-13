@@ -115,6 +115,40 @@ export function deleteAuth(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tool config (config.json) — persists the user's AI tool preference
+// ---------------------------------------------------------------------------
+
+export interface ToolConfig {
+  tool: string;
+}
+
+export function toolConfigPath(): string {
+  return join(configDir(), "config.json");
+}
+
+export function readToolConfig(): ToolConfig | null {
+  const file = toolConfigPath();
+  if (!existsSync(file)) return null;
+  try {
+    const raw = readFileSync(file, "utf8");
+    const parsed = JSON.parse(raw) as ToolConfig;
+    if (typeof parsed.tool !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveToolConfig(config: ToolConfig): void {
+  const dir = configDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  const file = toolConfigPath();
+  writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 export function isAuthenticated(now: Date = new Date()): boolean {
   const auth = readAuth();
   if (!auth) return false;
