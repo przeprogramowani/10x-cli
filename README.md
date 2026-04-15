@@ -13,6 +13,26 @@ npm install -g @przeprogramowani/10x-cli
 # https://github.com/przeprogramowani/10x-cli/releases
 ```
 
+## Agentic Installation
+
+Let your AI coding agent handle the setup. This repo ships a [`10x-cli-setup`](skills/10x-cli-setup/SKILL.md) skill that walks your agent through installing, authenticating, and configuring the CLI — all driven by the latest README.
+
+Install the skill with [skills.sh](https://skills.sh):
+
+```bash
+# Add the skill to your current project (symlinked)
+npx skills add przeprogramowani/10x-cli
+
+# Or install globally so it's available in every project
+npx skills add przeprogramowani/10x-cli -g
+
+# Target a specific agent
+npx skills add przeprogramowani/10x-cli -a claude-code
+npx skills add przeprogramowani/10x-cli -a cursor
+```
+
+Once installed, just tell your agent to **set up 10x-cli** and it will pick up the skill automatically.
+
 ## Quick Start
 
 ```bash
