@@ -1,6 +1,6 @@
 {
   "name": "@przeprogramowani/10x-cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Open-source CLI for 10xDevs course content",
   "repository": {
     "type": "git",
