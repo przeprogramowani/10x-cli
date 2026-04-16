@@ -162,6 +162,7 @@ function healthyApi() {
     data: { status: "ok" },
     latencyMs: 42,
     responseHeaders: new Headers(),
+    rawBody: "",
   });
 }
 

@@ -48,6 +48,7 @@ async function main(): Promise<void> {
               expires_at: newExpires!,
             },
             responseHeaders: new Headers(),
+            rawBody: "",
           };
         },
       },

@@ -31,6 +31,7 @@ export interface LessonSummary {
   title: string;
   summary: string;
   bundlePath: string;
+  availableLanguages?: string[];
 }
 
 export interface CatalogResponse {
@@ -55,6 +56,7 @@ export interface ModuleDetailResponse {
     lesson: number;
     title: string;
     summary: string;
+    availableLanguages?: string[];
   }[];
 }
 
@@ -125,23 +127,24 @@ export async function fetchLesson(
   course: string,
   lessonId: string,
   token: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; lang?: string } = {},
 ): Promise<ApiResult<LessonBundle>> {
-  const result = await apiGet<LessonBundle>(
-    `/api/lessons/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}`,
-    { token, signal: options.signal },
-  );
+  const params = new URLSearchParams();
+  if (options.lang) params.set("lang", options.lang);
+  const qs = params.toString();
+  const path = `/api/lessons/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}${qs ? `?${qs}` : ""}`;
+  const result = await apiGet<LessonBundle>(path, { token, signal: options.signal });
 
   if (!result.ok) return result;
 
   const signature = result.responseHeaders.get("X-Bundle-Signature");
   const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
+  const headerHash = result.responseHeaders.get("X-Bundle-Content-Hash");
 
-  if (signature && keyIdRaw) {
+  if (signature && keyIdRaw && headerHash) {
     const keyId = Number(keyIdRaw);
-    const responseBody = JSON.stringify(result.data);
     try {
-      verifyBundleSignature(responseBody, signature, keyId);
+      verifyBundleSignature(result.rawBody, signature, keyId, headerHash);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -151,6 +154,15 @@ export async function fetchLesson(
         error: message,
       };
     }
+  } else if (signature || keyIdRaw || headerHash) {
+    return {
+      ok: false,
+      status: 0,
+      code: "signature_error",
+      error:
+        "Bundle signing headers are incomplete (expected X-Bundle-Signature, X-Bundle-Key-Id, and X-Bundle-Content-Hash together). " +
+        "The API may be misconfigured. Do NOT use the content. Report this to the course team.",
+    };
   } else if (REQUIRE_SIGNATURES) {
     return {
       ok: false,
@@ -176,9 +188,10 @@ export async function fetchArtifact(
   name: string,
   tool: string,
   token: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; lang?: string } = {},
 ): Promise<ApiResult<ArtifactResponse>> {
   const params = new URLSearchParams({ tool });
+  if (options.lang) params.set("lang", options.lang);
   const path = `/api/artifacts/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}?${params}`;
   const result = await apiGet<ArtifactResponse>(path, { token, signal: options.signal });
 
@@ -186,12 +199,12 @@ export async function fetchArtifact(
 
   const signature = result.responseHeaders.get("X-Bundle-Signature");
   const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
+  const headerHash = result.responseHeaders.get("X-Bundle-Content-Hash");
 
-  if (signature && keyIdRaw) {
+  if (signature && keyIdRaw && headerHash) {
     const keyId = Number(keyIdRaw);
-    const responseBody = JSON.stringify(result.data);
     try {
-      verifyBundleSignature(responseBody, signature, keyId);
+      verifyBundleSignature(result.rawBody, signature, keyId, headerHash);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -201,6 +214,15 @@ export async function fetchArtifact(
         error: message,
       };
     }
+  } else if (signature || keyIdRaw || headerHash) {
+    return {
+      ok: false,
+      status: 0,
+      code: "signature_error",
+      error:
+        "Artifact signing headers are incomplete (expected X-Bundle-Signature, X-Bundle-Key-Id, and X-Bundle-Content-Hash together). " +
+        "The API may be misconfigured. Do NOT use the content. Report this to the course team.",
+    };
   } else if (REQUIRE_SIGNATURES) {
     return {
       ok: false,

@@ -139,11 +139,11 @@ function makeBundle(overrides: Partial<LessonBundle> = {}): LessonBundle {
 }
 
 function lessonOk(bundle: LessonBundle): ApiResult<LessonBundle> {
-  return { ok: true, status: 200, data: bundle, responseHeaders: new Headers() };
+  return { ok: true, status: 200, data: bundle, responseHeaders: new Headers(), rawBody: "" };
 }
 
 function artifactOk(artifact: ArtifactResponse): ApiResult<ArtifactResponse> {
-  return { ok: true, status: 200, data: artifact, responseHeaders: new Headers() };
+  return { ok: true, status: 200, data: artifact, responseHeaders: new Headers(), rawBody: "" };
 }
 
 function artifactErr(

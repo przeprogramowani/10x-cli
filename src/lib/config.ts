@@ -121,6 +121,7 @@ export function deleteAuth(): void {
 
 export interface ToolConfig {
   tool: string;
+  lang?: string;
 }
 
 export function toolConfigPath(): string {

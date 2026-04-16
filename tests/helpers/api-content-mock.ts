@@ -53,6 +53,7 @@ export interface ApiContentMockState {
         course: string,
         lessonId: string,
         token: string,
+        options?: { lang?: string },
       ) => Promise<ApiResult<LessonBundle>> | ApiResult<LessonBundle>);
   fetchArtifactImpl:
     | null
@@ -63,6 +64,7 @@ export interface ApiContentMockState {
         name: string,
         tool: string,
         token: string,
+        options?: { lang?: string },
       ) => Promise<ApiResult<ArtifactResponse>> | ApiResult<ArtifactResponse>);
   fetchHealthImpl: null | (() => Promise<HealthOutcome> | HealthOutcome);
   apiBaseUrlImpl: null | (() => string);
@@ -100,10 +102,10 @@ mock.module("../../src/lib/api-content", () => ({
     course: string,
     lessonId: string,
     token: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; lang?: string },
   ) =>
     apiContentMockState.fetchLessonImpl
-      ? Promise.resolve(apiContentMockState.fetchLessonImpl(course, lessonId, token))
+      ? Promise.resolve(apiContentMockState.fetchLessonImpl(course, lessonId, token, options))
       : realFetchLesson(course, lessonId, token, options),
   fetchArtifact: (
     course: string,
@@ -112,10 +114,10 @@ mock.module("../../src/lib/api-content", () => ({
     name: string,
     tool: string,
     token: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; lang?: string },
   ) =>
     apiContentMockState.fetchArtifactImpl
-      ? Promise.resolve(apiContentMockState.fetchArtifactImpl(course, lessonId, type, name, tool, token))
+      ? Promise.resolve(apiContentMockState.fetchArtifactImpl(course, lessonId, type, name, tool, token, options))
       : realFetchArtifact(course, lessonId, type, name, tool, token, options),
   fetchHealth: (options?: { timeoutMs?: number }) =>
     apiContentMockState.fetchHealthImpl

@@ -115,6 +115,7 @@ describe("requireAuth concurrency (file lock)", () => {
           expires_at: newExpires,
         },
         responseHeaders: new Headers(),
+        rawBody: "",
       };
     };
 
@@ -220,6 +221,7 @@ describe("requireAuth concurrency (file lock)", () => {
             expires_at: newExpires,
           },
           responseHeaders: new Headers(),
+          rawBody: "",
         };
       },
     });

@@ -216,6 +216,7 @@ function loginOk(): ApiResult<LoginResponse> {
     status: 200,
     data: { session_id: "sess-1", message: "check_your_inbox" },
     responseHeaders: new Headers(),
+    rawBody: "",
   };
 }
 

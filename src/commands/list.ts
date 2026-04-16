@@ -203,6 +203,7 @@ function renderModuleDetail(ctx: OutputContext, module: ModuleDetailResponse): v
         lesson: l.lesson,
         title: l.title,
         summary: l.summary,
+        availableLanguages: l.availableLanguages ?? ["en"],
       })),
     });
     return;
@@ -223,6 +224,15 @@ function renderModuleDetail(ctx: OutputContext, module: ModuleDetailResponse): v
       lines.push(`  ${l.lessonId} — ${l.title}`);
       if (l.summary) lines.push(`      ${l.summary}`);
     }
+  }
+
+  // Show language availability hint if any lesson has more than EN
+  const hasMultiLang = module.lessons.some(
+    (l) => l.availableLanguages && l.availableLanguages.length > 1,
+  );
+  if (hasMultiLang) {
+    lines.push("");
+    lines.push("Language variants available. Use --lang pl to fetch Polish content.");
   }
   output(ctx, lines.join("\n"), undefined);
 }

@@ -71,7 +71,7 @@ export interface ApiErrorPayload {
 }
 
 export type ApiResult<T> =
-  | { ok: true; data: T; status: number; responseHeaders: Headers }
+  | { ok: true; data: T; status: number; responseHeaders: Headers; rawBody: string }
   | {
       ok: false;
       status: number;
@@ -154,7 +154,7 @@ async function request<T>(
     };
   }
 
-  return { ok: true, status: response.status, data: parsed as T, responseHeaders: response.headers };
+  return { ok: true, status: response.status, data: parsed as T, responseHeaders: response.headers, rawBody: text };
 }
 
 export function apiGet<T>(path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {

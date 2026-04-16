@@ -155,7 +155,7 @@ function makeBundle(overrides: Partial<LessonBundle> = {}): LessonBundle {
 }
 
 function lessonOk(bundle: LessonBundle): ApiResult<LessonBundle> {
-  return { ok: true, status: 200, data: bundle, responseHeaders: new Headers() };
+  return { ok: true, status: 200, data: bundle, responseHeaders: new Headers(), rawBody: "" };
 }
 
 function lessonErr(
@@ -319,5 +319,66 @@ describe("10x get — error handling", () => {
     const { stdout, exitCode } = await runGet(["get", "m1l1", "--json"]);
     expect(exitCode).toBe(1);
     parseErr(stdout, "network_error");
+  });
+});
+
+describe("10x get — --lang flag", () => {
+  it("rejects invalid --lang value with exit code 2 (USAGE)", async () => {
+    writeValidAuth();
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--lang", "de", "--json"]);
+    expect(exitCode).toBe(2);
+    parseErr(stdout, "invalid_lang");
+  });
+
+  it("passes ?lang=pl to fetchLesson when --lang pl is set", async () => {
+    writeValidAuth();
+    let capturedLang: string | undefined;
+    apiContentMockState.fetchLessonImpl = (_course, _lessonId, _token, options) => {
+      capturedLang = options?.lang;
+      return lessonOk(makeBundle());
+    };
+
+    const { exitCode } = await runGet(["get", "m1l1", "--lang", "pl", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(capturedLang).toBe("pl");
+  });
+
+  it("defaults to lang=en when no --lang flag", async () => {
+    writeValidAuth();
+    let capturedLang: string | undefined;
+    apiContentMockState.fetchLessonImpl = (_course, _lessonId, _token, options) => {
+      capturedLang = options?.lang;
+      return lessonOk(makeBundle());
+    };
+
+    const { exitCode } = await runGet(["get", "m1l1", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(capturedLang).toBe("en");
+  });
+
+  it("includes language metadata in JSON output", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--lang", "pl", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    const data = parseOk<{ language: string; languageFallback: boolean }>(stdout);
+    expect(data.language).toBe("pl");
+    expect(data.languageFallback).toBe(false);
+  });
+
+  it("shows fallback info in verbose output when X-Content-Fallback is true", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => {
+      const headers = new Headers();
+      headers.set("X-Content-Language", "en");
+      headers.set("X-Content-Fallback", "true");
+      return { ok: true, status: 200, data: makeBundle(), responseHeaders: headers } as ApiResult<LessonBundle>;
+    };
+
+    const { stderr, exitCode } = await runGet(["get", "m1l1", "--lang", "pl", "--json", "--verbose"]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(stderr).toContain("PL not available");
+    expect(stderr).toContain("showing EN");
   });
 });

@@ -199,11 +199,11 @@ function makeModuleDetail(
 }
 
 function catalogOk(catalog: CatalogResponse): ApiResult<CatalogResponse> {
-  return { ok: true, status: 200, data: catalog, responseHeaders: new Headers() };
+  return { ok: true, status: 200, data: catalog, responseHeaders: new Headers(), rawBody: "" };
 }
 
 function moduleOk(detail: ModuleDetailResponse): ApiResult<ModuleDetailResponse> {
-  return { ok: true, status: 200, data: detail, responseHeaders: new Headers() };
+  return { ok: true, status: 200, data: detail, responseHeaders: new Headers(), rawBody: "" };
 }
 
 interface OkEnvelope<T = unknown> {

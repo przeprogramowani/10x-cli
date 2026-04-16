@@ -12,6 +12,7 @@ import {
   resolveContext,
   verbose,
 } from "../lib/output";
+import { readToolConfig, saveToolConfig } from "../lib/config";
 import { resolveToolProfile } from "../lib/tool-prompt";
 import type { ToolProfile } from "../lib/tool-profile";
 import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
@@ -30,6 +31,7 @@ interface GetFlags extends GlobalFlags {
   print?: boolean;
   type?: string;
   name?: string;
+  lang?: string;
 }
 
 /** Default course slug. Hardcoded for v1 per plan; configurable later. */
@@ -44,6 +46,7 @@ export function registerGetCommand(cli: CAC): void {
     .option("--print", "Print artifact content to stdout instead of writing to files")
     .option("--type <type>", "Artifact type filter: skills, prompts, rules, configs")
     .option("--name <name>", "Artifact name filter (requires --type)")
+    .option("--lang <lang>", "Content language: en (default) or pl")
     .action(async (ref: string, options: GetFlags) => {
       const ctx = resolveContext(options);
       await runGet(ctx, ref, options);
@@ -86,20 +89,50 @@ export async function runGet(
     );
   }
 
+  const SUPPORTED_LANGS = ["en", "pl"];
+  if (options.lang && !SUPPORTED_LANGS.includes(options.lang)) {
+    outputError(
+      ctx,
+      "invalid_lang",
+      `Unknown language '${options.lang}'.`,
+      ExitCodes.USAGE,
+      `Supported languages: ${SUPPORTED_LANGS.join(", ")}`,
+    );
+  }
+
   const auth = await requireAuth(ctx);
   const course = options.course ?? DEFAULT_COURSE;
   const profile = await resolveToolProfile(options.tool);
 
+  // Resolve language: --lang flag > config > default "en"
+  const lang = options.lang ?? readToolConfig()?.lang ?? "en";
+
+  // Persist lang to config alongside tool preference
+  if (options.lang) {
+    const existing = readToolConfig();
+    saveToolConfig({ tool: existing?.tool ?? profile.toolId, lang: options.lang });
+  }
+
   if (options.print) {
-    await runPrintMode(ctx, parsed.lessonId, course, profile, auth.access_token, options);
+    await runPrintMode(ctx, parsed.lessonId, course, profile, auth.access_token, lang, options);
     return;
   }
 
   verbose(ctx, `fetching lesson ${course}/${parsed.lessonId}`);
-  const result = await fetchLesson(course, parsed.lessonId, auth.access_token);
+  const result = await fetchLesson(course, parsed.lessonId, auth.access_token, { lang });
 
   if (!result.ok) {
     handleLessonError(ctx, result.status, result.code, result.error, result.payload);
+  }
+
+  // Language fallback detection
+  const contentLang = result.responseHeaders.get("X-Content-Language");
+  const isFallback = result.responseHeaders.get("X-Content-Fallback") === "true";
+  if (isFallback && contentLang) {
+    verbose(
+      ctx,
+      `${lang.toUpperCase()} not available for ${parsed.lessonId}, showing ${contentLang.toUpperCase()}.`,
+    );
   }
 
   // Orphan detection: warn if artifacts exist under a different tool
@@ -114,7 +147,10 @@ export async function runGet(
     partial: isFiltered,
   });
 
-  renderGetResult(ctx, bundle, writeResult, options.dryRun === true, profile);
+  renderGetResult(ctx, bundle, writeResult, options.dryRun === true, profile, {
+    language: contentLang ?? lang,
+    languageFallback: isFallback,
+  });
 }
 
 /**
@@ -181,6 +217,7 @@ async function runPrintMode(
   course: string,
   profile: ToolProfile,
   token: string,
+  lang: string,
   options: GetFlags,
 ): Promise<void> {
   if (!options.type) {
@@ -213,6 +250,7 @@ async function runPrintMode(
       options.name,
       profile.toolId,
       token,
+      { lang },
     );
 
     if (!result.ok) {
@@ -227,7 +265,7 @@ async function runPrintMode(
   } else {
     // Fetch full bundle, filter by type, concatenate
     verbose(ctx, `fetching lesson ${course}/${lessonId} (filtering by ${options.type})`);
-    const result = await fetchLesson(course, lessonId, token);
+    const result = await fetchLesson(course, lessonId, token, { lang });
 
     if (!result.ok) {
       handleLessonError(ctx, result.status, result.code, result.error, result.payload);
@@ -334,6 +372,7 @@ function renderGetResult(
   writeResult: WriteResult,
   dryRun: boolean,
   profile: ToolProfile,
+  langMeta: { language: string; languageFallback: boolean } = { language: "en", languageFallback: false },
 ): void {
   if (ctx.json) {
     output(ctx, "", {
@@ -341,6 +380,8 @@ function renderGetResult(
       title: bundle.title,
       summary: bundle.summary,
       tool: profile.toolId,
+      language: langMeta.language,
+      languageFallback: langMeta.languageFallback,
       dry_run: dryRun,
       writes: {
         skills: writeResult.skills,
