@@ -7,6 +7,9 @@
  * path layout — the API ZIP uses a flat generic structure.
  */
 
+export const SENTINEL_BEGIN = "<!-- BEGIN @przeprogramowani/10x-cli -->" as const;
+export const SENTINEL_END = "<!-- END @przeprogramowani/10x-cli -->" as const;
+
 export interface ToolProfile {
   toolId: string;
   displayName: string;
@@ -28,8 +31,8 @@ export const PROFILES: Record<string, ToolProfile> = {
     configPath: (n) => `.claude/config-templates/${n}`,
     rulesFile: "CLAUDE.md",
     manifestDir: ".claude",
-    sentinelBegin: "<!-- BEGIN @przeprogramowani/10x-cli -->",
-    sentinelEnd: "<!-- END @przeprogramowani/10x-cli -->",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
   },
   cursor: {
     toolId: "cursor",
@@ -39,8 +42,8 @@ export const PROFILES: Record<string, ToolProfile> = {
     configPath: (n) => `.cursor/config-templates/${n}`,
     rulesFile: ".cursor/rules/10x-course.mdc",
     manifestDir: ".cursor",
-    sentinelBegin: "<!-- BEGIN @przeprogramowani/10x-cli -->",
-    sentinelEnd: "<!-- END @przeprogramowani/10x-cli -->",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
   },
   copilot: {
     toolId: "copilot",
@@ -50,8 +53,8 @@ export const PROFILES: Record<string, ToolProfile> = {
     configPath: (n) => `.github/config-templates/${n}`,
     rulesFile: ".github/copilot-instructions.md",
     manifestDir: ".github",
-    sentinelBegin: "<!-- BEGIN @przeprogramowani/10x-cli -->",
-    sentinelEnd: "<!-- END @przeprogramowani/10x-cli -->",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
   },
   codex: {
     toolId: "codex",
@@ -61,8 +64,8 @@ export const PROFILES: Record<string, ToolProfile> = {
     configPath: (n) => `.agents/config-templates/${n}`,
     rulesFile: "AGENTS.md",
     manifestDir: ".agents",
-    sentinelBegin: "<!-- BEGIN @przeprogramowani/10x-cli -->",
-    sentinelEnd: "<!-- END @przeprogramowani/10x-cli -->",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
   },
   generic: {
     toolId: "generic",
@@ -72,8 +75,8 @@ export const PROFILES: Record<string, ToolProfile> = {
     configPath: (n) => `.ai/config-templates/${n}`,
     rulesFile: "AGENTS.md",
     manifestDir: ".ai",
-    sentinelBegin: "<!-- BEGIN @przeprogramowani/10x-cli -->",
-    sentinelEnd: "<!-- END @przeprogramowani/10x-cli -->",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
   },
 };
 

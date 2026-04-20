@@ -102,7 +102,7 @@ export async function runGet(
 
   const auth = await requireAuth(ctx);
   const course = options.course ?? DEFAULT_COURSE;
-  const profile = await resolveToolProfile(options.tool);
+  const profile = await resolveToolProfile(options.tool, process.cwd());
 
   // Resolve language: --lang flag > config > default "en"
   const lang = options.lang ?? readToolConfig()?.lang ?? "en";

@@ -4,16 +4,19 @@
  * Priority chain:
  *   1. --tool flag (explicit override)
  *   2. Config file (~/.config/10x-cli/config.json)
- *   3. Interactive prompt (first-run only, TTY required)
+ *   3. Interactive prompt (first-run only, TTY required) — pre-filled via
+ *      auto-detection when the project has tool-native markers
  *   4. Default (claude-code) when non-interactive
  */
 
 import * as p from "@clack/prompts";
 import { readToolConfig, saveToolConfig } from "./config";
+import { detectTools, topDetectedProfile } from "./tool-detect";
 import { PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
 
 export async function resolveToolProfile(
   flagOverride?: string,
+  projectRoot: string = process.cwd(),
 ): Promise<ToolProfile> {
   // 1. Explicit --tool flag
   if (flagOverride) {
@@ -32,16 +35,24 @@ export async function resolveToolProfile(
     return PROFILES[config.tool]!;
   }
 
-  // 3. Interactive prompt (TTY only)
+  // 3. Interactive prompt (TTY only), pre-filled by auto-detection
   if (process.stdout.isTTY) {
+    const signals = detectTools(projectRoot);
+    const detected = topDetectedProfile(signals);
+    const top = signals[0];
+    if (top && detected) {
+      p.note(`Detected: ${detected.displayName} (${top.reason})`);
+    }
+
+    const initial = detected?.toolId ?? DEFAULT_TOOL;
     const choice = await p.select({
       message: "Which AI coding tool do you use?",
       options: Object.values(PROFILES).map((profile) => ({
         value: profile.toolId,
         label: profile.displayName,
-        hint: profile.toolId === DEFAULT_TOOL ? "default" : undefined,
+        hint: profile.toolId === initial ? "default" : undefined,
       })),
-      initialValue: DEFAULT_TOOL,
+      initialValue: initial,
     });
 
     if (p.isCancel(choice)) {
