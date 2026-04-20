@@ -135,9 +135,13 @@ export async function runGet(
     );
   }
 
-  // Orphan detection: warn if artifacts exist under a different tool
-  const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
-  if (orphanWarning) verbose(ctx, orphanWarning);
+  // Non-TTY orphan surface for CI/logs. The interactive migration prompt
+  // inside resolveToolProfile handles TTY flows; here we only keep the
+  // legacy verbose line so CI output still flags the situation.
+  if (!process.stdout.isTTY) {
+    const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
+    if (orphanWarning) verbose(ctx, orphanWarning);
+  }
 
   const isFiltered = options.type !== undefined;
   const bundle: LessonBundle = filterBundle(ctx, result.data, options);

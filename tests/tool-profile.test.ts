@@ -4,14 +4,19 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PROFILES, DEFAULT_TOOL, SENTINEL_BEGIN, SENTINEL_END } from "../src/lib/tool-profile";
 import { readToolConfig, saveToolConfig, toolConfigPath } from "../src/lib/config";
 import { resolveToolProfile } from "../src/lib/tool-prompt";
 import { isSafeName } from "../src/lib/writer";
-import { clackMockState, resetClackMock } from "./helpers/clack-mock";
+import {
+  CLI_PACKAGE_NAME,
+  MANIFEST_FILENAME,
+  type CliManifest,
+} from "../src/lib/manifest";
+import { clackMockState, resetClackMock, type SelectOpts } from "./helpers/clack-mock";
 
 // ---------------------------------------------------------------------------
 // Profile path tests — each of the 5 tool profiles
@@ -240,6 +245,189 @@ describe("resolveToolProfile — auto-detection", () => {
 
     expect(clackMockState.lastSelect).toBeNull();
     expect(profile.toolId).toBe(DEFAULT_TOOL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveToolProfile — tool-switch migration integration
+// ---------------------------------------------------------------------------
+
+describe("resolveToolProfile — tool-switch migration", () => {
+  let tmp: string;
+  let projectRoot: string;
+  let priorXdg: string | undefined;
+  let priorIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "10x-cli-switch-int-"));
+    projectRoot = join(tmp, "project");
+    mkdirSync(projectRoot, { recursive: true });
+    priorXdg = process.env["XDG_CONFIG_HOME"];
+    process.env["XDG_CONFIG_HOME"] = tmp;
+    priorIsTTY = process.stdout.isTTY;
+    resetClackMock();
+  });
+
+  afterEach(() => {
+    if (priorXdg === undefined) delete process.env["XDG_CONFIG_HOME"];
+    else process.env["XDG_CONFIG_HOME"] = priorXdg;
+    if (priorIsTTY === undefined) delete (process.stdout as { isTTY?: boolean }).isTTY;
+    else process.stdout.isTTY = priorIsTTY;
+    rmSync(tmp, { recursive: true, force: true });
+    resetClackMock();
+  });
+
+  function seedOrphanManifest(toolId: string, skills: string[] = []): void {
+    const profile = PROFILES[toolId]!;
+    const manifest: CliManifest = {
+      package: CLI_PACKAGE_NAME,
+      version: "0.5.0",
+      lastApplied: "2026-04-18T00:00:00Z",
+      lessonId: "m1l1",
+      course: "10xDevs",
+      tool: toolId,
+      files: { skills, prompts: [], configs: [] },
+    };
+    const manifestPath = join(projectRoot, profile.manifestDir, MANIFEST_FILENAME);
+    mkdirSync(join(projectRoot, profile.manifestDir), { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    for (const s of skills) {
+      const p = join(projectRoot, profile.skillPath(s));
+      mkdirSync(join(p, ".."), { recursive: true });
+      writeFileSync(p, `# ${s}\n`);
+    }
+  }
+
+  it("prompts for migrate/delete/keep when switching tools with a present, non-acknowledged orphan", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "cursor" });
+    seedOrphanManifest("claude-code", ["code-review"]);
+    // Pick "migrate"
+    clackMockState.selectImpl = (opts: SelectOpts) => {
+      if (opts.message.includes("What should we do")) return "migrate";
+      return opts.initialValue;
+    };
+
+    const profile = await resolveToolProfile(undefined, projectRoot);
+
+    expect(profile.toolId).toBe("cursor");
+    const migrationPrompt = clackMockState.selectCalls.find((c) =>
+      c.message.includes("What should we do"),
+    );
+    expect(migrationPrompt).toBeDefined();
+    expect(migrationPrompt!.options.map((o) => o.value).sort()).toEqual(
+      ["delete", "keep", "migrate"].sort(),
+    );
+    // Migration ran: file moved to cursor profile
+    expect(existsSync(join(projectRoot, PROFILES["cursor"]!.skillPath("code-review")))).toBe(true);
+    expect(existsSync(join(projectRoot, PROFILES["claude-code"]!.skillPath("code-review")))).toBe(
+      false,
+    );
+  });
+
+  it("does NOT prompt for an orphan that is already acknowledged", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "cursor", acknowledgedOrphans: ["claude-code"] });
+    seedOrphanManifest("claude-code", ["code-review"]);
+
+    await resolveToolProfile(undefined, projectRoot);
+
+    const migrationPrompt = clackMockState.selectCalls.find((c) =>
+      c.message.includes("What should we do"),
+    );
+    expect(migrationPrompt).toBeUndefined();
+    // Files left in place
+    expect(existsSync(join(projectRoot, PROFILES["claude-code"]!.skillPath("code-review")))).toBe(
+      true,
+    );
+  });
+
+  it("non-TTY: migration prompt is skipped entirely", async () => {
+    process.stdout.isTTY = false;
+    saveToolConfig({ tool: "cursor" });
+    seedOrphanManifest("claude-code", ["code-review"]);
+
+    await resolveToolProfile(undefined, projectRoot);
+
+    expect(clackMockState.selectCalls).toEqual([]);
+    // Files left in place — non-TTY keeps the legacy verbose warning in get.ts
+    expect(existsSync(join(projectRoot, PROFILES["claude-code"]!.skillPath("code-review")))).toBe(
+      true,
+    );
+  });
+
+  it("choosing 'keep' persists acknowledgedOrphans in config.json", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "cursor" });
+    seedOrphanManifest("claude-code", ["code-review"]);
+    clackMockState.selectImpl = (opts: SelectOpts) => {
+      if (opts.message.includes("What should we do")) return "keep";
+      return opts.initialValue;
+    };
+
+    await resolveToolProfile(undefined, projectRoot);
+
+    const cfg = readToolConfig();
+    expect(cfg?.acknowledgedOrphans).toEqual(["claude-code"]);
+    // Files preserved
+    expect(existsSync(join(projectRoot, PROFILES["claude-code"]!.skillPath("code-review")))).toBe(
+      true,
+    );
+  });
+
+  it("choosing 'keep' preserves unknown fields in config.json", async () => {
+    process.stdout.isTTY = true;
+    // Seed config.json directly with a synthetic field that the current
+    // ToolConfig type doesn't know about (simulating a future CLI version
+    // or a hand-edited key).
+    const cfgPath = toolConfigPath();
+    mkdirSync(join(cfgPath, ".."), { recursive: true });
+    writeFileSync(
+      cfgPath,
+      `${JSON.stringify(
+        {
+          tool: "cursor",
+          lang: "pl",
+          lastSwitchedAt: "2026-04-19",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    seedOrphanManifest("claude-code", ["code-review"]);
+    clackMockState.selectImpl = (opts: SelectOpts) => {
+      if (opts.message.includes("What should we do")) return "keep";
+      return opts.initialValue;
+    };
+
+    await resolveToolProfile(undefined, projectRoot);
+
+    const raw = JSON.parse(readFileSync(cfgPath, "utf8")) as Record<string, unknown>;
+    expect(raw["tool"]).toBe("cursor");
+    expect(raw["lang"]).toBe("pl");
+    expect(raw["lastSwitchedAt"]).toBe("2026-04-19");
+    expect(raw["acknowledgedOrphans"]).toEqual(["claude-code"]);
+  });
+
+  it("cancel on the migration prompt does NOT persist acknowledgement", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "cursor" });
+    seedOrphanManifest("claude-code", ["code-review"]);
+    // clack encodes cancel via a Symbol; our mock treats any symbol as cancel.
+    const CANCEL_SYMBOL = Symbol("cancel");
+    clackMockState.selectImpl = (opts: SelectOpts) => {
+      if (opts.message.includes("What should we do")) return CANCEL_SYMBOL;
+      return opts.initialValue;
+    };
+
+    await resolveToolProfile(undefined, projectRoot);
+
+    const cfg = readToolConfig();
+    expect(cfg?.acknowledgedOrphans).toBeUndefined();
+    // Files preserved
+    expect(existsSync(join(projectRoot, PROFILES["claude-code"]!.skillPath("code-review")))).toBe(
+      true,
+    );
   });
 });
 

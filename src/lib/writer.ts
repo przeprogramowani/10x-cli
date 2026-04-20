@@ -276,22 +276,49 @@ function computeRemovals(
   return removed;
 }
 
+export interface OrphanInfo {
+  profile: ToolProfile;
+  manifestPath: string;
+  manifest: CliManifest;
+}
+
+/**
+ * Structured orphan detection — scans every non-current profile for a valid
+ * manifest. A corrupt manifest is skipped (the migration flow can't safely
+ * move files without a file list, so it falls back to the "delete only"
+ * option via the caller).
+ */
+export function findOrphanedManifests(
+  projectRoot: string,
+  currentProfile: ToolProfile,
+): OrphanInfo[] {
+  const out: OrphanInfo[] = [];
+  for (const profile of Object.values(PROFILES)) {
+    if (profile.toolId === currentProfile.toolId) continue;
+    const manifestPath = join(projectRoot, profile.manifestDir, MANIFEST_FILENAME);
+    if (!existsSync(manifestPath)) continue;
+    const manifest = readManifest(join(projectRoot, profile.manifestDir));
+    if (!manifest) continue;
+    out.push({ profile, manifestPath, manifest });
+  }
+  return out;
+}
+
 /**
  * Check if artifacts exist under a different tool's manifest directory.
  * Returns a warning string if orphaned artifacts are found, or null.
+ *
+ * Thin string formatter over `findOrphanedManifests`; kept for the
+ * non-TTY `verbose` path in `commands/get.ts` where the interactive
+ * migration prompt cannot run.
  */
 export function detectOrphanedArtifacts(
   projectRoot: string,
   currentProfile: ToolProfile,
 ): string | null {
-  for (const profile of Object.values(PROFILES)) {
-    if (profile.toolId === currentProfile.toolId) continue;
-    const otherManifest = join(projectRoot, profile.manifestDir, MANIFEST_FILENAME);
-    if (existsSync(otherManifest)) {
-      return `Found existing 10x artifacts in ${profile.manifestDir}/ from ${profile.displayName}.\n  Manually remove ${profile.manifestDir}/ if you no longer need it.\n  Your new artifacts will be written to ${currentProfile.manifestDir}/`;
-    }
-  }
-  return null;
+  const first = findOrphanedManifests(projectRoot, currentProfile)[0];
+  if (!first) return null;
+  return `Found existing 10x artifacts in ${first.profile.manifestDir}/ from ${first.profile.displayName}.\n  Manually remove ${first.profile.manifestDir}/ if you no longer need it.\n  Your new artifacts will be written to ${currentProfile.manifestDir}/`;
 }
 
 /**
@@ -310,7 +337,7 @@ function assertSafeName(name: string, kind: "skill" | "prompt" | "config"): void
   }
 }
 
-function isSafeName(name: string): boolean {
+export function isSafeName(name: string): boolean {
   if (typeof name !== "string" || name.length === 0) return false;
   if (name.startsWith(".")) return false; // blocks '', '.', '..', '.hidden'
   if (name.includes("/") || name.includes("\\")) return false;

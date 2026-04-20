@@ -60,6 +60,37 @@ export function readAuth(): AuthData | null {
   }
 }
 
+/**
+ * Atomic JSON writer: write to a sibling .tmp file, then renameSync into
+ * place. A crash mid-write leaves the original file untouched.
+ *
+ * Clears any stale `.tmp` from a prior aborted run before writing, so the
+ * `mode` option (which `writeFileSync` only honors on create) is always
+ * applied to a freshly created file.
+ */
+function writeJsonAtomic(
+  path: string,
+  data: unknown,
+  opts: { mode?: number } = {},
+): void {
+  const tmp = `${path}.tmp`;
+  rmSync(tmp, { force: true });
+  const body = `${JSON.stringify(data, null, 2)}\n`;
+  const writeOpts = opts.mode !== undefined ? { mode: opts.mode } : undefined;
+  writeFileSync(tmp, body, writeOpts);
+  // Belt and braces: some filesystems (NFS, noexec mounts) silently ignore
+  // the create-time mode. Don't fail writes on a weird filesystem — the
+  // `mode` option above is still the primary barrier.
+  if (opts.mode !== undefined && process.platform !== "win32") {
+    try {
+      chmodSync(tmp, opts.mode);
+    } catch {
+      // intentionally ignored — see comment above
+    }
+  }
+  renameSync(tmp, path);
+}
+
 export function saveAuth(data: AuthData): void {
   const dir = configDir();
   if (!existsSync(dir)) {
@@ -79,33 +110,7 @@ export function saveAuth(data: AuthData): void {
       // intentionally ignored — file mode 0o600 is the actual safety net
     }
   }
-  const file = authFilePath();
-  // Write atomically via temp file so a crash mid-write cannot leave a
-  // half-written credentials file on disk.
-  const tmp = `${file}.tmp`;
-  // If a prior crash left a stale `.tmp` file on disk, remove it before
-  // writing. `writeFileSync`'s `mode` option is only honored when Node
-  // *creates* a new file — when opening an existing one it keeps the old
-  // mode, so a leftover tmp at 0o644 (e.g. from an older buggy build or a
-  // sudo-run that umasked 0o022) would otherwise propagate loose perms
-  // onto `auth.json` after the rename.
-  rmSync(tmp, { force: true });
-  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-  // Belt and braces: explicit chmod in case the filesystem silently
-  // ignored the create-time mode (some NFS and noexec mounts do). The
-  // primary barrier is still the `writeFileSync` mode + the 0o700 parent
-  // directory; this is defense in depth for the credentials file. Wrapped
-  // in try/catch to match the dir-chmod pattern above — don't fail auth
-  // on a weird filesystem.
-  if (process.platform !== "win32") {
-    try {
-      chmodSync(tmp, 0o600);
-    } catch {
-      // intentionally ignored — see comment above
-    }
-  }
-  // renameSync is atomic on POSIX and replaces the target.
-  renameSync(tmp, file);
+  writeJsonAtomic(authFilePath(), data, { mode: 0o600 });
 }
 
 export function deleteAuth(): void {
@@ -122,6 +127,8 @@ export function deleteAuth(): void {
 export interface ToolConfig {
   tool: string;
   lang?: string;
+  /** Tool IDs whose orphan warning has been dismissed by the user (migration "keep" path). */
+  acknowledgedOrphans?: string[];
 }
 
 export function toolConfigPath(): string {
@@ -135,6 +142,16 @@ export function readToolConfig(): ToolConfig | null {
     const raw = readFileSync(file, "utf8");
     const parsed = JSON.parse(raw) as ToolConfig;
     if (typeof parsed.tool !== "string") return null;
+    // Defense in depth: if a tampered or hand-edited config.json has a
+    // non-string-array for acknowledgedOrphans, drop the field rather than
+    // letting `new Set(parsed.acknowledgedOrphans)` behave unpredictably.
+    if (
+      parsed.acknowledgedOrphans !== undefined &&
+      (!Array.isArray(parsed.acknowledgedOrphans) ||
+        !parsed.acknowledgedOrphans.every((x: unknown) => typeof x === "string"))
+    ) {
+      delete parsed.acknowledgedOrphans;
+    }
     return parsed;
   } catch {
     return null;
@@ -146,8 +163,7 @@ export function saveToolConfig(config: ToolConfig): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  const file = toolConfigPath();
-  writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  writeJsonAtomic(toolConfigPath(), config);
 }
 
 export function isAuthenticated(now: Date = new Date()): boolean {

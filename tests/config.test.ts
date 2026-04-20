@@ -14,6 +14,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -26,7 +27,10 @@ import {
   authFilePath,
   configDir,
   readAuth,
+  readToolConfig,
   saveAuth,
+  saveToolConfig,
+  toolConfigPath,
 } from "../src/lib/config";
 
 const isPosix = process.platform !== "win32";
@@ -109,5 +113,60 @@ describe("saveAuth — atomic write + credential file mode", () => {
       expect(mode).toBe(0o600);
     }
     expect(readAuth()?.email).toBe("second@example.com");
+  });
+});
+
+describe("saveToolConfig — atomic JSON write", () => {
+  it("writes config.json with on-disk contents matching the input", () => {
+    saveToolConfig({ tool: "cursor", lang: "pl", acknowledgedOrphans: ["claude-code"] });
+    const file = toolConfigPath();
+    expect(existsSync(file)).toBe(true);
+    const raw = readFileSync(file, "utf8");
+    expect(raw).toBe(
+      `${JSON.stringify(
+        { tool: "cursor", lang: "pl", acknowledgedOrphans: ["claude-code"] },
+        null,
+        2,
+      )}\n`,
+    );
+    // Round-trip reads back equal.
+    expect(readToolConfig()).toEqual({
+      tool: "cursor",
+      lang: "pl",
+      acknowledgedOrphans: ["claude-code"],
+    });
+  });
+
+  it("leaves no stale .tmp file behind", () => {
+    saveToolConfig({ tool: "codex" });
+    expect(existsSync(`${toolConfigPath()}.tmp`)).toBe(false);
+  });
+});
+
+describe("readToolConfig — acknowledgedOrphans shape validation", () => {
+  function writeToolConfig(payload: unknown): void {
+    const file = toolConfigPath();
+    mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+    writeFileSync(file, JSON.stringify(payload));
+  }
+
+  it("drops acknowledgedOrphans when it is a string (not an array)", () => {
+    writeToolConfig({ tool: "claude-code", acknowledgedOrphans: "claude-code" });
+    const cfg = readToolConfig();
+    expect(cfg?.tool).toBe("claude-code");
+    expect(cfg?.acknowledgedOrphans).toBeUndefined();
+  });
+
+  it("drops acknowledgedOrphans when the array holds non-strings", () => {
+    writeToolConfig({ tool: "cursor", acknowledgedOrphans: [1, 2, 3] });
+    const cfg = readToolConfig();
+    expect(cfg?.tool).toBe("cursor");
+    expect(cfg?.acknowledgedOrphans).toBeUndefined();
+  });
+
+  it("passes a valid string array through intact", () => {
+    writeToolConfig({ tool: "cursor", acknowledgedOrphans: ["claude-code"] });
+    const cfg = readToolConfig();
+    expect(cfg?.acknowledgedOrphans).toEqual(["claude-code"]);
   });
 });

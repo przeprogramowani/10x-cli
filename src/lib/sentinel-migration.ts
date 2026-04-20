@@ -28,6 +28,42 @@ export interface RulesBlockResult {
   warnings: string[];
 }
 
+export interface RemoveRulesResult {
+  content: string;
+  removed: boolean;
+}
+
+/**
+ * Symmetric counterpart to `applyRulesBlockWithMarkers`: strip the sentinel
+ * block bounded by `begin`/`end` from `existing`, collapsing the splice point
+ * to at most one blank line. Used by the tool-switch migration flow to clean
+ * the old tool's rules file after artifacts have been moved or deleted.
+ *
+ * Returns `{ removed: false }` unchanged when either marker is missing or
+ * they appear out of order (defensive no-op for corrupted inputs).
+ */
+export function removeRulesBlockWithMarkers(
+  existing: string,
+  begin: string,
+  end: string,
+): RemoveRulesResult {
+  const beginIdx = existing.indexOf(begin);
+  const endIdx = existing.indexOf(end);
+  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) {
+    return { content: existing, removed: false };
+  }
+  const beforeRaw = existing.slice(0, beginIdx);
+  const afterRaw = existing.slice(endIdx + end.length);
+  // Strip trailing/leading newlines (incl. CRLF) around the splice so the
+  // output has a deterministic amount of blank space at the join point.
+  const before = beforeRaw.replace(/[\r\n]*$/, "");
+  const after = afterRaw.replace(/^[\r\n]*/, "");
+  const joiner = before.length > 0 && after.length > 0 ? "\n\n" : "";
+  const combined = before + joiner + after;
+  const content = combined.length === 0 ? "" : combined.replace(/[\r\n]*$/, "\n");
+  return { content, removed: true };
+}
+
 /**
  * Strip any existing sentinel blocks (old or new) from `existingContent` and
  * append a fresh `@przeprogramowani/10x-cli` block wrapping `rulesBody`.

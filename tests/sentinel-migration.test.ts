@@ -14,6 +14,7 @@ import {
   NEW_END,
   OLD_BEGIN,
   OLD_END,
+  removeRulesBlockWithMarkers,
 } from "../src/lib/sentinel-migration";
 
 describe("applyRulesBlock — fresh CLAUDE.md", () => {
@@ -98,6 +99,78 @@ describe("applyRulesBlock — migration from internal-pkg", () => {
     // Exactly one new block remains.
     const count = content.split(NEW_BEGIN).length - 1;
     expect(count).toBe(1);
+  });
+});
+
+describe("removeRulesBlockWithMarkers", () => {
+  it("empty input → no-op", () => {
+    const result = removeRulesBlockWithMarkers("", NEW_BEGIN, NEW_END);
+    expect(result.content).toBe("");
+    expect(result.removed).toBe(false);
+  });
+
+  it("content without markers → no-op, returns input as-is", () => {
+    const input = "# Project\n\nmy notes\n";
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.content).toBe(input);
+    expect(result.removed).toBe(false);
+  });
+
+  it("content that is only the block → empty result, removed=true", () => {
+    const input = `${NEW_BEGIN}\n\nrules body\n\n${NEW_END}\n`;
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.content).toBe("");
+    expect(result.removed).toBe(true);
+  });
+
+  it("block at start + user content after → user content preserved with single trailing newline", () => {
+    const input = `${NEW_BEGIN}\n\nrules\n\n${NEW_END}\n\n# My Project\n\nnotes\n`;
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.removed).toBe(true);
+    expect(result.content).toBe("# My Project\n\nnotes\n");
+  });
+
+  it("block at end + user content before → user content preserved with single trailing newline", () => {
+    const input = `# My Project\n\nnotes\n\n${NEW_BEGIN}\n\nrules\n\n${NEW_END}\n`;
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.removed).toBe(true);
+    expect(result.content).toBe("# My Project\n\nnotes\n");
+  });
+
+  it("block in middle → single blank line separator between preceding and following content", () => {
+    const input = `# Project\n\n${NEW_BEGIN}\n\nrules\n\n${NEW_END}\n\nafter block\n`;
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.removed).toBe(true);
+    expect(result.content).toBe("# Project\n\nafter block\n");
+  });
+
+  it("reversed markers (end before begin) → no-op", () => {
+    const input = `${NEW_END}\nsome content\n${NEW_BEGIN}\n`;
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.content).toBe(input);
+    expect(result.removed).toBe(false);
+  });
+
+  it("CRLF line endings around the block → splice is clean (no stray \\r)", () => {
+    const input = `# Project\r\n\r\n${NEW_BEGIN}\r\n\r\nrules\r\n\r\n${NEW_END}\r\n\r\nafter\r\n`;
+    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
+    expect(result.removed).toBe(true);
+    // Leading "# Project" must not have a trailing \r; joined cleanly to "after"
+    expect(result.content).toContain("# Project");
+    expect(result.content).toContain("after");
+    expect(result.content).not.toContain(NEW_BEGIN);
+    expect(result.content).not.toContain(NEW_END);
+    // The splice should collapse to exactly one blank line (two \n) between
+    // "# Project" (possibly with trailing \r from CRLF body) and "after".
+    expect(result.content.endsWith("\n")).toBe(true);
+  });
+
+  it("apply + remove round-trip preserves original user content", () => {
+    const original = "# My Project\n\nuser content line 1\nline 2\n";
+    const { content: applied } = applyRulesBlock(original, "some rule");
+    const { content: stripped, removed } = removeRulesBlockWithMarkers(applied, NEW_BEGIN, NEW_END);
+    expect(removed).toBe(true);
+    expect(stripped).toBe(original);
   });
 });
 
