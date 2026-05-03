@@ -14,17 +14,26 @@ import { dirname, join } from "node:path";
 export const MANIFEST_FILENAME = ".10x-cli-manifest.json";
 export const CLI_PACKAGE_NAME = "@przeprogramowani/10x-cli" as const;
 
+export const MANIFEST_VERSION = 2 as const;
+
+export interface CliManifestSkillEntry {
+  /** Relative paths under the skill directory (e.g. "SKILL.md", "scripts/helper.sh"). */
+  files: string[];
+}
+
 export interface CliManifest {
   package: typeof CLI_PACKAGE_NAME;
   version: string;
+  /** Manifest schema version. v1 (skills as `string[]`) is no longer accepted. */
+  manifestVersion: typeof MANIFEST_VERSION;
   lastApplied: string; // ISO-8601
   lessonId: string;
   course: string;
   /** Tool profile ID used for this install (e.g. "claude-code", "cursor"). */
   tool?: string;
   files: {
-    /** Skill directory names under the tool's skills dir. */
-    skills: string[];
+    /** Per-skill record keyed by skill directory name → list of relative file paths. */
+    skills: Record<string, CliManifestSkillEntry>;
     /** Prompt filenames (including `.md`) under the tool's prompts dir. */
     prompts: string[];
     /** Config filenames under the tool's config-templates dir. */
@@ -77,13 +86,28 @@ function isManifest(value: unknown): value is CliManifest {
   const v = value as Record<string, unknown>;
   if (v["package"] !== CLI_PACKAGE_NAME) return false;
   if (typeof v["version"] !== "string") return false;
+  if (v["manifestVersion"] !== MANIFEST_VERSION) return false;
   if (typeof v["lastApplied"] !== "string") return false;
   if (typeof v["lessonId"] !== "string") return false;
   if (typeof v["course"] !== "string") return false;
   const files = v["files"];
   if (typeof files !== "object" || files === null) return false;
   const f = files as Record<string, unknown>;
-  return isStringArray(f["skills"]) && isStringArray(f["prompts"]) && isStringArray(f["configs"]);
+  return (
+    isSkillsRecord(f["skills"]) && isStringArray(f["prompts"]) && isStringArray(f["configs"])
+  );
+}
+
+function isSkillsRecord(
+  value: unknown,
+): value is Record<string, CliManifestSkillEntry> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) return false;
+    const e = entry as Record<string, unknown>;
+    if (!isStringArray(e["files"])) return false;
+  }
+  return true;
 }
 
 function isStringArray(value: unknown): value is string[] {

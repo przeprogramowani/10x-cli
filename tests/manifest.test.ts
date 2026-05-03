@@ -31,11 +31,12 @@ function makeManifest(overrides: Partial<CliManifest> = {}): CliManifest {
   return {
     package: "@przeprogramowani/10x-cli",
     version: "0.1.0",
+    manifestVersion: 2,
     lastApplied: "2026-04-11T12:00:00.000Z",
     lessonId: "m1l1",
     course: "10xdevs3",
     files: {
-      skills: ["code-review"],
+      skills: { "code-review": { files: ["SKILL.md"] } },
       prompts: ["plan.md"],
       configs: ["settings.json"],
     },
@@ -74,6 +75,40 @@ describe("manifest — read/write", () => {
 
   it("returns null when manifest JSON is malformed", () => {
     writeFileSync(join(tmp, MANIFEST_FILENAME), "{not json");
+    expect(readManifest(tmp)).toBeNull();
+  });
+
+  it("returns null for a v1 manifest (skills as string[], no manifestVersion)", () => {
+    writeFileSync(
+      join(tmp, MANIFEST_FILENAME),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "0.5.0",
+        lastApplied: "2026-04-30T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        files: { skills: ["code-review"], prompts: [], configs: [] },
+      }),
+    );
+    expect(readManifest(tmp)).toBeNull();
+  });
+
+  it("returns null when manifestVersion is missing from an otherwise v2-shaped manifest", () => {
+    writeFileSync(
+      join(tmp, MANIFEST_FILENAME),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "1.0.0",
+        lastApplied: "2026-05-01T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        files: {
+          skills: { "code-review": { files: ["SKILL.md"] } },
+          prompts: [],
+          configs: [],
+        },
+      }),
+    );
     expect(readManifest(tmp)).toBeNull();
   });
 

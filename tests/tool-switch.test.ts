@@ -55,14 +55,18 @@ function seedOrphan(opts: {
   const skills = opts.skills ?? [];
   const prompts = opts.prompts ?? [];
   const configs = opts.configs ?? [];
+  const skillsRecord = Object.fromEntries(
+    skills.map((s) => [s, { files: ["SKILL.md"] }]),
+  );
   const manifest: CliManifest = {
     package: CLI_PACKAGE_NAME,
     version: "0.5.0",
+    manifestVersion: 2,
     lastApplied: "2026-04-18T00:00:00Z",
     lessonId: "m1l1",
     course: "10xDevs",
     tool: oldProfile.toolId,
-    files: { skills, prompts, configs },
+    files: { skills: skillsRecord, prompts, configs },
   };
   for (const s of skills) {
     writeAt(oldProfile.skillPath(s), `# ${s}\n`);
@@ -180,7 +184,7 @@ describe("migrateArtifacts", () => {
     // created under the malicious path, so a successful move would have to
     // reach outside the project root — which is exactly what we're blocking.
     const orphan = seedOrphan({ skills: ["ok-skill"] });
-    orphan.manifest.files.skills.push("../../etc/passwd");
+    orphan.manifest.files.skills["../../etc/passwd"] = { files: ["SKILL.md"] };
     orphan.manifest.files.prompts.push("../evil.md");
     orphan.manifest.files.configs.push("../evil.json");
 
@@ -201,7 +205,7 @@ describe("migrateArtifacts", () => {
 
   it("refuses to migrate a symlinked source and records it as skipped", () => {
     const orphan = seedOrphan({});
-    orphan.manifest.files.skills.push("code-review");
+    orphan.manifest.files.skills["code-review"] = { files: ["SKILL.md"] };
     // Create a real target file that the symlink will point to
     const realTarget = writeAt("real-skill.md", "# real target\n");
     // Replace the fixture skill path with a symlink to realTarget
@@ -293,7 +297,7 @@ describe("migrateArtifacts", () => {
     // under UTF-8 decode (each invalid lead byte → U+FFFD). A UTF-8 string
     // compare would declare them equal and rm the source — silent data loss.
     const orphan = seedOrphan({});
-    orphan.manifest.files.skills.push("code-review");
+    orphan.manifest.files.skills["code-review"] = { files: ["SKILL.md"] };
     const fromPath = join(tmp, oldProfile.skillPath("code-review"));
     const toPath = join(tmp, newProfile.skillPath("code-review"));
     mkdirSync(join(fromPath, ".."), { recursive: true });
@@ -427,11 +431,16 @@ describe("deleteArtifacts", () => {
     const manifest: CliManifest = {
       package: CLI_PACKAGE_NAME,
       version: "0.5.0",
+      manifestVersion: 2,
       lastApplied: "2026-04-18T00:00:00Z",
       lessonId: "m1l1",
       course: "10xDevs",
       tool: copilotProfile.toolId,
-      files: { skills: [skillName], prompts: [], configs: [] },
+      files: {
+        skills: { [skillName]: { files: ["SKILL.md"] } },
+        prompts: [],
+        configs: [],
+      },
     };
     writeAt(copilotProfile.skillPath(skillName), `# ${skillName}\n`);
     const unrelated = writeAt(
@@ -483,7 +492,7 @@ describe("deleteArtifacts", () => {
 
   it("rejects unsafe manifest entries instead of deleting outside manifestDir", () => {
     const orphan = seedOrphan({ skills: ["ok"] });
-    orphan.manifest.files.skills.push("../../etc/passwd");
+    orphan.manifest.files.skills["../../etc/passwd"] = { files: ["SKILL.md"] };
 
     const summary = deleteArtifacts(tmp, orphan);
 

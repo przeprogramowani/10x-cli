@@ -18,7 +18,9 @@ const sampleBody = JSON.stringify({
   lesson: 1,
   title: "Test Lesson",
   summary: "A test lesson",
-  skills: [{ name: "code-review", content: "# Code Review" }],
+  skills: [
+    { name: "code-review", files: [{ path: "SKILL.md", content: "# Code Review" }] },
+  ],
   prompts: [],
   rules: [],
   configs: [],

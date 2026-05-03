@@ -60,10 +60,24 @@ export interface ModuleDetailResponse {
   }[];
 }
 
-/** One artifact inside a lesson bundle. */
+/** One prompt/rule/config artifact inside a lesson bundle. */
 export interface BundleArtifact {
   name: string;
   content: string;
+}
+
+/** One file inside a skill directory. */
+export interface SkillFile {
+  path: string;
+  content: string;
+  executable?: boolean;
+}
+
+/** A skill directory bundled as an array of files + optional universalContent. */
+export interface SkillBundle {
+  name: string;
+  files: SkillFile[];
+  universalContent?: string;
 }
 
 export interface LessonBundle {
@@ -72,18 +86,16 @@ export interface LessonBundle {
   lesson: number;
   title: string;
   summary: string;
-  skills: BundleArtifact[];
+  skills: SkillBundle[];
   prompts: BundleArtifact[];
   rules: BundleArtifact[];
   configs: BundleArtifact[];
 }
 
 /** Individual artifact as returned by /api/artifacts/:course/:lessonId/:type/:name. */
-export interface ArtifactResponse {
-  type: string;
-  name: string;
-  content: string;
-}
+export type ArtifactResponse =
+  | { type: "skills"; name: string; files: SkillFile[]; universalContent?: string }
+  | { type: "prompts" | "rules" | "configs"; name: string; content: string };
 
 export interface HealthResponse {
   status: string;

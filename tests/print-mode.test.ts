@@ -128,8 +128,18 @@ function makeBundle(overrides: Partial<LessonBundle> = {}): LessonBundle {
     title: "Intro to Claude Code",
     summary: "First steps with AI pair programming",
     skills: [
-      { name: "code-review", content: "# Code Review Skill\nReview code carefully." },
-      { name: "debugging", content: "# Debugging Skill\nDebug step by step." },
+      {
+        name: "code-review",
+        files: [
+          { path: "SKILL.md", content: "# Code Review Skill\nReview code carefully." },
+        ],
+      },
+      {
+        name: "debugging",
+        files: [
+          { path: "SKILL.md", content: "# Debugging Skill\nDebug step by step." },
+        ],
+      },
     ],
     prompts: [{ name: "plan", content: "prompt md" }],
     rules: [{ name: "tdd", content: "rules md" }],
@@ -185,7 +195,9 @@ describe("10x get --print --type --name — single artifact", () => {
     const artifact: ArtifactResponse = {
       type: "skills",
       name: "code-review",
-      content: "# Code Review Skill\nReview code carefully.",
+      files: [
+        { path: "SKILL.md", content: "# Code Review Skill\nReview code carefully." },
+      ],
     };
     apiContentMockState.fetchArtifactImpl = (_course, _id, _type, _name, _tool, _token) =>
       artifactOk(artifact);
@@ -198,7 +210,8 @@ describe("10x get --print --type --name — single artifact", () => {
     expect(parsed.status).toBe("ok");
     expect(parsed.data.type).toBe("skills");
     expect(parsed.data.name).toBe("code-review");
-    expect(parsed.data.content).toBe("# Code Review Skill\nReview code carefully.");
+    expect(parsed.data.files[0].path).toBe("SKILL.md");
+    expect(parsed.data.files[0].content).toBe("# Code Review Skill\nReview code carefully.");
   });
 
   it("outputs raw content to stdout (non-JSON / human mode)", async () => {
@@ -208,7 +221,9 @@ describe("10x get --print --type --name — single artifact", () => {
     const artifact: ArtifactResponse = {
       type: "skills",
       name: "code-review",
-      content: "# Code Review Skill\nReview code carefully.",
+      files: [
+        { path: "SKILL.md", content: "# Code Review Skill\nReview code carefully." },
+      ],
     };
     apiContentMockState.fetchArtifactImpl = () => artifactOk(artifact);
 
@@ -225,7 +240,11 @@ describe("10x get --print --type --name — single artifact", () => {
     let capturedTool = "";
     apiContentMockState.fetchArtifactImpl = (_course, _id, _type, _name, tool, _token) => {
       capturedTool = tool;
-      return artifactOk({ type: "skills", name: "code-review", content: "skill content" });
+      return artifactOk({
+        type: "skills",
+        name: "code-review",
+        files: [{ path: "SKILL.md", content: "skill content" }],
+      });
     };
 
     await runGet([

@@ -264,7 +264,13 @@ async function runPrintMode(
     if (ctx.json) {
       output(ctx, "", result.data);
     } else {
-      process.stdout.write(result.data.content);
+      const data = result.data;
+      if (data.type === "skills") {
+        const skillMd = data.files.find((f) => f.path === "SKILL.md");
+        process.stdout.write(skillMd?.content ?? "");
+      } else {
+        process.stdout.write(data.content);
+      }
     }
   } else {
     // Fetch full bundle, filter by type, concatenate
@@ -275,12 +281,25 @@ async function runPrintMode(
       handleLessonError(ctx, result.status, result.code, result.error, result.payload);
     }
 
-    const artifacts = result.data[options.type as ArtifactType];
-    if (ctx.json) {
-      output(ctx, "", artifacts);
+    const type = options.type as ArtifactType;
+    if (type === "skills") {
+      const skills = result.data.skills;
+      if (ctx.json) {
+        output(ctx, "", skills);
+      } else {
+        const contents = skills.map(
+          (s) => s.files.find((f) => f.path === "SKILL.md")?.content ?? "",
+        );
+        process.stdout.write(contents.join("\n---\n"));
+      }
     } else {
-      const contents = artifacts.map((a) => a.content);
-      process.stdout.write(contents.join("\n---\n"));
+      const artifacts = result.data[type];
+      if (ctx.json) {
+        output(ctx, "", artifacts);
+      } else {
+        const contents = artifacts.map((a) => a.content);
+        process.stdout.write(contents.join("\n---\n"));
+      }
     }
   }
 }
@@ -410,7 +429,15 @@ function renderGetResult(
   lines.push("");
   lines.push(dryRun ? `Would write to ${targetDir}/:` : `Wrote to ${targetDir}/:`);
   for (const skill of writeResult.skills) {
-    lines.push(`  [${skill.action}] skill  ${skill.path}`);
+    if (skill.files.length === 1) {
+      const f = skill.files[0]!;
+      lines.push(`  [${f.action}] skill  ${f.absolutePath}`);
+    } else {
+      lines.push(`  skill  ${skill.name} (${skill.files.length} files)`);
+      for (const f of skill.files) {
+        lines.push(`    [${f.action}] ${f.path}`);
+      }
+    }
   }
   for (const prompt of writeResult.prompts) {
     lines.push(`  [${prompt.action}] prompt ${prompt.path}`);

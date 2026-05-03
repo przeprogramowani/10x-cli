@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,8 +39,11 @@ function bundleA(): LessonBundle {
     title: "Intro",
     summary: "First lesson",
     skills: [
-      { name: "code-review", content: "# Code Review\n\nContent A\n" },
-      { name: "tdd", content: "# TDD v1\n" },
+      {
+        name: "code-review",
+        files: [{ path: "SKILL.md", content: "# Code Review\n\nContent A\n" }],
+      },
+      { name: "tdd", files: [{ path: "SKILL.md", content: "# TDD v1\n" }] },
     ],
     prompts: [{ name: "plan", content: "# plan prompt\n" }],
     rules: [{ name: "style", content: "Always test.\n" }],
@@ -56,8 +60,8 @@ function bundleB(): LessonBundle {
     summary: "Second lesson",
     skills: [
       // `tdd` is shared with A; `refactor` is exclusive to B.
-      { name: "tdd", content: "# TDD v2\n" },
-      { name: "refactor", content: "# Refactor\n" },
+      { name: "tdd", files: [{ path: "SKILL.md", content: "# TDD v2\n" }] },
+      { name: "refactor", files: [{ path: "SKILL.md", content: "# Refactor\n" }] },
     ],
     // `plan` from A is gone; `implement` is new.
     prompts: [{ name: "implement", content: "# implement prompt\n" }],
@@ -82,8 +86,10 @@ describe("writer — fresh install", () => {
       "# Code Review\n\nContent A\n",
     );
     expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe("# TDD v1\n");
-    expect(result.skills.map((s) => s.action)).toEqual(["created", "created"]);
-    expect(result.skills[0]!.path).toBe(join(tmp, ".claude/skills/code-review/SKILL.md"));
+    expect(result.skills.map((s) => s.files[0]!.action)).toEqual(["created", "created"]);
+    expect(result.skills[0]!.files[0]!.absolutePath).toBe(
+      join(tmp, ".claude/skills/code-review/SKILL.md"),
+    );
   });
 
   it("writes prompts at .claude/prompts/<name>.md", () => {
@@ -118,8 +124,11 @@ describe("writer — fresh install", () => {
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest).not.toBeNull();
     expect(manifest!.package).toBe("@przeprogramowani/10x-cli");
+    expect(manifest!.manifestVersion).toBe(2);
     expect(manifest!.lessonId).toBe("m1l1");
-    expect(manifest!.files.skills.sort()).toEqual(["code-review", "tdd"]);
+    expect(Object.keys(manifest!.files.skills).sort()).toEqual(["code-review", "tdd"]);
+    expect(manifest!.files.skills["code-review"]!.files).toEqual(["SKILL.md"]);
+    expect(manifest!.files.skills["tdd"]!.files).toEqual(["SKILL.md"]);
     expect(manifest!.files.prompts).toEqual(["plan.md"]);
     expect(manifest!.files.configs).toEqual(["settings.json"]);
     // ISO timestamp round-trippable.
@@ -136,7 +145,9 @@ describe("writer — idempotent re-apply", () => {
     applyBundle(bundleA(), tmp);
     const result = applyBundle(bundleA(), tmp);
 
-    for (const s of result.skills) expect(s.action).toBe("unchanged");
+    for (const s of result.skills) {
+      for (const f of s.files) expect(f.action).toBe("unchanged");
+    }
     for (const p of result.prompts) expect(p.action).toBe("unchanged");
     for (const c of result.configs) expect(c.action).toBe("skipped");
     expect(result.rules.action).toBe("unchanged");
@@ -246,9 +257,149 @@ describe("writer — cleanup on re-apply", () => {
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest).not.toBeNull();
     expect(manifest!.lessonId).toBe("m1l2");
-    expect(manifest!.files.skills.sort()).toEqual(["refactor", "tdd"]);
+    expect(Object.keys(manifest!.files.skills).sort()).toEqual(["refactor", "tdd"]);
     expect(manifest!.files.prompts).toEqual(["implement.md"]);
     expect(manifest!.files.configs.sort()).toEqual(["hooks.json", "settings.json"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-file skills
+// ---------------------------------------------------------------------------
+
+describe("writer — multi-file skills", () => {
+  function multiFileBundle(): LessonBundle {
+    return {
+      lessonId: "m2l1",
+      module: 2,
+      lesson: 1,
+      title: "Multi",
+      summary: "",
+      skills: [
+        {
+          name: "10x-plan",
+          files: [
+            { path: "SKILL.md", content: "# 10x-plan\n" },
+            {
+              path: "scripts/check-context.sh",
+              content: "#!/bin/bash\necho 'low|0'\n",
+              executable: true,
+            },
+            { path: "references/format.md", content: "# format reference\n" },
+          ],
+        },
+      ],
+      prompts: [],
+      rules: [],
+      configs: [],
+    };
+  }
+
+  it("materializes every file at its relative path under the skill dir", () => {
+    applyBundle(multiFileBundle(), tmp);
+
+    expect(readFileSync(join(tmp, ".claude/skills/10x-plan/SKILL.md"), "utf8")).toBe(
+      "# 10x-plan\n",
+    );
+    expect(
+      readFileSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh"), "utf8"),
+    ).toBe("#!/bin/bash\necho 'low|0'\n");
+    expect(
+      readFileSync(join(tmp, ".claude/skills/10x-plan/references/format.md"), "utf8"),
+    ).toBe("# format reference\n");
+  });
+
+  it("applies +x to files marked executable", () => {
+    applyBundle(multiFileBundle(), tmp);
+    const mode = statSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh")).mode;
+    expect((mode & 0o111) !== 0).toBe(true);
+  });
+
+  it("non-executable files are not chmod-marked +x", () => {
+    applyBundle(multiFileBundle(), tmp);
+    const mode = statSync(join(tmp, ".claude/skills/10x-plan/SKILL.md")).mode;
+    expect((mode & 0o111) === 0).toBe(true);
+  });
+
+  it("manifest records every file path under the skill", () => {
+    applyBundle(multiFileBundle(), tmp);
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.files.skills["10x-plan"]!.files.sort()).toEqual([
+      "SKILL.md",
+      "references/format.md",
+      "scripts/check-context.sh",
+    ]);
+  });
+
+  it("removes a file dropped from a retained skill on re-apply", () => {
+    applyBundle(multiFileBundle(), tmp);
+    expect(
+      existsSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh")),
+    ).toBe(true);
+
+    // Same skill, but the script file is gone upstream.
+    const next: LessonBundle = {
+      ...multiFileBundle(),
+      skills: [
+        {
+          name: "10x-plan",
+          files: [
+            { path: "SKILL.md", content: "# 10x-plan\n" },
+            { path: "references/format.md", content: "# format reference\n" },
+          ],
+        },
+      ],
+    };
+    applyBundle(next, tmp);
+
+    expect(
+      existsSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh")),
+    ).toBe(false);
+    // Empty parent dir should be cleaned up too.
+    expect(existsSync(join(tmp, ".claude/skills/10x-plan/scripts"))).toBe(false);
+    // SKILL.md and other retained file are still there.
+    expect(existsSync(join(tmp, ".claude/skills/10x-plan/SKILL.md"))).toBe(true);
+    expect(
+      existsSync(join(tmp, ".claude/skills/10x-plan/references/format.md")),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Manifest v1 → v2 migration
+// ---------------------------------------------------------------------------
+
+describe("writer — v1 manifest is treated as no-prior-state", () => {
+  it("readManifest returns null for v1 shape and cleanup is skipped", () => {
+    // Hand-craft a v1 manifest: skills as `string[]`, no manifestVersion.
+    mkdirSync(join(tmp, ".claude"), { recursive: true });
+    writeFileSync(
+      join(tmp, ".claude", MANIFEST_FILENAME),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "0.5.0",
+        lastApplied: "2026-04-30T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        files: { skills: ["legacy-skill"], prompts: [], configs: [] },
+      }),
+    );
+    // Pre-create the legacy skill on disk so we can prove cleanup didn't
+    // touch it.
+    mkdirSync(join(tmp, ".claude/skills/legacy-skill"), { recursive: true });
+    writeFileSync(join(tmp, ".claude/skills/legacy-skill/SKILL.md"), "old\n");
+
+    expect(readManifest(join(tmp, ".claude"))).toBeNull();
+
+    // Apply a fresh bundle that doesn't reference legacy-skill. With the v1
+    // manifest treated as null, cleanup is a no-op for one cycle — the
+    // legacy file survives.
+    applyBundle(bundleA(), tmp);
+    expect(existsSync(join(tmp, ".claude/skills/legacy-skill/SKILL.md"))).toBe(true);
+
+    // The freshly written manifest is v2.
+    const next = readManifest(join(tmp, ".claude"));
+    expect(next!.manifestVersion).toBe(2);
   });
 });
 
@@ -306,6 +457,31 @@ describe("writer — unsafe artifact names", () => {
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
   });
 
+  it("throws on a skill file path containing '..' before any write", () => {
+    const bundle = bundleA();
+    bundle.skills[0]!.files.push({ path: "../evil.sh", content: "rm -rf" });
+    expect(() => applyBundle(bundle, tmp)).toThrow(/unsafe file path/);
+    expect(existsSync(join(tmp, ".claude"))).toBe(false);
+  });
+
+  it("throws on an absolute skill file path", () => {
+    const bundle = bundleA();
+    bundle.skills[0]!.files.push({ path: "/etc/passwd", content: "x" });
+    expect(() => applyBundle(bundle, tmp)).toThrow(/unsafe file path/);
+  });
+
+  it("throws on an empty skill file path", () => {
+    const bundle = bundleA();
+    bundle.skills[0]!.files.push({ path: "", content: "x" });
+    expect(() => applyBundle(bundle, tmp)).toThrow(/unsafe file path/);
+  });
+
+  it("throws on a backslash-separated path traversal", () => {
+    const bundle = bundleA();
+    bundle.skills[0]!.files.push({ path: "..\\evil.sh", content: "x" });
+    expect(() => applyBundle(bundle, tmp)).toThrow(/unsafe file path/);
+  });
+
   it("cleanup silently skips tampered manifest entries instead of rm -rf escaping claudeDir", () => {
     // First apply a clean bundle so a manifest exists.
     applyBundle(bundleA(), tmp);
@@ -313,7 +489,7 @@ describe("writer — unsafe artifact names", () => {
     // Now tamper with the manifest on disk to sneak in an unsafe name.
     const manifestPath = join(tmp, ".claude", MANIFEST_FILENAME);
     const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
-    raw.files.skills.push("../../../should-not-be-removed");
+    raw.files.skills["../../../should-not-be-removed"] = { files: ["SKILL.md"] };
     writeFileSync(manifestPath, JSON.stringify(raw));
 
     // Second apply should not throw and should not rmSync outside claudeDir.
@@ -331,7 +507,7 @@ describe("writer — dry run", () => {
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
 
-    expect(result.skills.map((s) => s.action)).toEqual(["created", "created"]);
+    expect(result.skills.map((s) => s.files[0]!.action)).toEqual(["created", "created"]);
     expect(result.prompts[0]!.action).toBe("created");
     expect(result.configs[0]!.action).toBe("created");
     expect(result.rules.action).toBe("created");

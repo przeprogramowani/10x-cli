@@ -14,6 +14,7 @@ export interface ToolProfile {
   toolId: string;
   displayName: string;
   skillPath: (name: string) => string;
+  skillDir: (name: string) => string;
   promptPath: (name: string) => string;
   configPath: (name: string) => string;
   rulesFile: string;
@@ -27,6 +28,7 @@ export const PROFILES: Record<string, ToolProfile> = {
     toolId: "claude-code",
     displayName: "Claude Code",
     skillPath: (n) => `.claude/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.claude/skills/${n}`,
     promptPath: (n) => `.claude/prompts/${n}.md`,
     configPath: (n) => `.claude/config-templates/${n}`,
     rulesFile: "CLAUDE.md",
@@ -38,6 +40,7 @@ export const PROFILES: Record<string, ToolProfile> = {
     toolId: "cursor",
     displayName: "Cursor",
     skillPath: (n) => `.cursor/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.cursor/skills/${n}`,
     promptPath: (n) => `.cursor/prompts/${n}.md`,
     configPath: (n) => `.cursor/config-templates/${n}`,
     rulesFile: ".cursor/rules/10x-course.mdc",
@@ -49,6 +52,7 @@ export const PROFILES: Record<string, ToolProfile> = {
     toolId: "copilot",
     displayName: "GitHub Copilot",
     skillPath: (n) => `.github/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.github/skills/${n}`,
     promptPath: (n) => `.github/prompts/${n}.md`,
     configPath: (n) => `.github/config-templates/${n}`,
     rulesFile: ".github/copilot-instructions.md",
@@ -60,6 +64,7 @@ export const PROFILES: Record<string, ToolProfile> = {
     toolId: "codex",
     displayName: "Codex CLI",
     skillPath: (n) => `.agents/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.agents/skills/${n}`,
     promptPath: (n) => `.agents/prompts/${n}.md`,
     configPath: (n) => `.agents/config-templates/${n}`,
     rulesFile: "AGENTS.md",
@@ -71,6 +76,7 @@ export const PROFILES: Record<string, ToolProfile> = {
     toolId: "generic",
     displayName: "Other / Generic",
     skillPath: (n) => `.ai/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.ai/skills/${n}`,
     promptPath: (n) => `.ai/prompts/${n}.md`,
     configPath: (n) => `.ai/config-templates/${n}`,
     rulesFile: "AGENTS.md",

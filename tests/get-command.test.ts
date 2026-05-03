@@ -146,7 +146,9 @@ function makeBundle(overrides: Partial<LessonBundle> = {}): LessonBundle {
     lesson: 1,
     title: "Intro to Claude Code",
     summary: "First steps with AI pair programming",
-    skills: [{ name: "code-review", content: "skill md" }],
+    skills: [
+      { name: "code-review", files: [{ path: "SKILL.md", content: "skill md" }] },
+    ],
     prompts: [{ name: "plan", content: "prompt md" }],
     rules: [{ name: "tdd", content: "rules md" }],
     configs: [{ name: "settings.json", content: "{}" }],
@@ -234,7 +236,10 @@ describe("10x get — happy path", () => {
       lessonId: string;
       title: string;
       writes: {
-        skills: { name: string; path: string; action: string }[];
+        skills: {
+          name: string;
+          files: { path: string; absolutePath: string; action: string }[];
+        }[];
         prompts: { name: string; path: string; action: string }[];
         rules: { action: string };
         configs: { name: string; path: string; action: string }[];
@@ -247,7 +252,9 @@ describe("10x get — happy path", () => {
     expect(data.title).toBe("Intro to Claude Code");
     expect(data.counts).toEqual({ skills: 1, prompts: 1, rules: 1, configs: 1 });
     expect(data.writes.skills[0]!.name).toBe("code-review");
-    expect(data.writes.skills[0]!.path).toContain(".claude/skills/code-review/SKILL.md");
+    expect(data.writes.skills[0]!.files[0]!.absolutePath).toContain(
+      ".claude/skills/code-review/SKILL.md",
+    );
     expect(data.writes.prompts[0]!.path).toContain(".claude/prompts/plan.md");
     expect(data.writes.configs[0]!.path).toContain(".claude/config-templates/settings.json");
     expect(data.dry_run).toBe(false);

@@ -279,14 +279,18 @@ describe("resolveToolProfile — tool-switch migration", () => {
 
   function seedOrphanManifest(toolId: string, skills: string[] = []): void {
     const profile = PROFILES[toolId]!;
+    const skillsRecord = Object.fromEntries(
+      skills.map((s) => [s, { files: ["SKILL.md"] }]),
+    );
     const manifest: CliManifest = {
       package: CLI_PACKAGE_NAME,
       version: "0.5.0",
+      manifestVersion: 2,
       lastApplied: "2026-04-18T00:00:00Z",
       lessonId: "m1l1",
       course: "10xDevs",
       tool: toolId,
-      files: { skills, prompts: [], configs: [] },
+      files: { skills: skillsRecord, prompts: [], configs: [] },
     };
     const manifestPath = join(projectRoot, profile.manifestDir, MANIFEST_FILENAME);
     mkdirSync(join(projectRoot, profile.manifestDir), { recursive: true });

@@ -29,7 +29,7 @@ import { dirname, join } from "node:path";
 import { readFileOrNull } from "./fs-utils";
 import { removeRulesBlockWithMarkers } from "./sentinel-migration";
 import type { ToolProfile } from "./tool-profile";
-import { isSafeName, type OrphanInfo } from "./writer";
+import { isSafeName, isSafeSkillFilePath, type OrphanInfo } from "./writer";
 
 export interface MigrationSummary {
   action: "migrated" | "deleted" | "kept";
@@ -66,16 +66,28 @@ export function migrateArtifacts(
   };
   const oldProfile = orphan.profile;
 
-  for (const skillName of orphan.manifest.files.skills) {
+  for (const [skillName, entry] of Object.entries(orphan.manifest.files.skills)) {
     if (!isSafeName(skillName)) {
       summary.skipped.push({ path: skillName, reason: "unsafe name in manifest" });
       continue;
     }
-    const from = join(projectRoot, oldProfile.skillPath(skillName));
-    const to = join(projectRoot, newProfile.skillPath(skillName));
-    if (moveIfSafe(from, to, summary.skipped)) {
-      summary.movedOrRemoved.skills.push(skillName);
+    const fromSkillDir = join(projectRoot, oldProfile.skillDir(skillName));
+    const toSkillDir = join(projectRoot, newProfile.skillDir(skillName));
+    let anyMoved = false;
+    for (const relPath of entry.files) {
+      if (!isSafeSkillFilePath(relPath)) {
+        summary.skipped.push({
+          path: `${skillName}/${relPath}`,
+          reason: "unsafe path in manifest",
+        });
+        continue;
+      }
+      const from = join(fromSkillDir, relPath);
+      const to = join(toSkillDir, relPath);
+      if (moveIfSafe(from, to, summary.skipped)) anyMoved = true;
     }
+    tryRemoveEmptyDir(fromSkillDir);
+    if (anyMoved) summary.movedOrRemoved.skills.push(skillName);
   }
   for (const promptFile of orphan.manifest.files.prompts) {
     if (!isSafeName(promptFile)) {
@@ -139,15 +151,23 @@ export function deleteArtifacts(
   };
   const oldProfile = orphan.profile;
 
-  for (const skillName of orphan.manifest.files.skills) {
+  for (const [skillName, entry] of Object.entries(orphan.manifest.files.skills)) {
     if (!isSafeName(skillName)) {
       summary.skipped.push({ path: skillName, reason: "unsafe name in manifest" });
       continue;
     }
-    const skillFile = join(projectRoot, oldProfile.skillPath(skillName));
-    const skillDir = dirname(skillFile);
-    rmSync(skillFile, { force: true });
-    tryRemoveEmptyDir(skillDir);
+    const skillDir = join(projectRoot, oldProfile.skillDir(skillName));
+    for (const relPath of entry.files) {
+      if (!isSafeSkillFilePath(relPath)) {
+        summary.skipped.push({
+          path: `${skillName}/${relPath}`,
+          reason: "unsafe path in manifest",
+        });
+        continue;
+      }
+      rmSync(join(skillDir, relPath), { force: true });
+    }
+    rmSync(skillDir, { recursive: true, force: true });
     summary.movedOrRemoved.skills.push(skillName);
   }
   for (const promptFile of orphan.manifest.files.prompts) {

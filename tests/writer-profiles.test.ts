@@ -37,7 +37,9 @@ function makeBundle(): LessonBundle {
     lesson: 1,
     title: "Intro",
     summary: "First lesson",
-    skills: [{ name: "code-review", content: "# Code Review\n" }],
+    skills: [
+      { name: "code-review", files: [{ path: "SKILL.md", content: "# Code Review\n" }] },
+    ],
     prompts: [{ name: "plan", content: "# plan prompt\n" }],
     rules: [{ name: "style", content: "Always test.\n" }],
     configs: [{ name: "settings.json", content: '{"a":1}\n' }],
@@ -57,7 +59,7 @@ describe("writer with cursor profile", () => {
     expect(readFileSync(join(tmp, ".cursor/skills/code-review/SKILL.md"), "utf8")).toBe(
       "# Code Review\n",
     );
-    expect(result.skills[0]!.action).toBe("created");
+    expect(result.skills[0]!.files[0]!.action).toBe("created");
   });
 
   it("writes prompts to .cursor/prompts/<name>.md", () => {
@@ -186,7 +188,9 @@ describe("writer cleanup with profiles", () => {
       lesson: 2,
       title: "Second",
       summary: "",
-      skills: [{ name: "refactor", content: "# Refactor\n" }],
+      skills: [
+        { name: "refactor", files: [{ path: "SKILL.md", content: "# Refactor\n" }] },
+      ],
       prompts: [],
       rules: [],
       configs: [],
@@ -219,11 +223,12 @@ describe("detectOrphanedArtifacts", () => {
       JSON.stringify({
         package: "@przeprogramowani/10x-cli",
         version: "1.0.0",
+        manifestVersion: 2,
         lastApplied: new Date().toISOString(),
         lessonId: "m1l1",
         course: "10xdevs3",
         tool: "cursor",
-        files: { skills: [], prompts: [], configs: [] },
+        files: { skills: {}, prompts: [], configs: [] },
       }),
     );
 

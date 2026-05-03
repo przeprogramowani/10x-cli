@@ -13,9 +13,12 @@
  */
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  rmdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -25,6 +28,7 @@ import {
   CLI_PACKAGE_NAME,
   type CliManifest,
   MANIFEST_FILENAME,
+  MANIFEST_VERSION,
   readManifest,
   writeManifest,
 } from "./manifest";
@@ -50,8 +54,19 @@ export interface ArtifactWrite {
   action: ArtifactAction;
 }
 
+export interface SkillFileWrite {
+  path: string;
+  absolutePath: string;
+  action: ArtifactAction;
+}
+
+export interface SkillWrite {
+  name: string;
+  files: SkillFileWrite[];
+}
+
 export interface WriteResult {
-  skills: ArtifactWrite[];
+  skills: SkillWrite[];
   prompts: ArtifactWrite[];
   rules: { action: ArtifactAction };
   configs: ArtifactWrite[];
@@ -102,18 +117,30 @@ export function applyBundle(
   // escape the target directory — see `assertSafeName` below. This runs
   // before any filesystem mutation so a malformed/tampered bundle aborts
   // cleanly.
-  for (const skill of bundle.skills) assertSafeName(skill.name, "skill");
+  for (const skill of bundle.skills) {
+    assertSafeName(skill.name, "skill");
+    for (const file of skill.files) {
+      assertSafeSkillFilePath(file.path, skill.name);
+    }
+  }
   for (const prompt of bundle.prompts) assertSafeName(prompt.name, "prompt");
   for (const config of bundle.configs) assertSafeName(config.name, "config");
 
   // --- skills -----------------------------------------------------------
-  const skills: ArtifactWrite[] = bundle.skills.map((skill) => {
-    const target = join(projectRoot, profile.skillPath(skill.name));
-    const action = computeFileAction(target, skill.content);
-    if (!dryRun && action !== "unchanged") {
-      writeFileAt(target, skill.content);
-    }
-    return { name: skill.name, path: target, action };
+  const skills: SkillWrite[] = bundle.skills.map((skill) => {
+    const skillDir = join(projectRoot, profile.skillDir(skill.name));
+    const fileWrites: SkillFileWrite[] = skill.files.map((file) => {
+      const target = join(skillDir, file.path);
+      const action = computeFileAction(target, file.content);
+      if (!dryRun && action !== "unchanged") {
+        writeFileAt(target, file.content);
+      }
+      if (!dryRun && file.executable === true && action !== "unchanged") {
+        chmodSync(target, 0o755);
+      }
+      return { path: file.path, absolutePath: target, action };
+    });
+    return { name: skill.name, files: fileWrites };
   });
 
   // --- prompts ----------------------------------------------------------
@@ -165,7 +192,11 @@ export function applyBundle(
   // --- cleanup of stale artifacts from the previous lesson --------------
   if (!dryRun && !partial) {
     const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
-    for (const entry of removed.skills) rmSync(entry.path, { recursive: true, force: true });
+    for (const entry of removed.skillDirs) rmSync(entry.path, { recursive: true, force: true });
+    for (const entry of removed.skillFiles) {
+      rmSync(entry.path, { force: true });
+      removeEmptyParentDirs(entry.path, entry.skillDirAbs);
+    }
     for (const entry of removed.prompts) rmSync(entry.path, { force: true });
     for (const entry of removed.configs) rmSync(entry.path, { force: true });
   }
@@ -175,12 +206,15 @@ export function applyBundle(
     const nextManifest: CliManifest = {
       package: CLI_PACKAGE_NAME,
       version: CLI_VERSION,
+      manifestVersion: MANIFEST_VERSION,
       lastApplied: new Date().toISOString(),
       lessonId: bundle.lessonId,
       course,
       tool: profile.toolId,
       files: {
-        skills: bundle.skills.map((s) => s.name),
+        skills: Object.fromEntries(
+          bundle.skills.map((s) => [s.name, { files: s.files.map((f) => f.path) }]),
+        ),
         prompts: bundle.prompts.map((p) => `${p.name}.md`),
         configs: bundle.configs.map((c) => c.name),
       },
@@ -226,7 +260,8 @@ function writeFileAt(filePath: string, content: string): void {
 }
 
 interface RemovalPlan {
-  skills: { name: string; path: string }[];
+  skillDirs: { name: string; path: string }[];
+  skillFiles: { name: string; path: string; skillDirAbs: string }[];
   prompts: { name: string; path: string }[];
   configs: { name: string; path: string }[];
 }
@@ -237,23 +272,48 @@ function computeRemovals(
   profile: ToolProfile,
   projectRoot: string,
 ): RemovalPlan {
-  const empty: RemovalPlan = { skills: [], prompts: [], configs: [] };
+  const empty: RemovalPlan = {
+    skillDirs: [],
+    skillFiles: [],
+    prompts: [],
+    configs: [],
+  };
   if (!prevManifest) return empty;
 
-  const currentSkills = new Set(bundle.skills.map((s) => s.name));
+  const currentSkills = new Map(
+    bundle.skills.map((s) => [s.name, new Set(s.files.map((f) => f.path))]),
+  );
   const currentPrompts = new Set(bundle.prompts.map((p) => `${p.name}.md`));
   const currentConfigs = new Set(bundle.configs.map((c) => c.name));
 
-  const removed: RemovalPlan = { skills: [], prompts: [], configs: [] };
+  const removed: RemovalPlan = {
+    skillDirs: [],
+    skillFiles: [],
+    prompts: [],
+    configs: [],
+  };
 
-  for (const skillName of prevManifest.files.skills) {
-    if (currentSkills.has(skillName)) continue;
+  for (const [skillName, entry] of Object.entries(prevManifest.files.skills)) {
     // Defense in depth: a tampered manifest could have names that escape
     // the target dir via `..`. Skip rather than rmSync anything scary.
     if (!isSafeName(skillName)) continue;
-    // Skill paths include the directory, so remove the parent dir
-    const skillTarget = join(projectRoot, profile.skillPath(skillName));
-    removed.skills.push({ name: skillName, path: dirname(skillTarget) });
+    const skillDirAbs = join(projectRoot, profile.skillDir(skillName));
+
+    if (!currentSkills.has(skillName)) {
+      removed.skillDirs.push({ name: skillName, path: skillDirAbs });
+      continue;
+    }
+
+    const currentFiles = currentSkills.get(skillName)!;
+    for (const relPath of entry.files) {
+      if (currentFiles.has(relPath)) continue;
+      if (!isSafeSkillFilePath(relPath)) continue;
+      removed.skillFiles.push({
+        name: `${skillName}/${relPath}`,
+        path: join(skillDirAbs, relPath),
+        skillDirAbs,
+      });
+    }
   }
   for (const promptFile of prevManifest.files.prompts) {
     if (currentPrompts.has(promptFile)) continue;
@@ -274,6 +334,25 @@ function computeRemovals(
     });
   }
   return removed;
+}
+
+/**
+ * After deleting a single file inside a retained skill directory, walk back
+ * up the parent chain and prune any directory that is now empty — but stop
+ * the moment we hit `skillDirAbs`. The skill directory itself is preserved
+ * even when empty, since the next apply may write fresh files into it.
+ */
+function removeEmptyParentDirs(filePath: string, skillDirAbs: string): void {
+  let dir = dirname(filePath);
+  while (dir.startsWith(skillDirAbs) && dir !== skillDirAbs) {
+    try {
+      if (readdirSync(dir).length > 0) return;
+      rmdirSync(dir);
+    } catch {
+      return;
+    }
+    dir = dirname(dir);
+  }
 }
 
 export interface OrphanInfo {
@@ -335,6 +414,36 @@ function assertSafeName(name: string, kind: "skill" | "prompt" | "config"): void
       `refused to write unsafe ${kind} name ${JSON.stringify(name)} — must not be empty, contain path separators, or start with '.'`,
     );
   }
+}
+
+/**
+ * Validate a relative file path inside a skill directory. The bundle ships
+ * paths like "SKILL.md" or "scripts/check-context.sh"; a tampered bundle
+ * could attempt path traversal via `..` or absolute paths to escape the
+ * skill dir and write outside `.claude/`. Every component must pass
+ * `isSafeName` so platform-specific reserved names (Windows ADS,
+ * CON/PRN/...) can't slip through either.
+ */
+function assertSafeSkillFilePath(relPath: unknown, skillName: string): void {
+  if (!isSafeSkillFilePath(relPath)) {
+    throw new Error(
+      `refused to write unsafe file path ${JSON.stringify(relPath)} inside skill ${JSON.stringify(skillName)}`,
+    );
+  }
+}
+
+export function isSafeSkillFilePath(relPath: unknown): boolean {
+  if (typeof relPath !== "string" || relPath.length === 0) return false;
+  if (relPath.startsWith("/") || relPath.startsWith("\\")) return false;
+  // Reject Windows-style drive prefixes ("C:foo", "C:\\foo").
+  if (/^[a-zA-Z]:/.test(relPath)) return false;
+  const segments = relPath.split(/[/\\]/);
+  if (segments.length === 0) return false;
+  for (const seg of segments) {
+    if (seg === "" || seg === "." || seg === "..") return false;
+    if (!isSafeName(seg)) return false;
+  }
+  return true;
 }
 
 export function isSafeName(name: string): boolean {
