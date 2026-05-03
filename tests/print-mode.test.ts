@@ -235,6 +235,97 @@ describe("10x get --print --type --name — single artifact", () => {
     expect(stdout).toBe("# Code Review Skill\nReview code carefully.");
   });
 
+  it("emits a stderr notice listing extra files for a multi-file skill (human mode)", async () => {
+    writeValidAuth();
+    process.stdout.isTTY = true;
+    const artifact: ArtifactResponse = {
+      type: "skills",
+      name: "10x-plan",
+      files: [
+        { path: "SKILL.md", content: "# 10x-plan\n" },
+        {
+          path: "scripts/check-context.sh",
+          content: "#!/bin/bash\n",
+          executable: true,
+        },
+        { path: "references/format.md", content: "# format\n" },
+      ],
+    };
+    apiContentMockState.fetchArtifactImpl = () => artifactOk(artifact);
+
+    const { stdout, stderr, exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--print",
+      "--type",
+      "skills",
+      "--name",
+      "10x-plan",
+      "--tool",
+      "claude-code",
+    ]);
+    expect(exitCode ?? 0).toBe(0);
+    // stdout contains ONLY SKILL.md content — extras don't leak.
+    expect(stdout).toBe("# 10x-plan\n");
+    // stderr names every extra path in document order.
+    expect(stderr).toContain('Note: skill "10x-plan" has 2 additional files');
+    expect(stderr).toContain("scripts/check-context.sh");
+    expect(stderr).toContain("references/format.md");
+    expect(stderr).toContain("Run without --print to materialize all files");
+  });
+
+  it("does not emit a notice for a single-file skill", async () => {
+    writeValidAuth();
+    process.stdout.isTTY = true;
+    const artifact: ArtifactResponse = {
+      type: "skills",
+      name: "code-review",
+      files: [{ path: "SKILL.md", content: "# only one file\n" }],
+    };
+    apiContentMockState.fetchArtifactImpl = () => artifactOk(artifact);
+
+    const { stdout, stderr, exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--print",
+      "--type",
+      "skills",
+      "--name",
+      "code-review",
+      "--tool",
+      "claude-code",
+    ]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(stdout).toBe("# only one file\n");
+    expect(stderr).not.toContain("additional file");
+  });
+
+  it("does not emit the stderr notice in JSON mode (full files[] is already in stdout)", async () => {
+    writeValidAuth();
+    const artifact: ArtifactResponse = {
+      type: "skills",
+      name: "10x-plan",
+      files: [
+        { path: "SKILL.md", content: "# 10x-plan\n" },
+        { path: "scripts/check-context.sh", content: "#!/bin/bash\n", executable: true },
+      ],
+    };
+    apiContentMockState.fetchArtifactImpl = () => artifactOk(artifact);
+
+    const { stderr, exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--print",
+      "--type",
+      "skills",
+      "--name",
+      "10x-plan",
+      "--json",
+    ]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(stderr).not.toContain("additional file");
+  });
+
   it("passes tool param to fetchArtifact", async () => {
     writeValidAuth();
     let capturedTool = "";
@@ -314,6 +405,47 @@ describe("10x get --print --type — type filter (no name)", () => {
     expect(stdout).toBe(
       "# Code Review Skill\nReview code carefully.\n---\n# Debugging Skill\nDebug step by step.",
     );
+  });
+
+  it("emits one stderr notice per multi-file skill in the bundle (human mode)", async () => {
+    writeValidAuth();
+    process.stdout.isTTY = true;
+    const bundle = makeBundle({
+      skills: [
+        {
+          name: "10x-plan",
+          files: [
+            { path: "SKILL.md", content: "# 10x-plan\n" },
+            {
+              path: "scripts/check-context.sh",
+              content: "#!/bin/bash\n",
+              executable: true,
+            },
+          ],
+        },
+        {
+          // single-file skill — must NOT trigger a notice
+          name: "code-review",
+          files: [{ path: "SKILL.md", content: "# code-review\n" }],
+        },
+      ],
+    });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(bundle);
+
+    const { stderr, exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--print",
+      "--type",
+      "skills",
+      "--tool",
+      "claude-code",
+    ]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(stderr).toContain('Note: skill "10x-plan" has 1 additional file ');
+    expect(stderr).toContain("scripts/check-context.sh");
+    // Single-file skill should not generate a notice.
+    expect(stderr).not.toContain('"code-review"');
   });
 
   it("--print with --type prompts outputs prompt content", async () => {

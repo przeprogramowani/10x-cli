@@ -268,6 +268,7 @@ async function runPrintMode(
       if (data.type === "skills") {
         const skillMd = data.files.find((f) => f.path === "SKILL.md");
         process.stdout.write(skillMd?.content ?? "");
+        emitMultiFileSkillNotice(data.name, data.files);
       } else {
         process.stdout.write(data.content);
       }
@@ -291,6 +292,7 @@ async function runPrintMode(
           (s) => s.files.find((f) => f.path === "SKILL.md")?.content ?? "",
         );
         process.stdout.write(contents.join("\n---\n"));
+        for (const skill of skills) emitMultiFileSkillNotice(skill.name, skill.files);
       }
     } else {
       const artifacts = result.data[type];
@@ -302,6 +304,23 @@ async function runPrintMode(
       }
     }
   }
+}
+
+/**
+ * In --print human mode we only emit SKILL.md to stdout; everything else in
+ * the skill directory is silently invisible. Tell the student about it on
+ * stderr so they don't assume the print output is the whole skill.
+ */
+function emitMultiFileSkillNotice(
+  skillName: string,
+  files: { path: string }[],
+): void {
+  const extras = files.filter((f) => f.path !== "SKILL.md").map((f) => f.path);
+  if (extras.length === 0) return;
+  process.stderr.write(
+    `Note: skill "${skillName}" has ${extras.length} additional file${extras.length === 1 ? "" : "s"} not shown in --print: ${extras.join(", ")}.\n` +
+      `Run without --print to materialize all files.\n`,
+  );
 }
 
 function handleLessonError(
