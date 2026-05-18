@@ -372,6 +372,42 @@ describe("10x list — human output formatting", () => {
     expect(stderr).not.toContain("Another secret");
     expect(stderr).not.toContain("TBD");
   });
+
+  it("language hint points at a concrete '10x get … --lang pl', not 'list --lang'", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchModuleDetailImpl = () =>
+      moduleOk(
+        makeModuleDetail({
+          lessons: [
+            { lessonId: "m1l1", lesson: 1, title: "Setup", summary: "Install the CLI" },
+            {
+              lessonId: "m1l2",
+              lesson: 2,
+              title: "First prompt",
+              summary: "Write your first prompt",
+              availableLanguages: ["en", "pl"],
+            },
+          ],
+        }),
+      );
+
+    const { stderr, exitCode } = await withHumanTTY(() => runList(["list", "1"]));
+    expect(exitCode ?? 0).toBe(0);
+    expect(stderr).toContain("Language variants available.");
+    // Must reference the lesson that actually has a Polish variant, via `get`.
+    expect(stderr).toContain("10x get m1l2 --lang pl");
+    // The old, broken hint suggested a `list --lang` form CAC rejects.
+    expect(stderr).not.toContain("Use --lang pl");
+  });
+
+  it("omits the language hint when no lesson has multiple languages", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchModuleDetailImpl = () => moduleOk(makeModuleDetail());
+
+    const { stderr, exitCode } = await withHumanTTY(() => runList(["list", "1"]));
+    expect(exitCode ?? 0).toBe(0);
+    expect(stderr).not.toContain("Language variants available.");
+  });
 });
 
 describe("10x list — all modules", () => {

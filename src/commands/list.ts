@@ -235,12 +235,18 @@ function renderModuleDetail(ctx: OutputContext, module: ModuleDetailResponse): v
     }
   }
 
-  const hasMultiLang = module.lessons.some(
+  // The catalog/module endpoints have no lang param — language is chosen at
+  // fetch time by `10x get`. Point at a concrete lesson so the hint is
+  // copy-pasteable and actually runs (the old text suggested `list --lang`,
+  // which CAC rejects since `list` never registered that option).
+  const multiLangLesson = module.lessons.find(
     (l) => l.availableLanguages && l.availableLanguages.length > 1,
   );
-  if (hasMultiLang) {
+  if (multiLangLesson) {
     lines.push("");
-    lines.push("Language variants available. Use --lang pl to fetch Polish content.");
+    lines.push(
+      `Language variants available. Fetch Polish content:  10x get ${multiLangLesson.lessonId} --lang pl`,
+    );
   }
   output(ctx, lines.join("\n"), undefined);
 }
