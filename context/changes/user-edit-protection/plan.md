@@ -465,11 +465,11 @@ SHA-256 hashing of text files is negligible — a typical skill file is <10KB, a
 
 #### Automated
 
-- [x] 3.1 Type checking passes: `bun run typecheck`
-- [x] 3.2 Linting passes: `bun run lint`
-- [x] 3.3 All tests pass: `bun test`
-- [x] 3.4 Build succeeds: `bun run build`
-- [x] 3.5 Binary build succeeds: `bun run build:binary`
+- [x] 3.1 Type checking passes: `bun run typecheck` — 802ea46
+- [x] 3.2 Linting passes: `bun run lint` — 802ea46
+- [x] 3.3 All tests pass: `bun test` — 802ea46
+- [x] 3.4 Build succeeds: `bun run build` — 802ea46
+- [x] 3.5 Binary build succeeds: `bun run build:binary` — 802ea46
 
 #### Manual
 
@@ -484,9 +484,9 @@ SHA-256 hashing of text files is negligible — a typical skill file is <10KB, a
 
 #### Automated
 
-- [ ] 4.1 All tests pass: `bun test`
-- [ ] 4.2 Type checking passes: `bun run typecheck`
-- [ ] 4.3 Full CI pipeline passes
+- [x] 4.1 All tests pass: `bun test`
+- [x] 4.2 Type checking passes: `bun run typecheck`
+- [x] 4.3 Full CI pipeline passes
 
 #### Manual
 

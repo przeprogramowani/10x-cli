@@ -242,7 +242,7 @@ describe("10x get — happy path", () => {
         rules: { action: string };
         configs: { name: string; path: string; action: string }[];
       };
-      counts: { skills: number; prompts: number; rules: number; configs: number };
+      counts: { skills: number; prompts: number; rules: number; configs: number; removals: number };
       dry_run: boolean;
     }>(stdout);
 

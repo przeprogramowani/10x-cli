@@ -18,8 +18,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LessonBundle } from "../src/lib/api-content";
-import { MANIFEST_FILENAME, readManifest } from "../src/lib/manifest";
-import { applyBundle } from "../src/lib/writer";
+import { contentHash, MANIFEST_FILENAME, readManifest } from "../src/lib/manifest";
+import { applyBundle, type ConflictInfo, type ConflictResolution } from "../src/lib/writer";
 
 let tmp: string;
 
@@ -534,5 +534,360 @@ describe("writer — dry run", () => {
     // Files from A must still exist on disk — dry-run must not remove them.
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conflict detection — three-way hash comparison
+// ---------------------------------------------------------------------------
+
+describe("writer — conflict detection", () => {
+  it("does not trigger conflict when file matches stored hash (clean upstream update)", async () => {
+    await applyBundle(bundleA(), tmp);
+
+    // Re-apply with updated content — no local edits, so no conflict
+    const conflicts: ConflictInfo[] = [];
+    const updated = bundleA();
+    updated.skills[0]!.files[0]!.content = "# Code Review\n\nContent A v2\n";
+    const result = await applyBundle(updated, tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
+    });
+
+    expect(conflicts).toHaveLength(0);
+    expect(result.skills[0]!.files[0]!.action).toBe("updated");
+    expect(readFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "utf8")).toBe(
+      "# Code Review\n\nContent A v2\n",
+    );
+  });
+
+  it("triggers conflict when user edits a skill file", async () => {
+    await applyBundle(bundleA(), tmp);
+
+    // User edits the file locally
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# My custom review\n");
+
+    const conflicts: ConflictInfo[] = [];
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]!.artifactType).toBe("skill");
+    expect(conflicts[0]!.artifactName).toBe("code-review/SKILL.md");
+    expect(result.skills[0]!.files[0]!.action).toBe("conflict_overwritten");
+  });
+
+  it("triggers conflict when user edits a prompt file", async () => {
+    await applyBundle(bundleA(), tmp);
+
+    writeFileSync(join(tmp, ".claude/prompts/plan.md"), "# My custom plan\n");
+
+    const conflicts: ConflictInfo[] = [];
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "skip"; },
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]!.artifactType).toBe("prompt");
+    expect(conflicts[0]!.artifactName).toBe("plan");
+    expect(result.prompts[0]!.action).toBe("conflict_skipped");
+  });
+
+  it("does not trigger conflict when user edits match the new content", async () => {
+    await applyBundle(bundleA(), tmp);
+
+    // User edits to exactly what the new bundle will write — no conflict
+    writeFileSync(
+      join(tmp, ".claude/skills/code-review/SKILL.md"),
+      "# Code Review\n\nContent A\n",
+    );
+
+    const conflicts: ConflictInfo[] = [];
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
+    });
+
+    expect(conflicts).toHaveLength(0);
+    expect(result.skills[0]!.files[0]!.action).toBe("unchanged");
+  });
+
+  it("resolves conflict as overwrite — writes new content and updates hash", async () => {
+    await applyBundle(bundleA(), tmp);
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
+
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async () => "overwrite",
+    });
+
+    expect(result.skills[1]!.files[0]!.action).toBe("conflict_overwritten");
+    expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe("# TDD v1\n");
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# TDD v1\n"),
+    );
+  });
+
+  it("resolves conflict as save_user — backs up local file and writes new content", async () => {
+    await applyBundle(bundleA(), tmp);
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
+
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async () => "save_user",
+    });
+
+    expect(result.skills[1]!.files[0]!.action).toBe("conflict_saved_user");
+    expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe("# TDD v1\n");
+    expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.user.md"), "utf8")).toBe(
+      "# My TDD notes\n",
+    );
+  });
+
+  it("resolves conflict as skip — preserves local file and does not update hash", async () => {
+    await applyBundle(bundleA(), tmp);
+    const manifestBefore = readManifest(join(tmp, ".claude"));
+    const originalHash = manifestBefore!.files.skills["tdd"]!.contentHashes!["SKILL.md"];
+
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
+
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async () => "skip",
+    });
+
+    expect(result.skills[1]!.files[0]!.action).toBe("conflict_skipped");
+    expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe(
+      "# My TDD notes\n",
+    );
+
+    const manifestAfter = readManifest(join(tmp, ".claude"));
+    expect(manifestAfter!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(originalHash);
+  });
+
+  it("defaults to skip when no onConflict callback is provided", async () => {
+    await applyBundle(bundleA(), tmp);
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
+
+    const result = await applyBundle(bundleA(), tmp);
+
+    expect(result.skills[1]!.files[0]!.action).toBe("conflict_skipped");
+    expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe(
+      "# My TDD notes\n",
+    );
+  });
+
+  it("handles multiple conflicts with different resolutions per file", async () => {
+    await applyBundle(bundleA(), tmp);
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Edited CR\n");
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# Edited TDD\n");
+
+    let callIndex = 0;
+    const resolutions: ConflictResolution[] = ["overwrite", "skip"];
+    const result = await applyBundle(bundleA(), tmp, {
+      onConflict: async () => resolutions[callIndex++]!,
+    });
+
+    expect(result.skills[0]!.files[0]!.action).toBe("conflict_overwritten");
+    expect(result.skills[1]!.files[0]!.action).toBe("conflict_skipped");
+    expect(readFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "utf8")).toBe(
+      "# Code Review\n\nContent A\n",
+    );
+    expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe(
+      "# Edited TDD\n",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2 manifest upgrade path
+// ---------------------------------------------------------------------------
+
+describe("writer — v2 manifest upgrade", () => {
+  function writeV2Manifest(dir: string, skills: Record<string, { files: string[] }>, prompts: string[]): void {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, MANIFEST_FILENAME),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "1.0.0",
+        manifestVersion: 2,
+        lastApplied: "2026-05-01T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        tool: "claude-code",
+        files: { skills, prompts, configs: ["settings.json"] },
+      }),
+    );
+  }
+
+  it("treats any content difference as a potential conflict on v2 upgrade", async () => {
+    // Write a v2 manifest (no hashes) and pre-create a modified file
+    writeV2Manifest(join(tmp, ".claude"), { "code-review": { files: ["SKILL.md"] } }, ["plan.md"]);
+    mkdirSync(join(tmp, ".claude/skills/code-review"), { recursive: true });
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# User modified\n");
+
+    const conflicts: ConflictInfo[] = [];
+    await applyBundle(bundleA(), tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
+    });
+
+    expect(conflicts.length).toBeGreaterThan(0);
+    expect(conflicts[0]!.artifactName).toBe("code-review/SKILL.md");
+  });
+
+  it("does not trigger conflict when v2 file matches new bundle content", async () => {
+    writeV2Manifest(join(tmp, ".claude"), { "code-review": { files: ["SKILL.md"] } }, ["plan.md"]);
+    mkdirSync(join(tmp, ".claude/skills/code-review"), { recursive: true });
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Code Review\n\nContent A\n");
+
+    const conflicts: ConflictInfo[] = [];
+    await applyBundle(bundleA(), tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
+    });
+
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it("produces a v3 manifest with hashes after upgrading from v2", async () => {
+    writeV2Manifest(join(tmp, ".claude"), { "code-review": { files: ["SKILL.md"] } }, ["plan.md"]);
+    mkdirSync(join(tmp, ".claude/skills/code-review"), { recursive: true });
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Code Review\n\nContent A\n");
+
+    await applyBundle(bundleA(), tmp, {
+      onConflict: async () => "overwrite",
+    });
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.manifestVersion).toBe(3);
+    expect(manifest!.files.skills["code-review"]!.contentHashes).toBeDefined();
+    expect(manifest!.files.promptHashes).toBeDefined();
+  });
+
+  it("subsequent apply after v2 upgrade uses accurate three-way detection", async () => {
+    // First: v2 manifest + matching content → upgrade to v3
+    writeV2Manifest(join(tmp, ".claude"), { "code-review": { files: ["SKILL.md"] } }, ["plan.md"]);
+    mkdirSync(join(tmp, ".claude/skills/code-review"), { recursive: true });
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Code Review\n\nContent A\n");
+    await applyBundle(bundleA(), tmp, { onConflict: async () => "overwrite" });
+
+    // Now v3 manifest exists. User edits a file.
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# Custom TDD\n");
+
+    // Second apply: should accurately detect the user edit
+    const conflicts: ConflictInfo[] = [];
+    await applyBundle(bundleA(), tmp, {
+      onConflict: async (info) => { conflicts.push(info); return "skip"; },
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]!.artifactName).toBe("tdd/SKILL.md");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Removal tracking
+// ---------------------------------------------------------------------------
+
+describe("writer — removal tracking", () => {
+  it("reports removed skills when transitioning between lessons", async () => {
+    await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleB(), tmp);
+
+    const removedSkillNames = result.removals.skills.map((r) => r.name);
+    expect(removedSkillNames).toContain("code-review");
+    for (const entry of result.removals.skills) {
+      expect(entry.action).toBe("removed");
+    }
+  });
+
+  it("reports removed prompts when transitioning between lessons", async () => {
+    await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleB(), tmp);
+
+    const removedPromptNames = result.removals.prompts.map((r) => r.name);
+    expect(removedPromptNames).toContain("plan.md");
+    for (const entry of result.removals.prompts) {
+      expect(entry.action).toBe("removed");
+    }
+  });
+
+  it("reports empty removals when there is no previous manifest", async () => {
+    const result = await applyBundle(bundleA(), tmp);
+
+    expect(result.removals.skills).toHaveLength(0);
+    expect(result.removals.prompts).toHaveLength(0);
+    expect(result.removals.configs).toHaveLength(0);
+  });
+
+  it("dry-run populates removals without deleting files", async () => {
+    await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleB(), tmp, { dryRun: true });
+
+    expect(result.removals.skills.length).toBeGreaterThan(0);
+    // Files should still exist on disk
+    expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hash persistence
+// ---------------------------------------------------------------------------
+
+describe("writer — hash persistence", () => {
+  it("stores content hashes for skills in the manifest after apply", async () => {
+    await applyBundle(bundleA(), tmp);
+    const manifest = readManifest(join(tmp, ".claude"));
+
+    expect(manifest!.files.skills["code-review"]!.contentHashes).toBeDefined();
+    expect(manifest!.files.skills["code-review"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# Code Review\n\nContent A\n"),
+    );
+    expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# TDD v1\n"),
+    );
+  });
+
+  it("stores content hashes for prompts in the manifest after apply", async () => {
+    await applyBundle(bundleA(), tmp);
+    const manifest = readManifest(join(tmp, ".claude"));
+
+    expect(manifest!.files.promptHashes).toBeDefined();
+    expect(manifest!.files.promptHashes!["plan.md"]).toBe(contentHash("# plan prompt\n"));
+  });
+
+  it("preserves old hash for conflict-skipped files", async () => {
+    await applyBundle(bundleA(), tmp);
+    const originalHash = readManifest(join(tmp, ".claude"))!.files.skills["tdd"]!.contentHashes!["SKILL.md"];
+
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD\n");
+
+    await applyBundle(bundleA(), tmp, { onConflict: async () => "skip" });
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(originalHash);
+  });
+
+  it("updates hash for conflict-overwritten files", async () => {
+    await applyBundle(bundleA(), tmp);
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD\n");
+
+    await applyBundle(bundleA(), tmp, { onConflict: async () => "overwrite" });
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# TDD v1\n"),
+    );
+  });
+
+  it("updates hash for conflict-saved-user files (new content was written)", async () => {
+    await applyBundle(bundleA(), tmp);
+    writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD\n");
+
+    await applyBundle(bundleA(), tmp, { onConflict: async () => "save_user" });
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# TDD v1\n"),
+    );
   });
 });
