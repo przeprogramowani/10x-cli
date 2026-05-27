@@ -62,9 +62,19 @@ Stub commands intentionally call `exitNotImplemented(name, phase, options)` so m
 - When no `onConflict` callback is provided, conflicts default to `"skip"` (safe).
 - Manifest v2 (no hashes) is accepted at read time; any content difference on first apply triggers a conflict prompt (one-time calibration). After resolution, v3 hashes are stored.
 
-`WriteResult` includes a `removals` field tracking files deleted during lesson transitions. These render as `[removed]` lines in human output and appear in the JSON envelope under `writes.removals` with `counts.removals`.
+`WriteResult` includes a `removals` field tracking files deleted during lesson-scoped cleanup. These render as `[removed]` lines in human output and appear in the JSON envelope under `writes.removals` with `counts.removals`.
 
 Conflict actions: `"conflict_overwritten"` | `"conflict_saved_user"` (creates `.user.<ext>` backup) | `"conflict_skipped"` (preserves local, does NOT update manifest hash so conflict re-triggers on next apply).
+
+## Cumulative manifest & lesson-scoped removal
+
+The manifest is **cumulative** — each `10x get` accumulates artifacts across lessons instead of replacing them. The manifest's `lessons` field (`Record<string, LessonFilesEntry>`) tracks per-lesson file ownership:
+
+- Each lesson entry records its skills, prompts, configs, and an `appliedAt` timestamp.
+- The `files` field is a **union** of all lesson entries, rebuilt on each apply via `buildUnionFiles()`. Content hashes in `files` reflect what's on disk (current bundle's hashes win, others preserved from previous manifest).
+- `computeRemovals()` is **scoped to the current lesson**: it only removes files that (a) were in this lesson's previous entry, (b) are absent from the new bundle, and (c) are not claimed by any other lesson (the "protected set").
+- `lessonId` is the last-applied lesson (for display/backward compat). `Object.keys(manifest.lessons)` gives all applied lesson IDs.
+- Upgrading from v2 or v3-without-`lessons` seeds the `lessons` record from the previous manifest's `lessonId` + `files` data so existing artifacts aren't orphaned.
 
 ## Conventions worth knowing
 

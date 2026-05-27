@@ -270,11 +270,11 @@ The protected-set computation in `computeRemovals()` is O(files in other lessons
 
 #### Automated
 
-- [x] 1.1 Type checking passes: `bun run typecheck`
-- [x] 1.2 Linting passes: `bun run lint`
-- [x] 1.3 Existing manifest tests pass unchanged: `bun test tests/manifest.test.ts`
-- [x] 1.4 New tests: isManifest() validates lessons field correctly
-- [x] 1.5 New tests: buildUnionFiles() unions and deduplicates correctly
+- [x] 1.1 Type checking passes: `bun run typecheck` — 7c80b29
+- [x] 1.2 Linting passes: `bun run lint` — 7c80b29
+- [x] 1.3 Existing manifest tests pass unchanged: `bun test tests/manifest.test.ts` — 7c80b29
+- [x] 1.4 New tests: isManifest() validates lessons field correctly — 7c80b29
+- [x] 1.5 New tests: buildUnionFiles() unions and deduplicates correctly — 7c80b29
 
 #### Manual
 
@@ -285,10 +285,10 @@ The protected-set computation in `computeRemovals()` is O(files in other lessons
 
 #### Automated
 
-- [ ] 2.1 All tests pass: `bun test`
-- [ ] 2.2 Type checking passes: `bun run typecheck`
-- [ ] 2.3 Linting passes: `bun run lint`
-- [ ] 2.4 Build succeeds: `bun run build`
+- [x] 2.1 All tests pass: `bun test`
+- [x] 2.2 Type checking passes: `bun run typecheck`
+- [x] 2.3 Linting passes: `bun run lint`
+- [x] 2.4 Build succeeds: `bun run build`
 
 #### Manual
 

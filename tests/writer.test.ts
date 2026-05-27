@@ -223,16 +223,16 @@ describe("writer — config collision", () => {
 // ---------------------------------------------------------------------------
 
 describe("writer — cleanup on re-apply", () => {
-  it("removes artifacts exclusive to the previous lesson", async () => {
+  it("preserves artifacts from the previous lesson (cumulative)", async () => {
     await applyBundle(bundleA(), tmp);
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
 
     await applyBundle(bundleB(), tmp);
 
-    // Exclusive to A → removed
-    expect(existsSync(join(tmp, ".claude/skills/code-review"))).toBe(false);
-    expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(false);
+    // Exclusive to A → preserved (cumulative)
+    expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
 
     // Shared → still present and content updated
     expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe("# TDD v2\n");
@@ -251,15 +251,17 @@ describe("writer — cleanup on re-apply", () => {
     );
   });
 
-  it("manifest reflects the most recently applied lesson", async () => {
+  it("manifest is the union of all applied lessons", async () => {
     await applyBundle(bundleA(), tmp);
     await applyBundle(bundleB(), tmp);
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest).not.toBeNull();
     expect(manifest!.lessonId).toBe("m1l2");
-    expect(Object.keys(manifest!.files.skills).sort()).toEqual(["refactor", "tdd"]);
-    expect(manifest!.files.prompts).toEqual(["implement.md"]);
+    expect(Object.keys(manifest!.files.skills).sort()).toEqual(["code-review", "refactor", "tdd"]);
+    expect(manifest!.files.prompts.sort()).toEqual(["implement.md", "plan.md"]);
     expect(manifest!.files.configs.sort()).toEqual(["hooks.json", "settings.json"]);
+    expect(manifest!.lessons).toBeDefined();
+    expect(Object.keys(manifest!.lessons!).sort()).toEqual(["m1l1", "m1l2"]);
   });
 });
 
@@ -788,26 +790,13 @@ describe("writer — v2 manifest upgrade", () => {
 // ---------------------------------------------------------------------------
 
 describe("writer — removal tracking", () => {
-  it("reports removed skills when transitioning between lessons", async () => {
+  it("no removals when switching between different lessons (cumulative)", async () => {
     await applyBundle(bundleA(), tmp);
     const result = await applyBundle(bundleB(), tmp);
 
-    const removedSkillNames = result.removals.skills.map((r) => r.name);
-    expect(removedSkillNames).toContain("code-review");
-    for (const entry of result.removals.skills) {
-      expect(entry.action).toBe("removed");
-    }
-  });
-
-  it("reports removed prompts when transitioning between lessons", async () => {
-    await applyBundle(bundleA(), tmp);
-    const result = await applyBundle(bundleB(), tmp);
-
-    const removedPromptNames = result.removals.prompts.map((r) => r.name);
-    expect(removedPromptNames).toContain("plan.md");
-    for (const entry of result.removals.prompts) {
-      expect(entry.action).toBe("removed");
-    }
+    expect(result.removals.skills).toHaveLength(0);
+    expect(result.removals.prompts).toHaveLength(0);
+    expect(result.removals.configs).toHaveLength(0);
   });
 
   it("reports empty removals when there is no previous manifest", async () => {
@@ -818,14 +807,13 @@ describe("writer — removal tracking", () => {
     expect(result.removals.configs).toHaveLength(0);
   });
 
-  it("dry-run populates removals without deleting files", async () => {
+  it("dry-run produces no removals when switching lessons (cumulative)", async () => {
     await applyBundle(bundleA(), tmp);
     const result = await applyBundle(bundleB(), tmp, { dryRun: true });
 
-    expect(result.removals.skills.length).toBeGreaterThan(0);
-    // Files should still exist on disk
-    expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
-    expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
+    expect(result.removals.skills).toHaveLength(0);
+    expect(result.removals.prompts).toHaveLength(0);
+    expect(result.removals.configs).toHaveLength(0);
   });
 });
 
@@ -889,5 +877,179 @@ describe("writer — hash persistence", () => {
     expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
       contentHash("# TDD v1\n"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cumulative multi-lesson behavior
+// ---------------------------------------------------------------------------
+
+describe("writer — cumulative multi-lesson", () => {
+  it("accumulates artifacts from multiple lessons on disk", async () => {
+    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleB(), tmp);
+
+    // All artifacts from both lessons exist
+    expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/skills/tdd/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/skills/refactor/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/prompts/implement.md"))).toBe(true);
+  });
+
+  it("re-applying a lesson does not remove another lesson's artifacts", async () => {
+    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp);
+
+    // m1l2-exclusive artifacts survive re-apply of m1l1
+    expect(existsSync(join(tmp, ".claude/skills/refactor/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/prompts/implement.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/config-templates/hooks.json"))).toBe(true);
+
+    // m1l1 artifacts also present
+    expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
+  });
+
+  it("removes a skill dropped by a lesson when no other lesson claims it", async () => {
+    await applyBundle(bundleA(), tmp);
+    expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+
+    // Re-apply m1l1 without code-review
+    const trimmedA: LessonBundle = {
+      ...bundleA(),
+      skills: [{ name: "tdd", files: [{ path: "SKILL.md", content: "# TDD v1\n" }] }],
+    };
+    await applyBundle(trimmedA, tmp);
+
+    // code-review was only in m1l1 and was dropped → removed
+    expect(existsSync(join(tmp, ".claude/skills/code-review"))).toBe(false);
+  });
+
+  it("does not remove a shared skill when one lesson drops it but another claims it", async () => {
+    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleB(), tmp);
+
+    // Both lessons have tdd. Re-apply m1l1 without tdd
+    const trimmedA: LessonBundle = {
+      ...bundleA(),
+      skills: [
+        { name: "code-review", files: [{ path: "SKILL.md", content: "# Code Review\n\nContent A\n" }] },
+      ],
+    };
+    await applyBundle(trimmedA, tmp);
+
+    // tdd is protected by m1l2
+    expect(existsSync(join(tmp, ".claude/skills/tdd/SKILL.md"))).toBe(true);
+  });
+
+  it("manifest has lessons entries with appliedAt timestamps", async () => {
+    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleB(), tmp);
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    expect(manifest!.lessons).toBeDefined();
+    expect(manifest!.lessons!["m1l1"]).toBeDefined();
+    expect(manifest!.lessons!["m1l2"]).toBeDefined();
+    expect(new Date(manifest!.lessons!["m1l1"]!.appliedAt).toISOString()).toBe(
+      manifest!.lessons!["m1l1"]!.appliedAt,
+    );
+  });
+
+  it("union files includes content hashes from both lessons", async () => {
+    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleB(), tmp);
+
+    const manifest = readManifest(join(tmp, ".claude"));
+    // code-review is m1l1-only — hash present from first apply
+    expect(manifest!.files.skills["code-review"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# Code Review\n\nContent A\n"),
+    );
+    // refactor is m1l2-only — hash from second apply
+    expect(manifest!.files.skills["refactor"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# Refactor\n"),
+    );
+    // tdd is shared — hash reflects the latest apply (m1l2)
+    expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
+      contentHash("# TDD v2\n"),
+    );
+    // Prompt hashes from both lessons
+    expect(manifest!.files.promptHashes!["plan.md"]).toBe(contentHash("# plan prompt\n"));
+    expect(manifest!.files.promptHashes!["implement.md"]).toBe(
+      contentHash("# implement prompt\n"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2/v3 upgrade seeding
+// ---------------------------------------------------------------------------
+
+describe("writer — upgrade seeding for lessons field", () => {
+  it("seeds lessons from a v3-without-lessons manifest on first cumulative apply", async () => {
+    // First apply creates a v3 manifest without lessons (simulating pre-cumulative code)
+    await applyBundle(bundleA(), tmp);
+
+    // Manually strip the lessons field to simulate old v3 manifest
+    const manifestDir = join(tmp, ".claude");
+    const manifest = readManifest(manifestDir)!;
+    const stripped = { ...manifest };
+    delete (stripped as Record<string, unknown>)["lessons"];
+    writeFileSync(
+      join(manifestDir, ".10x-cli-manifest.json"),
+      `${JSON.stringify(stripped, null, 2)}\n`,
+    );
+
+    // Apply a different lesson — should seed m1l1 from the old manifest
+    await applyBundle(bundleB(), tmp);
+
+    const updated = readManifest(manifestDir);
+    expect(updated!.lessons).toBeDefined();
+    expect(updated!.lessons!["m1l1"]).toBeDefined();
+    expect(updated!.lessons!["m1l2"]).toBeDefined();
+    // Seeded entry has the old lesson's skills
+    expect(Object.keys(updated!.lessons!["m1l1"]!.skills).sort()).toEqual(["code-review", "tdd"]);
+    // Union files includes both
+    expect(Object.keys(updated!.files.skills).sort()).toEqual(["code-review", "refactor", "tdd"]);
+  });
+
+  it("seeds lessons from a v2 manifest on upgrade", async () => {
+    // Hand-craft a v2 manifest
+    const manifestDir = join(tmp, ".claude");
+    mkdirSync(manifestDir, { recursive: true });
+    writeFileSync(
+      join(manifestDir, ".10x-cli-manifest.json"),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "0.5.0",
+        manifestVersion: 2,
+        lastApplied: "2026-04-30T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        files: {
+          skills: { "code-review": { files: ["SKILL.md"] } },
+          prompts: ["plan.md"],
+          configs: ["settings.json"],
+        },
+      }),
+    );
+    // Write the actual files so they exist on disk
+    mkdirSync(join(tmp, ".claude/skills/code-review"), { recursive: true });
+    mkdirSync(join(tmp, ".claude/prompts"), { recursive: true });
+    writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Code Review\n\nContent A\n");
+    writeFileSync(join(tmp, ".claude/prompts/plan.md"), "# plan prompt\n");
+
+    // Apply m1l2 — should seed m1l1 from v2 data
+    await applyBundle(bundleB(), tmp);
+
+    const manifest = readManifest(manifestDir);
+    expect(manifest!.manifestVersion).toBe(3);
+    expect(manifest!.lessons).toBeDefined();
+    expect(manifest!.lessons!["m1l1"]).toBeDefined();
+    expect(manifest!.lessons!["m1l2"]).toBeDefined();
+    expect(manifest!.lessons!["m1l1"]!.prompts).toEqual(["plan.md"]);
+    // Both lessons' artifacts in union
+    expect(Object.keys(manifest!.files.skills).sort()).toEqual(["code-review", "refactor", "tdd"]);
   });
 });

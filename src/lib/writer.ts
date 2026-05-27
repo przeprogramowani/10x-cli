@@ -27,8 +27,10 @@ import type { LessonBundle } from "./api-content";
 import {
   CLI_PACKAGE_NAME,
   type CliManifest,
+  type LessonFilesEntry,
   MANIFEST_FILENAME,
   MANIFEST_VERSION,
+  buildUnionFiles,
   contentHash,
   readManifest,
   writeManifest,
@@ -331,6 +333,56 @@ export async function applyBundle(
 
   // --- manifest ---------------------------------------------------------
   if (!dryRun && !partial) {
+    const newLessonEntry: LessonFilesEntry = {
+      appliedAt: new Date().toISOString(),
+      skills: Object.fromEntries(
+        bundle.skills.map((s) => [s.name, { files: s.files.map((f) => f.path) }]),
+      ),
+      prompts: bundle.prompts.map((p) => `${p.name}.md`),
+      configs: bundle.configs.map((c) => c.name),
+    };
+
+    // Seed lessons from previous manifest if it lacks per-lesson tracking
+    let baseLessons: Record<string, LessonFilesEntry> = {};
+    if (prevManifest && !prevManifest.lessons) {
+      baseLessons[prevManifest.lessonId] = {
+        appliedAt: prevManifest.lastApplied,
+        skills: Object.fromEntries(
+          Object.entries(prevManifest.files.skills).map(([name, entry]) => [
+            name,
+            { files: [...entry.files] },
+          ]),
+        ),
+        prompts: [...prevManifest.files.prompts],
+        configs: [...prevManifest.files.configs],
+      };
+    } else if (prevManifest?.lessons) {
+      baseLessons = { ...prevManifest.lessons };
+    }
+
+    const lessons: Record<string, LessonFilesEntry> = {
+      ...baseLessons,
+      [bundle.lessonId]: newLessonEntry,
+    };
+
+    const union = buildUnionFiles(lessons);
+
+    // Apply content hashes: current bundle wins, preserve others from prev
+    const unionSkills: Record<string, { files: string[]; contentHashes?: Record<string, string> }> = {};
+    for (const [name, skill] of Object.entries(union.skills)) {
+      const prevHash = prevManifest?.files.skills[name]?.contentHashes;
+      const currentHash = nextSkillHashes[name];
+      unionSkills[name] = {
+        files: skill.files,
+        contentHashes: { ...prevHash, ...currentHash },
+      };
+    }
+
+    const unionPromptHashes: Record<string, string> = {
+      ...prevManifest?.files.promptHashes,
+      ...nextPromptHashes,
+    };
+
     const nextManifest: CliManifest = {
       package: CLI_PACKAGE_NAME,
       version: CLI_VERSION,
@@ -340,16 +392,12 @@ export async function applyBundle(
       course,
       tool: profile.toolId,
       files: {
-        skills: Object.fromEntries(
-          bundle.skills.map((s) => [
-            s.name,
-            { files: s.files.map((f) => f.path), contentHashes: nextSkillHashes[s.name] },
-          ]),
-        ),
-        prompts: bundle.prompts.map((p) => `${p.name}.md`),
-        configs: bundle.configs.map((c) => c.name),
-        promptHashes: nextPromptHashes,
+        skills: unionSkills,
+        prompts: union.prompts,
+        configs: union.configs,
+        promptHashes: unionPromptHashes,
       },
+      lessons,
     };
     writeManifest(manifestDir, nextManifest);
   }
@@ -432,7 +480,24 @@ function computeRemovals(
     prompts: [],
     configs: [],
   };
-  if (!prevManifest) return empty;
+  if (!prevManifest?.lessons) return empty;
+
+  const prevLessonEntry = prevManifest.lessons[bundle.lessonId];
+  if (!prevLessonEntry) return empty;
+
+  // Protected set: files claimed by any OTHER lesson
+  const protectedSkills = new Map<string, Set<string>>();
+  const protectedPrompts = new Set<string>();
+  const protectedConfigs = new Set<string>();
+  for (const [lessonId, entry] of Object.entries(prevManifest.lessons)) {
+    if (lessonId === bundle.lessonId) continue;
+    for (const [name, skill] of Object.entries(entry.skills)) {
+      if (!protectedSkills.has(name)) protectedSkills.set(name, new Set());
+      for (const f of skill.files) protectedSkills.get(name)!.add(f);
+    }
+    for (const p of entry.prompts) protectedPrompts.add(p);
+    for (const c of entry.configs) protectedConfigs.add(c);
+  }
 
   const currentSkills = new Map(
     bundle.skills.map((s) => [s.name, new Set(s.files.map((f) => f.path))]),
@@ -447,20 +512,33 @@ function computeRemovals(
     configs: [],
   };
 
-  for (const [skillName, entry] of Object.entries(prevManifest.files.skills)) {
-    // Defense in depth: a tampered manifest could have names that escape
-    // the target dir via `..`. Skip rather than rmSync anything scary.
+  for (const [skillName, skill] of Object.entries(prevLessonEntry.skills)) {
     if (!isSafeName(skillName)) continue;
     const skillDirAbs = join(projectRoot, profile.skillDir(skillName));
 
     if (!currentSkills.has(skillName)) {
-      removed.skillDirs.push({ name: skillName, path: skillDirAbs });
+      if (protectedSkills.has(skillName)) {
+        // Another lesson claims this skill — remove only unprotected files
+        const prot = protectedSkills.get(skillName)!;
+        for (const relPath of skill.files) {
+          if (prot.has(relPath)) continue;
+          if (!isSafeSkillFilePath(relPath)) continue;
+          removed.skillFiles.push({
+            name: `${skillName}/${relPath}`,
+            path: join(skillDirAbs, relPath),
+            skillDirAbs,
+          });
+        }
+      } else {
+        removed.skillDirs.push({ name: skillName, path: skillDirAbs });
+      }
       continue;
     }
 
     const currentFiles = currentSkills.get(skillName)!;
-    for (const relPath of entry.files) {
+    for (const relPath of skill.files) {
       if (currentFiles.has(relPath)) continue;
+      if (protectedSkills.get(skillName)?.has(relPath)) continue;
       if (!isSafeSkillFilePath(relPath)) continue;
       removed.skillFiles.push({
         name: `${skillName}/${relPath}`,
@@ -469,24 +547,28 @@ function computeRemovals(
       });
     }
   }
-  for (const promptFile of prevManifest.files.prompts) {
+
+  for (const promptFile of prevLessonEntry.prompts) {
     if (currentPrompts.has(promptFile)) continue;
+    if (protectedPrompts.has(promptFile)) continue;
     if (!isSafeName(promptFile)) continue;
-    // Prompt filenames in the manifest include .md; strip it for the path lookup
     const promptName = promptFile.replace(/\.md$/, "");
     removed.prompts.push({
       name: promptFile,
       path: join(projectRoot, profile.promptPath(promptName)),
     });
   }
-  for (const configFile of prevManifest.files.configs) {
+
+  for (const configFile of prevLessonEntry.configs) {
     if (currentConfigs.has(configFile)) continue;
+    if (protectedConfigs.has(configFile)) continue;
     if (!isSafeName(configFile)) continue;
     removed.configs.push({
       name: configFile,
       path: join(projectRoot, profile.configPath(configFile)),
     });
   }
+
   return removed;
 }
 

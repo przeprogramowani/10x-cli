@@ -176,7 +176,7 @@ describe("writer without profile — backward compat", () => {
 // ---------------------------------------------------------------------------
 
 describe("writer cleanup with profiles", () => {
-  it("removes stale artifacts using profile paths when lesson changes", async () => {
+  it("preserves previous lesson artifacts when applying a new lesson (cumulative)", async () => {
     const cursorProfile = PROFILES["cursor"]!;
     const bundleA = makeBundle();
     await applyBundle(bundleA, tmp, { profile: cursorProfile });
@@ -197,8 +197,8 @@ describe("writer cleanup with profiles", () => {
     };
     await applyBundle(bundleB, tmp, { profile: cursorProfile });
 
-    // Old skill removed via profile paths
-    expect(existsSync(join(tmp, ".cursor/skills/code-review"))).toBe(false);
+    // Old skill preserved (cumulative)
+    expect(existsSync(join(tmp, ".cursor/skills/code-review/SKILL.md"))).toBe(true);
     // New skill present
     expect(existsSync(join(tmp, ".cursor/skills/refactor/SKILL.md"))).toBe(true);
   });
