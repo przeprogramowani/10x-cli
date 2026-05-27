@@ -1,10 +1,10 @@
 ---
 change_id: e2e
 title: Cross-platform e2e tests for CLI user flows
-status: impl_reviewed
+status: archived
 created: 2026-05-10
-updated: 2026-05-10
-archived_at: null
+updated: 2026-05-27
+archived_at: 2026-05-27T19:21:47Z
 ---
 
 ## Notes

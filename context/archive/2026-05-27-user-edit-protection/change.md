@@ -1,10 +1,10 @@
 ---
 change_id: user-edit-protection
 title: Detect user-modified files and prompt before overwriting
-status: implemented
+status: archived
 created: 2026-05-27
 updated: 2026-05-27
-archived_at: null
+archived_at: 2026-05-27T19:21:47Z
 ---
 
 ## Notes
