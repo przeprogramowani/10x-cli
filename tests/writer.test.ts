@@ -124,7 +124,7 @@ describe("writer — fresh install", () => {
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest).not.toBeNull();
     expect(manifest!.package).toBe("@przeprogramowani/10x-cli");
-    expect(manifest!.manifestVersion).toBe(2);
+    expect(manifest!.manifestVersion).toBe(3);
     expect(manifest!.lessonId).toBe("m1l1");
     expect(Object.keys(manifest!.files.skills).sort()).toEqual(["code-review", "tdd"]);
     expect(manifest!.files.skills["code-review"]!.files).toEqual(["SKILL.md"]);
@@ -397,9 +397,9 @@ describe("writer — v1 manifest is treated as no-prior-state", () => {
     applyBundle(bundleA(), tmp);
     expect(existsSync(join(tmp, ".claude/skills/legacy-skill/SKILL.md"))).toBe(true);
 
-    // The freshly written manifest is v2.
+    // The freshly written manifest is v3.
     const next = readManifest(join(tmp, ".claude"));
-    expect(next!.manifestVersion).toBe(2);
+    expect(next!.manifestVersion).toBe(3);
   });
 });
 

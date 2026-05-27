@@ -8,24 +8,31 @@
  * cleanup is a no-op (safer than guessing).
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export const MANIFEST_FILENAME = ".10x-cli-manifest.json";
 export const CLI_PACKAGE_NAME = "@przeprogramowani/10x-cli" as const;
 
-export const MANIFEST_VERSION = 2 as const;
+export const MANIFEST_VERSION = 3 as const;
+
+export function contentHash(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
 
 export interface CliManifestSkillEntry {
   /** Relative paths under the skill directory (e.g. "SKILL.md", "scripts/helper.sh"). */
   files: string[];
+  /** Per-file SHA-256 content hashes keyed by relative path. Present in v3+. */
+  contentHashes?: Record<string, string>;
 }
 
 export interface CliManifest {
   package: typeof CLI_PACKAGE_NAME;
   version: string;
-  /** Manifest schema version. v1 (skills as `string[]`) is no longer accepted. */
-  manifestVersion: typeof MANIFEST_VERSION;
+  /** Manifest schema version. v1 (skills as `string[]`) is no longer accepted. v2 and v3 are both valid. */
+  manifestVersion: 2 | typeof MANIFEST_VERSION;
   lastApplied: string; // ISO-8601
   lessonId: string;
   course: string;
@@ -38,6 +45,8 @@ export interface CliManifest {
     prompts: string[];
     /** Config filenames under the tool's config-templates dir. */
     configs: string[];
+    /** Per-prompt SHA-256 content hashes keyed by prompt filename. Present in v3+. */
+    promptHashes?: Record<string, string>;
   };
 }
 
@@ -86,7 +95,8 @@ function isManifest(value: unknown): value is CliManifest {
   const v = value as Record<string, unknown>;
   if (v["package"] !== CLI_PACKAGE_NAME) return false;
   if (typeof v["version"] !== "string") return false;
-  if (v["manifestVersion"] !== MANIFEST_VERSION) return false;
+  const mv = v["manifestVersion"];
+  if (mv !== 2 && mv !== 3) return false;
   if (typeof v["lastApplied"] !== "string") return false;
   if (typeof v["lessonId"] !== "string") return false;
   if (typeof v["course"] !== "string") return false;
