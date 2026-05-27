@@ -450,10 +450,10 @@ SHA-256 hashing of text files is negligible — a typical skill file is <10KB, a
 
 #### Automated
 
-- [x] 2.1 Type checking passes: `bun run typecheck`
-- [x] 2.2 Linting passes: `bun run lint`
-- [x] 2.3 All writer tests updated for async and pass: `bun test tests/writer.test.ts`
-- [x] 2.4 Build succeeds: `bun run build`
+- [x] 2.1 Type checking passes: `bun run typecheck` — 536ccf6
+- [x] 2.2 Linting passes: `bun run lint` — 536ccf6
+- [x] 2.3 All writer tests updated for async and pass: `bun test tests/writer.test.ts` — 536ccf6
+- [x] 2.4 Build succeeds: `bun run build` — 536ccf6
 
 #### Manual
 
@@ -465,11 +465,11 @@ SHA-256 hashing of text files is negligible — a typical skill file is <10KB, a
 
 #### Automated
 
-- [ ] 3.1 Type checking passes: `bun run typecheck`
-- [ ] 3.2 Linting passes: `bun run lint`
-- [ ] 3.3 All tests pass: `bun test`
-- [ ] 3.4 Build succeeds: `bun run build`
-- [ ] 3.5 Binary build succeeds: `bun run build:binary`
+- [x] 3.1 Type checking passes: `bun run typecheck`
+- [x] 3.2 Linting passes: `bun run lint`
+- [x] 3.3 All tests pass: `bun test`
+- [x] 3.4 Build succeeds: `bun run build`
+- [x] 3.5 Binary build succeeds: `bun run build:binary`
 
 #### Manual
 

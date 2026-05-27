@@ -248,7 +248,7 @@ describe("10x get — happy path", () => {
 
     expect(data.lessonId).toBe("m1l1");
     expect(data.title).toBe("Intro to Claude Code");
-    expect(data.counts).toEqual({ skills: 1, prompts: 1, rules: 1, configs: 1 });
+    expect(data.counts).toEqual({ skills: 1, prompts: 1, rules: 1, configs: 1, removals: 0 });
     expect(data.writes.skills[0]!.name).toBe("code-review");
     expect(data.writes.skills[0]!.files[0]!.absolutePath).toContain(
       join(".claude", "skills", "code-review", "SKILL.md"),

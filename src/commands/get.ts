@@ -1,8 +1,11 @@
+import { join } from "node:path";
 import type { CAC } from "cac";
 import { fetchArtifact, fetchLesson, type LessonBundle } from "../lib/api-content";
 import { requireAuth } from "../lib/auth-guard";
+import { createConflictResolver, showUpgradeNotice } from "../lib/conflict-prompt";
 import { formatReleaseAt } from "../lib/format";
 import { parseLessonRef } from "../lib/lesson-ref";
+import { readManifest } from "../lib/manifest";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -151,10 +154,18 @@ export async function runGet(
 
   const isFiltered = options.type !== undefined;
   const bundle: LessonBundle = filterBundle(ctx, result.data, options);
+
+  const isTTY = process.stdout.isTTY === true;
+  const prevManifest = readManifest(join(process.cwd(), profile.manifestDir));
+  if (prevManifest && prevManifest.manifestVersion === 2) {
+    showUpgradeNotice(isTTY);
+  }
+
   const writeResult = await applyBundle(bundle, process.cwd(), {
     dryRun: options.dryRun === true,
     profile,
     partial: isFiltered,
+    onConflict: createConflictResolver(isTTY),
   });
 
   renderGetResult(ctx, bundle, writeResult, options.dryRun === true, profile, {
@@ -414,6 +425,15 @@ function handleLessonError(
   );
 }
 
+function formatAction(action: string): string {
+  switch (action) {
+    case "conflict_overwritten": return "conflict: overwritten";
+    case "conflict_saved_user": return "conflict: saved .user";
+    case "conflict_skipped": return "conflict: skipped";
+    default: return action;
+  }
+}
+
 function renderGetResult(
   ctx: OutputContext,
   bundle: LessonBundle,
@@ -422,6 +442,11 @@ function renderGetResult(
   profile: ToolProfile,
   langMeta: { language: string; languageFallback: boolean } = { language: "en", languageFallback: false },
 ): void {
+  const totalRemovals =
+    writeResult.removals.skills.length +
+    writeResult.removals.prompts.length +
+    writeResult.removals.configs.length;
+
   if (ctx.json) {
     output(ctx, "", {
       lessonId: bundle.lessonId,
@@ -436,12 +461,14 @@ function renderGetResult(
         prompts: writeResult.prompts,
         rules: writeResult.rules,
         configs: writeResult.configs,
+        removals: writeResult.removals,
       },
       counts: {
         skills: writeResult.skills.length,
         prompts: writeResult.prompts.length,
         rules: bundle.rules.length,
         configs: writeResult.configs.length,
+        removals: totalRemovals,
       },
     });
     return;
@@ -456,16 +483,16 @@ function renderGetResult(
   for (const skill of writeResult.skills) {
     if (skill.files.length === 1) {
       const f = skill.files[0]!;
-      lines.push(`  [${f.action}] skill  ${f.absolutePath}`);
+      lines.push(`  [${formatAction(f.action)}] skill  ${f.absolutePath}`);
     } else {
       lines.push(`  skill  ${skill.name} (${skill.files.length} files)`);
       for (const f of skill.files) {
-        lines.push(`    [${f.action}] ${f.path}`);
+        lines.push(`    [${formatAction(f.action)}] ${f.path}`);
       }
     }
   }
   for (const prompt of writeResult.prompts) {
-    lines.push(`  [${prompt.action}] prompt ${prompt.path}`);
+    lines.push(`  [${formatAction(prompt.action)}] prompt ${prompt.path}`);
   }
   if (bundle.rules.length > 0) {
     lines.push(
@@ -474,6 +501,15 @@ function renderGetResult(
   }
   for (const config of writeResult.configs) {
     lines.push(`  [${config.action}] config ${config.path}`);
+  }
+  for (const entry of writeResult.removals.skills) {
+    lines.push(`  [removed] skill  ${entry.path}`);
+  }
+  for (const entry of writeResult.removals.prompts) {
+    lines.push(`  [removed] prompt ${entry.path}`);
+  }
+  for (const entry of writeResult.removals.configs) {
+    lines.push(`  [removed] config ${entry.path}`);
   }
   output(ctx, lines.join("\n"), undefined);
 }
