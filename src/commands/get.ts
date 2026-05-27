@@ -151,7 +151,7 @@ export async function runGet(
 
   const isFiltered = options.type !== undefined;
   const bundle: LessonBundle = filterBundle(ctx, result.data, options);
-  const writeResult = applyBundle(bundle, process.cwd(), {
+  const writeResult = await applyBundle(bundle, process.cwd(), {
     dryRun: options.dryRun === true,
     profile,
     partial: isFiltered,

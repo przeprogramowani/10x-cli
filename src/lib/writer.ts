@@ -29,6 +29,7 @@ import {
   type CliManifest,
   MANIFEST_FILENAME,
   MANIFEST_VERSION,
+  contentHash,
   readManifest,
   writeManifest,
 } from "./manifest";
@@ -46,18 +47,23 @@ export type ArtifactAction =
   | "updated"
   | "unchanged"
   | "skipped"
-  | "removed";
+  | "removed"
+  | "conflict_overwritten"
+  | "conflict_saved_user"
+  | "conflict_skipped";
 
 export interface ArtifactWrite {
   name: string;
   path: string;
   action: ArtifactAction;
+  userBackupPath?: string;
 }
 
 export interface SkillFileWrite {
   path: string;
   absolutePath: string;
   action: ArtifactAction;
+  userBackupPath?: string;
 }
 
 export interface SkillWrite {
@@ -70,7 +76,22 @@ export interface WriteResult {
   prompts: ArtifactWrite[];
   rules: { action: ArtifactAction };
   configs: ArtifactWrite[];
+  removals: {
+    skills: ArtifactWrite[];
+    prompts: ArtifactWrite[];
+    configs: ArtifactWrite[];
+  };
 }
+
+export interface ConflictInfo {
+  artifactType: "skill" | "prompt";
+  artifactName: string;
+  filePath: string;
+  relativePath: string;
+}
+
+export type ConflictResolution = "overwrite" | "save_user" | "skip";
+export type ConflictResolver = (info: ConflictInfo) => Promise<ConflictResolution>;
 
 export interface ApplyOptions {
   /**
@@ -95,20 +116,27 @@ export interface ApplyOptions {
    * previously written artifacts.
    */
   partial?: boolean;
+  /**
+   * Callback invoked when a conflict is detected (local file was edited
+   * by the user since the last apply). When absent, conflicts default
+   * to "skip" (safe default matching non-TTY behavior).
+   */
+  onConflict?: ConflictResolver;
 }
 
 /**
  * Apply a lesson bundle to a project. See module docstring for semantics.
  */
-export function applyBundle(
+export async function applyBundle(
   bundle: LessonBundle,
   projectRoot: string,
   options: ApplyOptions = {},
-): WriteResult {
+): Promise<WriteResult> {
   const dryRun = options.dryRun === true;
   const partial = options.partial === true;
   const course = options.course ?? DEFAULT_COURSE;
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
+  const onConflict = options.onConflict;
 
   const manifestDir = join(projectRoot, profile.manifestDir);
   const prevManifest = readManifest(manifestDir);
@@ -126,32 +154,116 @@ export function applyBundle(
   for (const prompt of bundle.prompts) assertSafeName(prompt.name, "prompt");
   for (const config of bundle.configs) assertSafeName(config.name, "config");
 
+  // Track per-file hashes for the next manifest. Keys that get conflict-skipped
+  // carry forward the old hash so the conflict re-triggers on next apply.
+  const nextSkillHashes: Record<string, Record<string, string>> = {};
+  const nextPromptHashes: Record<string, string> = {};
+
   // --- skills -----------------------------------------------------------
-  const skills: SkillWrite[] = bundle.skills.map((skill) => {
+  const skills: SkillWrite[] = [];
+  for (const skill of bundle.skills) {
     const skillDir = join(projectRoot, profile.skillDir(skill.name));
-    const fileWrites: SkillFileWrite[] = skill.files.map((file) => {
+    const prevEntry = prevManifest?.files.skills[skill.name];
+    const fileWrites: SkillFileWrite[] = [];
+    const skillHashes: Record<string, string> = {};
+
+    for (const file of skill.files) {
       const target = join(skillDir, file.path);
-      const action = computeFileAction(target, file.content);
-      if (!dryRun && action !== "unchanged") {
-        writeFileAt(target, file.content);
+      const storedHash = prevEntry?.contentHashes?.[file.path];
+      const { action, isConflict } = computeFileAction(target, file.content, storedHash);
+
+      let finalAction = action;
+      let userBackupPath: string | undefined;
+
+      if (isConflict) {
+        const resolution = onConflict
+          ? await onConflict({
+              artifactType: "skill",
+              artifactName: `${skill.name}/${file.path}`,
+              filePath: target,
+              relativePath: file.path,
+            })
+          : "skip";
+
+        if (resolution === "overwrite") {
+          finalAction = "conflict_overwritten";
+          if (!dryRun) writeFileAt(target, file.content);
+          skillHashes[file.path] = contentHash(file.content);
+        } else if (resolution === "save_user") {
+          finalAction = "conflict_saved_user";
+          if (!dryRun) {
+            userBackupPath = buildUserBackupPath(target);
+            copyFileSync(target, userBackupPath);
+            writeFileAt(target, file.content);
+          }
+          skillHashes[file.path] = contentHash(file.content);
+        } else {
+          finalAction = "conflict_skipped";
+          if (storedHash) skillHashes[file.path] = storedHash;
+        }
+      } else {
+        if (!dryRun && action !== "unchanged") {
+          writeFileAt(target, file.content);
+        }
+        if (!dryRun && file.executable === true && action !== "unchanged") {
+          chmodSync(target, 0o755);
+        }
+        skillHashes[file.path] = contentHash(file.content);
       }
-      if (!dryRun && file.executable === true && action !== "unchanged") {
-        chmodSync(target, 0o755);
-      }
-      return { path: file.path, absolutePath: target, action };
-    });
-    return { name: skill.name, files: fileWrites };
-  });
+
+      fileWrites.push({ path: file.path, absolutePath: target, action: finalAction, userBackupPath });
+    }
+
+    nextSkillHashes[skill.name] = skillHashes;
+    skills.push({ name: skill.name, files: fileWrites });
+  }
 
   // --- prompts ----------------------------------------------------------
-  const prompts: ArtifactWrite[] = bundle.prompts.map((prompt) => {
+  const prompts: ArtifactWrite[] = [];
+  for (const prompt of bundle.prompts) {
     const target = join(projectRoot, profile.promptPath(prompt.name));
-    const action = computeFileAction(target, prompt.content);
-    if (!dryRun && action !== "unchanged") {
-      writeFileAt(target, prompt.content);
+    const promptFilename = `${prompt.name}.md`;
+    const storedHash = prevManifest?.files.promptHashes?.[promptFilename];
+    const { action, isConflict } = computeFileAction(target, prompt.content, storedHash);
+
+    let finalAction = action;
+    let userBackupPath: string | undefined;
+
+    if (isConflict) {
+      const resolution = onConflict
+        ? await onConflict({
+            artifactType: "prompt",
+            artifactName: prompt.name,
+            filePath: target,
+            relativePath: promptFilename,
+          })
+        : "skip";
+
+      if (resolution === "overwrite") {
+        finalAction = "conflict_overwritten";
+        if (!dryRun) writeFileAt(target, prompt.content);
+        nextPromptHashes[promptFilename] = contentHash(prompt.content);
+      } else if (resolution === "save_user") {
+        finalAction = "conflict_saved_user";
+        if (!dryRun) {
+          userBackupPath = buildUserBackupPath(target);
+          copyFileSync(target, userBackupPath);
+          writeFileAt(target, prompt.content);
+        }
+        nextPromptHashes[promptFilename] = contentHash(prompt.content);
+      } else {
+        finalAction = "conflict_skipped";
+        if (storedHash) nextPromptHashes[promptFilename] = storedHash;
+      }
+    } else {
+      if (!dryRun && action !== "unchanged") {
+        writeFileAt(target, prompt.content);
+      }
+      nextPromptHashes[promptFilename] = contentHash(prompt.content);
     }
-    return { name: prompt.name, path: target, action };
-  });
+
+    prompts.push({ name: prompt.name, path: target, action: finalAction, userBackupPath });
+  }
 
   // --- rules (sentinel block in rules file) -----------------------------
   const rulesFilePath = join(projectRoot, profile.rulesFile);
@@ -190,15 +302,31 @@ export function applyBundle(
   });
 
   // --- cleanup of stale artifacts from the previous lesson --------------
-  if (!dryRun && !partial) {
-    const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
-    for (const entry of removed.skillDirs) rmSync(entry.path, { recursive: true, force: true });
-    for (const entry of removed.skillFiles) {
+  const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
+  const removalResult: WriteResult["removals"] = {
+    skills: [],
+    prompts: [],
+    configs: [],
+  };
+
+  for (const entry of removed.skillDirs) {
+    removalResult.skills.push({ name: entry.name, path: entry.path, action: "removed" });
+    if (!dryRun && !partial) rmSync(entry.path, { recursive: true, force: true });
+  }
+  for (const entry of removed.skillFiles) {
+    removalResult.skills.push({ name: entry.name, path: entry.path, action: "removed" });
+    if (!dryRun && !partial) {
       rmSync(entry.path, { force: true });
       removeEmptyParentDirs(entry.path, entry.skillDirAbs);
     }
-    for (const entry of removed.prompts) rmSync(entry.path, { force: true });
-    for (const entry of removed.configs) rmSync(entry.path, { force: true });
+  }
+  for (const entry of removed.prompts) {
+    removalResult.prompts.push({ name: entry.name, path: entry.path, action: "removed" });
+    if (!dryRun && !partial) rmSync(entry.path, { force: true });
+  }
+  for (const entry of removed.configs) {
+    removalResult.configs.push({ name: entry.name, path: entry.path, action: "removed" });
+    if (!dryRun && !partial) rmSync(entry.path, { force: true });
   }
 
   // --- manifest ---------------------------------------------------------
@@ -213,10 +341,14 @@ export function applyBundle(
       tool: profile.toolId,
       files: {
         skills: Object.fromEntries(
-          bundle.skills.map((s) => [s.name, { files: s.files.map((f) => f.path) }]),
+          bundle.skills.map((s) => [
+            s.name,
+            { files: s.files.map((f) => f.path), contentHashes: nextSkillHashes[s.name] },
+          ]),
         ),
         prompts: bundle.prompts.map((p) => `${p.name}.md`),
         configs: bundle.configs.map((c) => c.name),
+        promptHashes: nextPromptHashes,
       },
     };
     writeManifest(manifestDir, nextManifest);
@@ -227,6 +359,7 @@ export function applyBundle(
     prompts,
     rules: { action: rulesAction },
     configs,
+    removals: removalResult,
   };
 }
 
@@ -234,15 +367,36 @@ export function applyBundle(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function computeFileAction(filePath: string, newContent: string): ArtifactAction {
-  if (!existsSync(filePath)) return "created";
+function computeFileAction(
+  filePath: string,
+  newContent: string,
+  storedHash?: string,
+): { action: ArtifactAction; isConflict: boolean } {
+  if (!existsSync(filePath)) return { action: "created", isConflict: false };
   let current: string;
   try {
     current = readFileSync(filePath, "utf8");
   } catch {
-    return "updated";
+    return { action: "updated", isConflict: false };
   }
-  return current === newContent ? "unchanged" : "updated";
+  if (current === newContent) return { action: "unchanged", isConflict: false };
+  if (storedHash !== undefined) {
+    const localHash = contentHash(current);
+    if (localHash === storedHash) return { action: "updated", isConflict: false };
+    return { action: "updated", isConflict: true };
+  }
+  return { action: "updated", isConflict: true };
+}
+
+function buildUserBackupPath(filePath: string): string {
+  const lastDot = filePath.lastIndexOf(".");
+  if (lastDot === -1) return `${filePath}.user`;
+  return `${filePath.slice(0, lastDot)}.user${filePath.slice(lastDot)}`;
+}
+
+function copyFileSync(src: string, dest: string): void {
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, readFileSync(src));
 }
 
 function readFileOrEmpty(filePath: string): string {

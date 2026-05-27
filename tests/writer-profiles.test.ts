@@ -53,8 +53,8 @@ function makeBundle(): LessonBundle {
 describe("writer with cursor profile", () => {
   const cursorProfile = PROFILES["cursor"]!;
 
-  it("writes skills to .cursor/skills/<name>/SKILL.md", () => {
-    const result = applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+  it("writes skills to .cursor/skills/<name>/SKILL.md", async () => {
+    const result = await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/skills/code-review/SKILL.md"))).toBe(true);
     expect(readFileSync(join(tmp, ".cursor/skills/code-review/SKILL.md"), "utf8")).toBe(
       "# Code Review\n",
@@ -62,14 +62,14 @@ describe("writer with cursor profile", () => {
     expect(result.skills[0]!.files[0]!.action).toBe("created");
   });
 
-  it("writes prompts to .cursor/prompts/<name>.md", () => {
-    applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+  it("writes prompts to .cursor/prompts/<name>.md", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/prompts/plan.md"))).toBe(true);
     expect(readFileSync(join(tmp, ".cursor/prompts/plan.md"), "utf8")).toBe("# plan prompt\n");
   });
 
-  it("writes rules to .cursor/rules/10x-course.mdc", () => {
-    applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+  it("writes rules to .cursor/rules/10x-course.mdc", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
     const rulesPath = join(tmp, ".cursor/rules/10x-course.mdc");
     expect(existsSync(rulesPath)).toBe(true);
     const content = readFileSync(rulesPath, "utf8");
@@ -77,21 +77,21 @@ describe("writer with cursor profile", () => {
     expect(content).toContain("<!-- BEGIN @przeprogramowani/10x-cli -->");
   });
 
-  it("writes configs to .cursor/config-templates/<name>", () => {
-    applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+  it("writes configs to .cursor/config-templates/<name>", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/config-templates/settings.json"))).toBe(true);
   });
 
-  it("writes manifest to .cursor/.10x-cli-manifest.json", () => {
-    applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+  it("writes manifest to .cursor/.10x-cli-manifest.json", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
     const manifest = readManifest(join(tmp, ".cursor"));
     expect(manifest).not.toBeNull();
     expect(manifest!.tool).toBe("cursor");
     expect(manifest!.lessonId).toBe("m1l1");
   });
 
-  it("does NOT write to .claude/ directory", () => {
-    applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+  it("does NOT write to .claude/ directory", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
   });
@@ -104,16 +104,16 @@ describe("writer with cursor profile", () => {
 describe("writer with copilot profile", () => {
   const copilotProfile = PROFILES["copilot"]!;
 
-  it("writes artifacts to .github/ paths", () => {
-    applyBundle(makeBundle(), tmp, { profile: copilotProfile });
+  it("writes artifacts to .github/ paths", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: copilotProfile });
     expect(existsSync(join(tmp, ".github/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".github/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, ".github/copilot-instructions.md"))).toBe(true);
     expect(existsSync(join(tmp, ".github/config-templates/settings.json"))).toBe(true);
   });
 
-  it("manifest records copilot tool", () => {
-    applyBundle(makeBundle(), tmp, { profile: copilotProfile });
+  it("manifest records copilot tool", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: copilotProfile });
     const manifest = readManifest(join(tmp, ".github"));
     expect(manifest!.tool).toBe("copilot");
   });
@@ -126,8 +126,8 @@ describe("writer with copilot profile", () => {
 describe("writer with codex profile", () => {
   const codexProfile = PROFILES["codex"]!;
 
-  it("writes artifacts to .agents/ paths with AGENTS.md rules", () => {
-    applyBundle(makeBundle(), tmp, { profile: codexProfile });
+  it("writes artifacts to .agents/ paths with AGENTS.md rules", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: codexProfile });
     expect(existsSync(join(tmp, ".agents/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".agents/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "AGENTS.md"))).toBe(true);
@@ -142,8 +142,8 @@ describe("writer with codex profile", () => {
 describe("writer with generic profile", () => {
   const genericProfile = PROFILES["generic"]!;
 
-  it("writes artifacts to .ai/ paths with AGENTS.md rules", () => {
-    applyBundle(makeBundle(), tmp, { profile: genericProfile });
+  it("writes artifacts to .ai/ paths with AGENTS.md rules", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: genericProfile });
     expect(existsSync(join(tmp, ".ai/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".ai/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "AGENTS.md"))).toBe(true);
@@ -156,16 +156,16 @@ describe("writer with generic profile", () => {
 // ---------------------------------------------------------------------------
 
 describe("writer without profile — backward compat", () => {
-  it("defaults to .claude/ paths when no profile is specified", () => {
-    applyBundle(makeBundle(), tmp);
+  it("defaults to .claude/ paths when no profile is specified", async () => {
+    await applyBundle(makeBundle(), tmp);
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
     expect(existsSync(join(tmp, ".claude/config-templates/settings.json"))).toBe(true);
   });
 
-  it("manifest includes tool field as claude-code for default", () => {
-    applyBundle(makeBundle(), tmp);
+  it("manifest includes tool field as claude-code for default", async () => {
+    await applyBundle(makeBundle(), tmp);
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.tool).toBe("claude-code");
   });
@@ -176,10 +176,10 @@ describe("writer without profile — backward compat", () => {
 // ---------------------------------------------------------------------------
 
 describe("writer cleanup with profiles", () => {
-  it("removes stale artifacts using profile paths when lesson changes", () => {
+  it("removes stale artifacts using profile paths when lesson changes", async () => {
     const cursorProfile = PROFILES["cursor"]!;
     const bundleA = makeBundle();
-    applyBundle(bundleA, tmp, { profile: cursorProfile });
+    await applyBundle(bundleA, tmp, { profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/skills/code-review/SKILL.md"))).toBe(true);
 
     const bundleB: LessonBundle = {
@@ -195,7 +195,7 @@ describe("writer cleanup with profiles", () => {
       rules: [],
       configs: [],
     };
-    applyBundle(bundleB, tmp, { profile: cursorProfile });
+    await applyBundle(bundleB, tmp, { profile: cursorProfile });
 
     // Old skill removed via profile paths
     expect(existsSync(join(tmp, ".cursor/skills/code-review"))).toBe(false);
@@ -209,12 +209,12 @@ describe("writer cleanup with profiles", () => {
 // ---------------------------------------------------------------------------
 
 describe("detectOrphanedArtifacts", () => {
-  it("returns null when no other tool artifacts exist", () => {
+  it("returns null when no other tool artifacts exist", async () => {
     const result = detectOrphanedArtifacts(tmp, PROFILES["claude-code"]!);
     expect(result).toBeNull();
   });
 
-  it("returns warning when artifacts exist under a different tool", () => {
+  it("returns warning when artifacts exist under a different tool", async () => {
     // Simulate previous cursor install
     const cursorManifest = join(tmp, ".cursor", MANIFEST_FILENAME);
     mkdirSync(join(tmp, ".cursor"), { recursive: true });
@@ -239,7 +239,7 @@ describe("detectOrphanedArtifacts", () => {
     expect(warning).toContain(".claude/");
   });
 
-  it("does not warn about the current tool's own manifest", () => {
+  it("does not warn about the current tool's own manifest", async () => {
     // Simulate existing cursor install, then check as cursor
     const cursorManifest = join(tmp, ".cursor", MANIFEST_FILENAME);
     mkdirSync(join(tmp, ".cursor"), { recursive: true });
