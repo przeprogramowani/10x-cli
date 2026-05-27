@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   type CliManifest,
   MANIFEST_FILENAME,
+  buildUnionFiles,
   readManifest,
   writeManifest,
 } from "../src/lib/manifest";
@@ -118,5 +119,137 @@ describe("manifest — read/write", () => {
     const read = readManifest(tmp);
     expect(read).not.toBeNull();
     expect(new Date(read!.lastApplied).toISOString()).toBe(m.lastApplied);
+  });
+
+  it("accepts a manifest with a valid lessons field", () => {
+    const m = makeManifest({
+      lessons: {
+        m1l1: {
+          appliedAt: "2026-05-27T10:00:00.000Z",
+          skills: { "code-review": { files: ["SKILL.md"] } },
+          prompts: ["plan.md"],
+          configs: ["settings.json"],
+        },
+      },
+    });
+    writeManifest(tmp, m);
+    const read = readManifest(tmp);
+    expect(read).not.toBeNull();
+    expect(read!.lessons).toEqual(m.lessons);
+  });
+
+  it("rejects a manifest with malformed lessons", () => {
+    writeFileSync(
+      join(tmp, MANIFEST_FILENAME),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "1.0.0",
+        manifestVersion: 3,
+        lastApplied: "2026-05-27T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        files: {
+          skills: { "code-review": { files: ["SKILL.md"] } },
+          prompts: [],
+          configs: [],
+        },
+        lessons: { m1l1: "not-an-object" },
+      }),
+    );
+    expect(readManifest(tmp)).toBeNull();
+  });
+
+  it("rejects lessons entry missing appliedAt", () => {
+    writeFileSync(
+      join(tmp, MANIFEST_FILENAME),
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "1.0.0",
+        manifestVersion: 3,
+        lastApplied: "2026-05-27T00:00:00.000Z",
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        files: {
+          skills: {},
+          prompts: [],
+          configs: [],
+        },
+        lessons: {
+          m1l1: { skills: {}, prompts: [], configs: [] },
+        },
+      }),
+    );
+    expect(readManifest(tmp)).toBeNull();
+  });
+
+  it("accepts a manifest without lessons (backward compat)", () => {
+    const m = makeManifest();
+    expect(m.lessons).toBeUndefined();
+    writeManifest(tmp, m);
+    expect(readManifest(tmp)).toEqual(m);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildUnionFiles
+// ---------------------------------------------------------------------------
+
+describe("manifest — buildUnionFiles", () => {
+  it("unions skills from multiple lessons", () => {
+    const result = buildUnionFiles({
+      m1l1: {
+        appliedAt: "2026-05-27T10:00:00.000Z",
+        skills: {
+          "code-review": { files: ["SKILL.md"] },
+          tdd: { files: ["SKILL.md"] },
+        },
+        prompts: ["plan.md"],
+        configs: ["settings.json"],
+      },
+      m1l2: {
+        appliedAt: "2026-05-27T11:00:00.000Z",
+        skills: {
+          tdd: { files: ["SKILL.md", "references/guide.md"] },
+          refactor: { files: ["SKILL.md"] },
+        },
+        prompts: ["implement.md"],
+        configs: ["settings.json", "hooks.json"],
+      },
+    });
+
+    expect(Object.keys(result.skills).sort()).toEqual(["code-review", "refactor", "tdd"]);
+    expect(result.skills["tdd"]!.files.sort()).toEqual(["SKILL.md", "references/guide.md"]);
+    expect(result.prompts.sort()).toEqual(["implement.md", "plan.md"]);
+    expect(result.configs.sort()).toEqual(["hooks.json", "settings.json"]);
+  });
+
+  it("deduplicates file paths within shared skills", () => {
+    const result = buildUnionFiles({
+      m1l1: {
+        appliedAt: "2026-05-27T10:00:00.000Z",
+        skills: { init: { files: ["SKILL.md", "scripts/setup.sh"] } },
+        prompts: [],
+        configs: [],
+      },
+      m1l2: {
+        appliedAt: "2026-05-27T11:00:00.000Z",
+        skills: { init: { files: ["SKILL.md", "scripts/setup.sh", "references/api.md"] } },
+        prompts: [],
+        configs: [],
+      },
+    });
+
+    expect(result.skills["init"]!.files.sort()).toEqual([
+      "SKILL.md",
+      "references/api.md",
+      "scripts/setup.sh",
+    ]);
+  });
+
+  it("returns empty structures for an empty lessons record", () => {
+    const result = buildUnionFiles({});
+    expect(result.skills).toEqual({});
+    expect(result.prompts).toEqual([]);
+    expect(result.configs).toEqual([]);
   });
 });

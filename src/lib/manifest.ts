@@ -28,6 +28,13 @@ export interface CliManifestSkillEntry {
   contentHashes?: Record<string, string>;
 }
 
+export interface LessonFilesEntry {
+  appliedAt: string;
+  skills: Record<string, { files: string[] }>;
+  prompts: string[];
+  configs: string[];
+}
+
 export interface CliManifest {
   package: typeof CLI_PACKAGE_NAME;
   version: string;
@@ -48,6 +55,7 @@ export interface CliManifest {
     /** Per-prompt SHA-256 content hashes keyed by prompt filename. Present in v3+. */
     promptHashes?: Record<string, string>;
   };
+  lessons?: Record<string, LessonFilesEntry>;
 }
 
 /**
@@ -103,9 +111,12 @@ function isManifest(value: unknown): value is CliManifest {
   const files = v["files"];
   if (typeof files !== "object" || files === null) return false;
   const f = files as Record<string, unknown>;
-  return (
-    isSkillsRecord(f["skills"]) && isStringArray(f["prompts"]) && isStringArray(f["configs"])
-  );
+  if (
+    !(isSkillsRecord(f["skills"]) && isStringArray(f["prompts"]) && isStringArray(f["configs"]))
+  ) return false;
+  const lessons = v["lessons"];
+  if (lessons !== undefined && !isLessonsRecord(lessons)) return false;
+  return true;
 }
 
 function isSkillsRecord(
@@ -122,4 +133,50 @@ function isSkillsRecord(
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isLessonFilesEntry(value: unknown): value is LessonFilesEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const e = value as Record<string, unknown>;
+  if (typeof e["appliedAt"] !== "string") return false;
+  if (typeof e["skills"] !== "object" || e["skills"] === null || Array.isArray(e["skills"])) return false;
+  for (const skill of Object.values(e["skills"] as Record<string, unknown>)) {
+    if (typeof skill !== "object" || skill === null) return false;
+    if (!isStringArray((skill as Record<string, unknown>)["files"])) return false;
+  }
+  return isStringArray(e["prompts"]) && isStringArray(e["configs"]);
+}
+
+function isLessonsRecord(value: unknown): value is Record<string, LessonFilesEntry> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    if (!isLessonFilesEntry(entry)) return false;
+  }
+  return true;
+}
+
+export function buildUnionFiles(
+  lessons: Record<string, LessonFilesEntry>,
+): { skills: Record<string, { files: string[] }>; prompts: string[]; configs: string[] } {
+  const skills: Record<string, { files: string[] }> = {};
+  const prompts = new Set<string>();
+  const configs = new Set<string>();
+
+  for (const entry of Object.values(lessons)) {
+    for (const [name, skill] of Object.entries(entry.skills)) {
+      if (!skills[name]) {
+        skills[name] = { files: [...skill.files] };
+      } else {
+        for (const f of skill.files) {
+          if (!skills[name].files.includes(f)) {
+            skills[name].files.push(f);
+          }
+        }
+      }
+    }
+    for (const p of entry.prompts) prompts.add(p);
+    for (const c of entry.configs) configs.add(c);
+  }
+
+  return { skills, prompts: [...prompts], configs: [...configs] };
 }
