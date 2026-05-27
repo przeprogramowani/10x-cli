@@ -484,9 +484,9 @@ SHA-256 hashing of text files is negligible — a typical skill file is <10KB, a
 
 #### Automated
 
-- [x] 4.1 All tests pass: `bun test`
-- [x] 4.2 Type checking passes: `bun run typecheck`
-- [x] 4.3 Full CI pipeline passes
+- [x] 4.1 All tests pass: `bun test` — e0b122c
+- [x] 4.2 Type checking passes: `bun run typecheck` — e0b122c
+- [x] 4.3 Full CI pipeline passes — e0b122c
 
 #### Manual
 

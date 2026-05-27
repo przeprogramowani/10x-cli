@@ -37,6 +37,8 @@ The CLI is a thin **CAC**-based command dispatcher (`src/index.ts`) that wires c
   2. **JSON mode is implied when stdout is not a TTY**, even without `--json`. `resolveContext()` handles this; commands should always go through it instead of checking flags directly.
   3. **Exit codes are semantic** (`ExitCodes`): `0` SUCCESS, `1` ERROR, `2` USAGE, `3` AUTH_REQUIRED, `4` FORBIDDEN, `5` NOT_FOUND. Use `outputError(ctx, code, message, exitCode, hint)` rather than `process.exit` ad-hoc, so the JSON envelope `{ status: "error", error: { code, message, hint } }` stays consistent.
 
+- **`conflict-prompt.ts`** — interactive conflict resolution for user-edited files. `createConflictResolver(tty)` returns a `ConflictResolver` callback injected into `applyBundle()`. TTY mode shows a per-file `@clack/prompts` select with overwrite / save-as-.user / skip / apply-to-all options. Non-TTY mode returns `"skip"` unconditionally — user work is never silently destroyed in pipelines.
+
 Each command in `src/commands/` exports a `register*Command(cli)` function that attaches itself to the shared CAC instance. Adding a new command means: create `src/commands/foo.ts` exporting `registerFooCommand`, import + call it in `src/index.ts`. Action callbacks receive their positional args followed by an options object that already includes the global `--json` / `--verbose` flags — pass that object straight into `resolveContext` / `outputError`.
 
 Stub commands intentionally call `exitNotImplemented(name, phase, options)` so machine consumers still get a parseable error envelope. When implementing a phase, replace that call rather than working around it.
@@ -48,6 +50,21 @@ Stub commands intentionally call `exitNotImplemented(name, phase, options)` so m
 - Module mocks: use `mock.module()` from `bun:test`, not `vi.mock`
 - Prefer dependency injection over module mocking where possible
 - Run tests with `bun test`, not `vitest run` or `npx jest`
+
+## Writer & conflict detection
+
+`applyBundle()` in `writer.ts` is **async** and accepts an optional `onConflict: ConflictResolver` callback via `ApplyOptions`. The writer uses three-way hash comparison to detect user-edited files:
+
+- The manifest (v3) stores per-file SHA-256 content hashes (`contentHashes` for skills, `promptHashes` for prompts).
+- On re-apply, if local content differs from both the stored hash and the new bundle content, it's a user edit → the `onConflict` callback is invoked.
+- If local content differs from the stored hash but matches the new content → `"unchanged"` (no conflict).
+- If local content matches the stored hash → clean upstream update, no conflict.
+- When no `onConflict` callback is provided, conflicts default to `"skip"` (safe).
+- Manifest v2 (no hashes) is accepted at read time; any content difference on first apply triggers a conflict prompt (one-time calibration). After resolution, v3 hashes are stored.
+
+`WriteResult` includes a `removals` field tracking files deleted during lesson transitions. These render as `[removed]` lines in human output and appear in the JSON envelope under `writes.removals` with `counts.removals`.
+
+Conflict actions: `"conflict_overwritten"` | `"conflict_saved_user"` (creates `.user.<ext>` backup) | `"conflict_skipped"` (preserves local, does NOT update manifest hash so conflict re-triggers on next apply).
 
 ## Conventions worth knowing
 
