@@ -1,7 +1,7 @@
 ---
 change_id: cumulative-manifest
 title: Make the CLI accumulate artifacts across lessons instead of replacing
-status: implementing
+status: implemented
 created: 2026-05-27
 updated: 2026-05-27
 framed: 2026-05-27

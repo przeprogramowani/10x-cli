@@ -285,10 +285,10 @@ The protected-set computation in `computeRemovals()` is O(files in other lessons
 
 #### Automated
 
-- [x] 2.1 All tests pass: `bun test`
-- [x] 2.2 Type checking passes: `bun run typecheck`
-- [x] 2.3 Linting passes: `bun run lint`
-- [x] 2.4 Build succeeds: `bun run build`
+- [x] 2.1 All tests pass: `bun test` — c37f96f
+- [x] 2.2 Type checking passes: `bun run typecheck` — c37f96f
+- [x] 2.3 Linting passes: `bun run lint` — c37f96f
+- [x] 2.4 Build succeeds: `bun run build` — c37f96f
 
 #### Manual
 
