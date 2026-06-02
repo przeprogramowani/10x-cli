@@ -31,6 +31,7 @@ import {
   saveAuth,
   saveToolConfig,
   toolConfigPath,
+  updateToolConfig,
 } from "../src/lib/config";
 import { redirectConfigDir, restoreConfigDir } from "./helpers/config-isolation";
 
@@ -166,5 +167,53 @@ describe("readToolConfig — acknowledgedOrphans shape validation", () => {
     writeToolConfig({ tool: "cursor", acknowledgedOrphans: ["claude-code"] });
     const cfg = readToolConfig();
     expect(cfg?.acknowledgedOrphans).toEqual(["claude-code"]);
+  });
+});
+
+describe("readToolConfig — courseRules shape validation", () => {
+  function writeToolConfig(payload: unknown): void {
+    const file = toolConfigPath();
+    mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+    writeFileSync(file, JSON.stringify(payload));
+  }
+
+  it("drops courseRules when it is a non-boolean (string)", () => {
+    writeToolConfig({ tool: "claude-code", courseRules: "false" });
+    const cfg = readToolConfig();
+    expect(cfg?.tool).toBe("claude-code");
+    expect(cfg?.courseRules).toBeUndefined();
+  });
+
+  it("passes a valid boolean through intact", () => {
+    writeToolConfig({ tool: "cursor", courseRules: false });
+    const cfg = readToolConfig();
+    expect(cfg?.courseRules).toBe(false);
+  });
+});
+
+describe("updateToolConfig — merge-safe partial write", () => {
+  it("setting courseRules preserves tool + acknowledgedOrphans", () => {
+    saveToolConfig({ tool: "cursor", acknowledgedOrphans: ["claude-code"] });
+    updateToolConfig({ courseRules: false });
+    expect(readToolConfig()).toEqual({
+      tool: "cursor",
+      acknowledgedOrphans: ["claude-code"],
+      courseRules: false,
+    });
+  });
+
+  it("setting lang does not drop acknowledgedOrphans (latent clobber fix)", () => {
+    saveToolConfig({ tool: "cursor", acknowledgedOrphans: ["claude-code"] });
+    updateToolConfig({ lang: "pl" });
+    expect(readToolConfig()).toEqual({
+      tool: "cursor",
+      acknowledgedOrphans: ["claude-code"],
+      lang: "pl",
+    });
+  });
+
+  it("seeds a valid { tool } when no prior config exists", () => {
+    updateToolConfig({ tool: "claude-code", courseRules: false });
+    expect(readToolConfig()).toEqual({ tool: "claude-code", courseRules: false });
   });
 });

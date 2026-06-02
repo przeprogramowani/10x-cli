@@ -129,6 +129,12 @@ export interface ToolConfig {
   lang?: string;
   /** Tool IDs whose orphan warning has been dismissed by the user (migration "keep" path). */
   acknowledgedOrphans?: string[];
+  /**
+   * Whether to apply the course rules block (the sentinel-marked
+   * `@przeprogramowani/10x-cli` section) to the active tool's rules file.
+   * Absent means enabled (default-on); `false` opts out persistently.
+   */
+  courseRules?: boolean;
 }
 
 export function toolConfigPath(): string {
@@ -152,6 +158,12 @@ export function readToolConfig(): ToolConfig | null {
     ) {
       delete parsed.acknowledgedOrphans;
     }
+    // Defense in depth: a hand-edited config.json with a non-boolean
+    // courseRules (e.g. the string "false") would otherwise be truthy.
+    // Drop it so the default-on fallback applies rather than trusting it.
+    if (parsed.courseRules !== undefined && typeof parsed.courseRules !== "boolean") {
+      delete parsed.courseRules;
+    }
     return parsed;
   } catch {
     return null;
@@ -164,6 +176,22 @@ export function saveToolConfig(config: ToolConfig): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   writeJsonAtomic(toolConfigPath(), config);
+}
+
+/**
+ * Merge-safe partial update: read the current config, spread the patch over
+ * it, and persist the result. Unlike `saveToolConfig` (a full-object write),
+ * this preserves fields the caller didn't touch — so persisting just `lang`
+ * no longer drops `acknowledgedOrphans`/`courseRules`, and vice versa.
+ *
+ * `tool` is required in the persisted object. When no prior config exists the
+ * patch must still yield a valid `{ tool }`; callers (e.g. `get`) seed `tool`
+ * from the resolved profile.
+ */
+export function updateToolConfig(patch: Partial<ToolConfig>): void {
+  const current = readToolConfig();
+  const merged = { ...current, ...patch } as ToolConfig;
+  saveToolConfig(merged);
 }
 
 export function isAuthenticated(now: Date = new Date()): boolean {
