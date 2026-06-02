@@ -69,6 +69,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 | `--name <name>` | Filter by artifact name (requires `--type`) |
 | `--dry-run` | Show what would be written without touching the filesystem |
 | `--course <slug>` | Override the course slug (default: `10xdevs3`) |
+| `--no-course-rules` | Skip the course rules block in your rules file (`CLAUDE.md`/`AGENTS.md`); strips an existing one. Use `--course-rules` to re-enable. |
 
 #### Examples
 
@@ -88,7 +89,20 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 
 # Use with a different AI coding tool
 10x get m1l1 --tool cursor
+
+# Skip the course rules block (bring your own rules). Persisted across runs;
+# a previously-applied block is stripped. Re-enable later with --course-rules.
+10x get m1l1 --no-course-rules
+10x get m1l2 --course-rules
+
+# An explicit rules request always applies, even with the opt-out persisted
+10x get m1l1 --type rules
 ```
+
+> The `--no-course-rules` / `--course-rules` choice is saved as `courseRules`
+> in `config.json` and applies to subsequent plain `10x get` runs. An explicit
+> `--type rules` request overrides the opt-out for that run. Skills, prompts,
+> and config-templates are unaffected.
 
 ### Global Flags
 

@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
@@ -83,8 +83,17 @@ async function runGet(argv: string[]): Promise<CaptureResult> {
     cli.option("--json", "Output as JSON (auto-detected when piped)");
     cli.option("--verbose", "Show detailed output on stderr");
     registerGetCommand(cli);
-    cli.parse(["bun", "10x", ...argv], { run: false });
-    await cli.runMatchedCommand();
+    // Mirror the command argv onto process.argv so argv-peeking resolution
+    // (e.g. resolveCourseRulesFlag) sees the real flags, matching production
+    // where process.argv IS the invocation. Restored after the run.
+    const realArgv = process.argv;
+    process.argv = ["bun", "10x", ...argv];
+    try {
+      cli.parse(["bun", "10x", ...argv], { run: false });
+      await cli.runMatchedCommand();
+    } finally {
+      process.argv = realArgv;
+    }
   });
 }
 
@@ -496,5 +505,76 @@ describe("10x get — --tool persistence", () => {
     expect(config?.tool).toBe("cursor");
     expect(config?.lang).toBe("pl");
     expect(config?.acknowledgedOrphans).toEqual(["copilot"]);
+  });
+});
+
+describe("10x get — course rules opt-out", () => {
+  const BEGIN = "<!-- BEGIN @przeprogramowani/10x-cli -->";
+
+  it("resolveCourseRulesFlag returns false/true/undefined for the three argv shapes", async () => {
+    const { resolveCourseRulesFlag } = await import("../src/commands/get");
+    expect(resolveCourseRulesFlag(["bun", "10x", "get", "m1l1", "--no-course-rules"])).toBe(false);
+    expect(resolveCourseRulesFlag(["bun", "10x", "get", "m1l1", "--course-rules"])).toBe(true);
+    expect(resolveCourseRulesFlag(["bun", "10x", "get", "m1l1"])).toBeUndefined();
+  });
+
+  it("plain get with courseRules:false persisted writes no block and counts.rules:0", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code", courseRules: false });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+
+    const data = parseOk<{ counts: { rules: number }; writes: { rules: { action: string } } }>(stdout);
+    expect(data.counts.rules).toBe(0);
+    // No course block landed in CLAUDE.md.
+    const claudeMd = join(projectRoot, "CLAUDE.md");
+    expect(existsSync(claudeMd) && readFileSync(claudeMd, "utf8").includes(BEGIN)).toBe(false);
+  });
+
+  it("--type rules overrides a persisted opt-out and applies the block", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code", courseRules: false });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--type", "rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+
+    const data = parseOk<{ counts: { rules: number } }>(stdout);
+    expect(data.counts.rules).toBe(1);
+    const claudeMd = readFileSync(join(projectRoot, "CLAUDE.md"), "utf8");
+    expect(claudeMd).toContain(BEGIN);
+  });
+
+  it("--no-course-rules persists courseRules:false (not dry-run)", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code", acknowledgedOrphans: ["copilot"] });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    const { exitCode } = await runGet(["get", "m1l1", "--no-course-rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+
+    const config = readToolConfig();
+    expect(config?.courseRules).toBe(false);
+    // Merge-safe: untouched fields preserved.
+    expect(config?.tool).toBe("claude-code");
+    expect(config?.acknowledgedOrphans).toEqual(["copilot"]);
+  });
+
+  it("--no-course-rules under --dry-run does not write config", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    const { exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--no-course-rules",
+      "--dry-run",
+      "--json",
+    ]);
+    expect(exitCode ?? 0).toBe(0);
+    // No config written under dry-run.
+    expect(readToolConfig()).toBeNull();
   });
 });

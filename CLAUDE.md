@@ -66,6 +66,8 @@ Stub commands intentionally call `exitNotImplemented(name, phase, options)` so m
 
 Conflict actions: `"conflict_overwritten"` | `"conflict_saved_user"` (creates `.user.<ext>` backup) | `"conflict_skipped"` (preserves local, does NOT update manifest hash so conflict re-triggers on next apply).
 
+`applyBundle` takes an `applyCourseRules?: boolean` (default `true`). When `false`, the course rules block (the `@przeprogramowani/10x-cli` sentinel section) is not written and any existing one is **stripped** from the rules file (surrounding content preserved, `rules.action: "removed"`). The CLI exposes this via `--no-course-rules` / `--course-rules` on `get`, persists the choice as `courseRules` in `config.json` (merge-safe via `updateToolConfig`), and resolves it tri-state — argv flag > persisted config > default-on (CAC can't distinguish default-on from explicit `--course-rules`, hence the argv peek in `resolveCourseRulesFlag`). An explicit `--type rules` request forces apply regardless of the setting. Rules are sentinel-based, not manifest-tracked, so opting out needs no manifest changes.
+
 ## Cumulative manifest & lesson-scoped removal
 
 The manifest is **cumulative** — each `10x get` accumulates artifacts across lessons instead of replacing them. The manifest's `lessons` field (`Record<string, LessonFilesEntry>`) tracks per-lesson file ownership:

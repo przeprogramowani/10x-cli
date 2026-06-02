@@ -391,13 +391,13 @@ without `courseRules` read as enabled (default-on). No migration step.
 
 #### Automated
 
-- [x] 2.1 Type checking passes: `bun run typecheck`
-- [x] 2.2 Linting passes: `bun run lint`
-- [x] 2.3 Writer tests pass: `bun test tests/writer.test.ts`
-- [x] 2.4 Strip existing block, preserve surrounding content, `rules.action: "removed"`
-- [x] 2.5 No existing block → untouched, `rules.action: "unchanged"`
-- [x] 2.6 `dryRun` reports `"removed"` without modifying the file
-- [x] 2.7 Default (omitted flag) still applies + idempotent
+- [x] 2.1 Type checking passes: `bun run typecheck` — b856bd9
+- [x] 2.2 Linting passes: `bun run lint` — b856bd9
+- [x] 2.3 Writer tests pass: `bun test tests/writer.test.ts` — b856bd9
+- [x] 2.4 Strip existing block, preserve surrounding content, `rules.action: "removed"` — b856bd9
+- [x] 2.5 No existing block → untouched, `rules.action: "unchanged"` — b856bd9
+- [x] 2.6 `dryRun` reports `"removed"` without modifying the file — b856bd9
+- [x] 2.7 Default (omitted flag) still applies + idempotent — b856bd9
 
 #### Manual
 
@@ -407,16 +407,16 @@ without `courseRules` read as enabled (default-on). No migration step.
 
 #### Automated
 
-- [ ] 3.1 Type checking passes: `bun run typecheck`
-- [ ] 3.2 Linting passes: `bun run lint`
-- [ ] 3.3 Get tests pass: `bun test tests/get.test.ts`
-- [ ] 3.4 `resolveCourseRulesFlag` tri-state across three argv shapes
-- [ ] 3.5 Persisted-off plain run → `applyCourseRules:false`
-- [ ] 3.6 `--type rules` with persisted-off → `applyCourseRules:true` (override)
-- [ ] 3.7 `--no-course-rules` persists; `--dry-run` does not write config
-- [ ] 3.8 JSON `counts.rules` is `0` when disabled
-- [ ] 3.9 Full suite passes: `bun test`
-- [ ] 3.10 Build passes: `bun run build`
+- [x] 3.1 Type checking passes: `bun run typecheck`
+- [x] 3.2 Linting passes: `bun run lint`
+- [x] 3.3 Get tests pass: `bun test tests/get.test.ts`
+- [x] 3.4 `resolveCourseRulesFlag` tri-state across three argv shapes
+- [x] 3.5 Persisted-off plain run → `applyCourseRules:false`
+- [x] 3.6 `--type rules` with persisted-off → `applyCourseRules:true` (override)
+- [x] 3.7 `--no-course-rules` persists; `--dry-run` does not write config
+- [x] 3.8 JSON `counts.rules` is `0` when disabled
+- [x] 3.9 Full suite passes: `bun test`
+- [x] 3.10 Build passes: `bun run build`
 
 #### Manual
 

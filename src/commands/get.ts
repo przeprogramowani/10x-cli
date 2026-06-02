@@ -15,7 +15,7 @@ import {
   resolveContext,
   verbose,
 } from "../lib/output";
-import { readToolConfig, saveToolConfig } from "../lib/config";
+import { readToolConfig, updateToolConfig } from "../lib/config";
 import { resolveToolProfile } from "../lib/tool-prompt";
 import type { ToolProfile } from "../lib/tool-profile";
 import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
@@ -35,6 +35,23 @@ interface GetFlags extends GlobalFlags {
   type?: string;
   name?: string;
   lang?: string;
+  courseRules?: boolean;
+}
+
+/**
+ * Derive whether the user explicitly set the course-rules flag this run.
+ * CAC collapses the default and the positive `--course-rules` form to the
+ * same `courseRules:true`, so a tri-state (off / on / unset) requires peeking
+ * the raw argv tokens. Pure and unit-testable.
+ *
+ * - argv contains `--no-course-rules` → `false`
+ * - else argv contains `--course-rules` → `true`
+ * - else → `undefined` (no explicit choice this run)
+ */
+export function resolveCourseRulesFlag(argv: string[]): boolean | undefined {
+  if (argv.includes("--no-course-rules")) return false;
+  if (argv.includes("--course-rules")) return true;
+  return undefined;
 }
 
 /** Default course slug. Hardcoded for v1 per plan; configurable later. */
@@ -53,6 +70,10 @@ export function registerGetCommand(cli: CAC): void {
     .option("--type <type>", "Artifact type filter: skills, prompts, rules, configs")
     .option("--name <name>", "Artifact name filter (requires --type)")
     .option("--lang <lang>", "Content language: en (default) or pl")
+    .option(
+      "--no-course-rules",
+      "Skip applying the course rules block to your rules file (CLAUDE.md/AGENTS.md)",
+    )
     .action(async (ref: string, options: GetFlags) => {
       const ctx = resolveContext(options);
       await runGet(ctx, ref, options);
@@ -110,13 +131,26 @@ export async function runGet(
   const course = options.course ?? DEFAULT_COURSE;
   const profile = await resolveToolProfile(options.tool, process.cwd());
 
+  const dryRun = options.dryRun === true;
+
   // Resolve language: --lang flag > config > default "en"
   const lang = options.lang ?? readToolConfig()?.lang ?? "en";
 
-  // Persist lang to config alongside tool preference
-  if (options.lang) {
-    const existing = readToolConfig();
-    saveToolConfig({ tool: existing?.tool ?? profile.toolId, lang: options.lang });
+  // Resolve course-rules: explicit flag > persisted config > default-on. The
+  // explicit value comes from an argv peek because CAC can't distinguish the
+  // default from the positive `--course-rules` form (see resolveCourseRulesFlag).
+  const explicitCourseRules = resolveCourseRulesFlag(process.argv);
+  const resolvedCourseRules = explicitCourseRules ?? readToolConfig()?.courseRules ?? true;
+
+  // Persist explicit choices via a merge-safe write so neither clobbers the
+  // other config fields. Skip under --dry-run (touch nothing). `tool` is
+  // seeded so the persisted object stays valid when no prior config exists.
+  if (!dryRun && (options.lang || explicitCourseRules !== undefined)) {
+    const tool = readToolConfig()?.tool ?? profile.toolId;
+    const patch: { tool: string; lang?: string; courseRules?: boolean } = { tool };
+    if (options.lang) patch.lang = options.lang;
+    if (explicitCourseRules !== undefined) patch.courseRules = explicitCourseRules;
+    updateToolConfig(patch);
   }
 
   if (options.print) {
@@ -161,16 +195,24 @@ export async function runGet(
     showUpgradeNotice(isTTY);
   }
 
+  // An explicit `--type rules` request applies rules even when the setting is
+  // off (explicit intent wins). Any other `--type` filter empties the rules
+  // bucket, so forcing true there is a no-op that leaves the rules file alone.
+  // A full apply (no filter) respects the resolved setting (and strips when off).
+  const applyCourseRules = isFiltered ? true : resolvedCourseRules;
+
   const writeResult = await applyBundle(bundle, process.cwd(), {
-    dryRun: options.dryRun === true,
+    dryRun,
     profile,
     partial: isFiltered,
     onConflict: createConflictResolver(isTTY),
+    applyCourseRules,
   });
 
-  renderGetResult(ctx, bundle, writeResult, options.dryRun === true, profile, {
+  renderGetResult(ctx, bundle, writeResult, dryRun, profile, {
     language: contentLang ?? lang,
     languageFallback: isFallback,
+    applyCourseRules,
   });
 }
 
@@ -440,8 +482,13 @@ function renderGetResult(
   writeResult: WriteResult,
   dryRun: boolean,
   profile: ToolProfile,
-  langMeta: { language: string; languageFallback: boolean } = { language: "en", languageFallback: false },
+  langMeta: { language: string; languageFallback: boolean; applyCourseRules: boolean } = {
+    language: "en",
+    languageFallback: false,
+    applyCourseRules: true,
+  },
 ): void {
+  const applyCourseRules = langMeta.applyCourseRules;
   const totalRemovals =
     writeResult.removals.skills.length +
     writeResult.removals.prompts.length +
@@ -466,7 +513,8 @@ function renderGetResult(
       counts: {
         skills: writeResult.skills.length,
         prompts: writeResult.prompts.length,
-        rules: bundle.rules.length,
+        // Applied blocks: 0 when the course-rules block was disabled/stripped.
+        rules: applyCourseRules ? bundle.rules.length : 0,
         configs: writeResult.configs.length,
         removals: totalRemovals,
       },
@@ -494,7 +542,15 @@ function renderGetResult(
   for (const prompt of writeResult.prompts) {
     lines.push(`  [${formatAction(prompt.action)}] prompt ${prompt.path}`);
   }
-  if (bundle.rules.length > 0) {
+  if (!applyCourseRules) {
+    // Course rules disabled: a stripped block surfaces as a [removed] line;
+    // when nothing was present the rules line is suppressed (verbose-only).
+    if (writeResult.rules.action === "removed") {
+      lines.push(`  [removed] rules  ${profile.rulesFile}`);
+    } else {
+      verbose(ctx, `course rules disabled — ${profile.rulesFile} left untouched`);
+    }
+  } else if (bundle.rules.length > 0) {
     lines.push(
       `  [${writeResult.rules.action}] rules  ${profile.rulesFile} (${bundle.rules.length} block${bundle.rules.length === 1 ? "" : "s"})`,
     );
