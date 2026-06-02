@@ -385,7 +385,7 @@ without `courseRules` read as enabled (default-on). No migration step.
 
 #### Manual
 
-- [ ] 1.6 After a disabled `get`, `config.json` has `courseRules:false` with other fields intact
+- [x] 1.6 After a disabled `get`, `config.json` has `courseRules:false` with other fields intact
 
 ### Phase 2: Writer opt-out & strip
 
@@ -401,27 +401,27 @@ without `courseRules` read as enabled (default-on). No migration step.
 
 #### Manual
 
-- [ ] 2.8 Real-project disabled apply leaves non-course `CLAUDE.md` content intact
+- [x] 2.8 Real-project disabled apply leaves non-course `CLAUDE.md` content intact
 
 ### Phase 3: Command wiring, resolution & output
 
 #### Automated
 
-- [x] 3.1 Type checking passes: `bun run typecheck`
-- [x] 3.2 Linting passes: `bun run lint`
-- [x] 3.3 Get tests pass: `bun test tests/get.test.ts`
-- [x] 3.4 `resolveCourseRulesFlag` tri-state across three argv shapes
-- [x] 3.5 Persisted-off plain run → `applyCourseRules:false`
-- [x] 3.6 `--type rules` with persisted-off → `applyCourseRules:true` (override)
-- [x] 3.7 `--no-course-rules` persists; `--dry-run` does not write config
-- [x] 3.8 JSON `counts.rules` is `0` when disabled
-- [x] 3.9 Full suite passes: `bun test`
-- [x] 3.10 Build passes: `bun run build`
+- [x] 3.1 Type checking passes: `bun run typecheck` — 40a7cff
+- [x] 3.2 Linting passes: `bun run lint` — 40a7cff
+- [x] 3.3 Get tests pass: `bun test tests/get.test.ts` — 40a7cff
+- [x] 3.4 `resolveCourseRulesFlag` tri-state across three argv shapes — 40a7cff
+- [x] 3.5 Persisted-off plain run → `applyCourseRules:false` — 40a7cff
+- [x] 3.6 `--type rules` with persisted-off → `applyCourseRules:true` (override) — 40a7cff
+- [x] 3.7 `--no-course-rules` persists; `--dry-run` does not write config — 40a7cff
+- [x] 3.8 JSON `counts.rules` is `0` when disabled — 40a7cff
+- [x] 3.9 Full suite passes: `bun test` — 40a7cff
+- [x] 3.10 Build passes: `bun run build` — 40a7cff
 
 #### Manual
 
-- [ ] 3.11 Fresh-project `--no-course-rules`: artifacts land, no block, config persisted
-- [ ] 3.12 Subsequent plain `get` stays opted out
-- [ ] 3.13 `--course-rules` re-enables + writes block
-- [ ] 3.14 `--type rules` applies block despite persisted opt-out
-- [ ] 3.15 Existing block stripped surgically, rest of `CLAUDE.md` intact
+- [x] 3.11 Fresh-project `--no-course-rules`: artifacts land, no block, config persisted
+- [x] 3.12 Subsequent plain `get` stays opted out
+- [x] 3.13 `--course-rules` re-enables + writes block
+- [x] 3.14 `--type rules` applies block despite persisted opt-out
+- [x] 3.15 Existing block stripped surgically, rest of `CLAUDE.md` intact

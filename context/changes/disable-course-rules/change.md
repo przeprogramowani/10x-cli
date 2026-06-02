@@ -1,7 +1,7 @@
 ---
 change_id: disable-course-rules
 title: Disable course rules
-status: implementing
+status: implemented
 created: 2026-06-02
 updated: 2026-06-02
 archived_at: null
