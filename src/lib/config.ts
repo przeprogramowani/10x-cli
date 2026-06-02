@@ -191,6 +191,12 @@ export function saveToolConfig(config: ToolConfig): void {
 export function updateToolConfig(patch: Partial<ToolConfig>): void {
   const current = readToolConfig();
   const merged = { ...current, ...patch } as ToolConfig;
+  if (typeof merged.tool !== "string") {
+    throw new Error(
+      "updateToolConfig: refusing to persist a config without a `tool` — " +
+        "no prior config exists and the patch did not seed one.",
+    );
+  }
   saveToolConfig(merged);
 }
 

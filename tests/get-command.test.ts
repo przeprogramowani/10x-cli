@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
@@ -510,6 +510,7 @@ describe("10x get — --tool persistence", () => {
 
 describe("10x get — course rules opt-out", () => {
   const BEGIN = "<!-- BEGIN @przeprogramowani/10x-cli -->";
+  const END = "<!-- END @przeprogramowani/10x-cli -->";
 
   it("resolveCourseRulesFlag returns false/true/undefined for the three argv shapes", async () => {
     const { resolveCourseRulesFlag } = await import("../src/commands/get");
@@ -576,5 +577,61 @@ describe("10x get — course rules opt-out", () => {
     expect(exitCode ?? 0).toBe(0);
     // No config written under dry-run.
     expect(readToolConfig()).toBeNull();
+  });
+
+  it("--no-course-rules strips an existing block and preserves surrounding content", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    // Pre-seed a rules file that already holds a course block bracketed by
+    // user-authored content. A single disabled run must strip only the block.
+    const claudeMd = join(projectRoot, "CLAUDE.md");
+    writeFileSync(claudeMd, `# My own rules\n\nKeep me.\n\n${BEGIN}\ncourse stuff\n${END}\n`);
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--no-course-rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+
+    const data = parseOk<{ counts: { rules: number }; writes: { rules: { action: string } } }>(stdout);
+    expect(data.writes.rules.action).toBe("removed");
+    expect(data.counts.rules).toBe(0);
+
+    const after = readFileSync(claudeMd, "utf8");
+    expect(after).not.toContain(BEGIN);
+    expect(after).toContain("# My own rules");
+    expect(after).toContain("Keep me.");
+  });
+
+  it("human output renders a [removed] rules line when a block is stripped", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    // Pre-seed an existing block, then run in human mode (TTY, no --json): the
+    // renderer emits the [removed] rules line. No conflict resolver fires —
+    // rules are sentinel-based, not manifest-tracked.
+    writeFileSync(join(projectRoot, "CLAUDE.md"), `${BEGIN}\ncourse stuff\n${END}\n`);
+
+    process.stdout.isTTY = true;
+    const { stdout, stderr, exitCode } = await runGet(["get", "m1l1", "--no-course-rules"]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(`${stdout}${stderr}`).toContain("[removed] rules");
+  });
+
+  it("--course-rules (positive form) parses through CAC without a USAGE exit", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code", courseRules: false });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+
+    // The positive form is the implicit counterpart of the registered
+    // `--no-course-rules`. Guard against a regression where CAC stops
+    // accepting it and exits 2 (USAGE).
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--course-rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+
+    const data = parseOk<{ counts: { rules: number } }>(stdout);
+    expect(data.counts.rules).toBe(1);
+    // Re-enabling also persists the positive choice.
+    expect(readToolConfig()?.courseRules).toBe(true);
   });
 });
