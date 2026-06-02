@@ -1053,3 +1053,70 @@ describe("writer — upgrade seeding for lessons field", () => {
     expect(Object.keys(manifest!.files.skills).sort()).toEqual(["code-review", "refactor", "tdd"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Course-rules opt-out & strip (applyCourseRules:false)
+// ---------------------------------------------------------------------------
+
+describe("writer — course rules opt-out", () => {
+  const BEGIN = "<!-- BEGIN @przeprogramowani/10x-cli -->";
+  const END = "<!-- END @przeprogramowani/10x-cli -->";
+
+  it("strips an existing block and preserves surrounding content", async () => {
+    // Seed a CLAUDE.md with a course block sandwiched between user content.
+    await applyBundle(bundleA(), tmp);
+    const claudeMdPath = join(tmp, "CLAUDE.md");
+    const seeded = `# My own rules\n\nKeep me.\n\n${readFileSync(claudeMdPath, "utf8")}\n# Trailer\n`;
+    writeFileSync(claudeMdPath, seeded);
+    expect(readFileSync(claudeMdPath, "utf8")).toContain(BEGIN);
+
+    const result = await applyBundle(bundleA(), tmp, { applyCourseRules: false });
+
+    expect(result.rules.action).toBe("removed");
+    const after = readFileSync(claudeMdPath, "utf8");
+    expect(after).not.toContain(BEGIN);
+    expect(after).not.toContain(END);
+    expect(after).toContain("# My own rules");
+    expect(after).toContain("Keep me.");
+    expect(after).toContain("# Trailer");
+  });
+
+  it("leaves the rules file untouched when no block is present", async () => {
+    const claudeMdPath = join(tmp, "CLAUDE.md");
+    writeFileSync(claudeMdPath, "# Just my rules\n");
+
+    const result = await applyBundle(bundleA(), tmp, { applyCourseRules: false });
+
+    expect(result.rules.action).toBe("unchanged");
+    expect(readFileSync(claudeMdPath, "utf8")).toBe("# Just my rules\n");
+  });
+
+  it("reports removed under dryRun without modifying the file", async () => {
+    await applyBundle(bundleA(), tmp);
+    const claudeMdPath = join(tmp, "CLAUDE.md");
+    const before = readFileSync(claudeMdPath, "utf8");
+    expect(before).toContain(BEGIN);
+
+    const result = await applyBundle(bundleA(), tmp, {
+      applyCourseRules: false,
+      dryRun: true,
+    });
+
+    expect(result.rules.action).toBe("removed");
+    // File on disk is unchanged.
+    expect(readFileSync(claudeMdPath, "utf8")).toBe(before);
+  });
+
+  it("default (omitted flag) still applies the block and is idempotent", async () => {
+    await applyBundle(bundleA(), tmp);
+    const claudeMdPath = join(tmp, "CLAUDE.md");
+    const first = readFileSync(claudeMdPath, "utf8");
+    expect(first).toContain(BEGIN);
+
+    const result = await applyBundle(bundleA(), tmp);
+
+    expect(result.rules.action).toBe("unchanged");
+    // Byte-identical re-apply.
+    expect(readFileSync(claudeMdPath, "utf8")).toBe(first);
+  });
+});

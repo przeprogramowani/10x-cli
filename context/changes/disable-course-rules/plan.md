@@ -377,11 +377,11 @@ without `courseRules` read as enabled (default-on). No migration step.
 
 #### Automated
 
-- [x] 1.1 Type checking passes: `bun run typecheck`
-- [x] 1.2 Linting passes: `bun run lint`
-- [x] 1.3 Unit tests pass: config test file
-- [x] 1.4 `updateToolConfig({ courseRules: false })` preserves `tool` + `acknowledgedOrphans`
-- [x] 1.5 `readToolConfig` drops a non-boolean `courseRules`
+- [x] 1.1 Type checking passes: `bun run typecheck` — b644d7c
+- [x] 1.2 Linting passes: `bun run lint` — b644d7c
+- [x] 1.3 Unit tests pass: config test file — b644d7c
+- [x] 1.4 `updateToolConfig({ courseRules: false })` preserves `tool` + `acknowledgedOrphans` — b644d7c
+- [x] 1.5 `readToolConfig` drops a non-boolean `courseRules` — b644d7c
 
 #### Manual
 
@@ -391,13 +391,13 @@ without `courseRules` read as enabled (default-on). No migration step.
 
 #### Automated
 
-- [ ] 2.1 Type checking passes: `bun run typecheck`
-- [ ] 2.2 Linting passes: `bun run lint`
-- [ ] 2.3 Writer tests pass: `bun test tests/writer.test.ts`
-- [ ] 2.4 Strip existing block, preserve surrounding content, `rules.action: "removed"`
-- [ ] 2.5 No existing block → untouched, `rules.action: "unchanged"`
-- [ ] 2.6 `dryRun` reports `"removed"` without modifying the file
-- [ ] 2.7 Default (omitted flag) still applies + idempotent
+- [x] 2.1 Type checking passes: `bun run typecheck`
+- [x] 2.2 Linting passes: `bun run lint`
+- [x] 2.3 Writer tests pass: `bun test tests/writer.test.ts`
+- [x] 2.4 Strip existing block, preserve surrounding content, `rules.action: "removed"`
+- [x] 2.5 No existing block → untouched, `rules.action: "unchanged"`
+- [x] 2.6 `dryRun` reports `"removed"` without modifying the file
+- [x] 2.7 Default (omitted flag) still applies + idempotent
 
 #### Manual
 

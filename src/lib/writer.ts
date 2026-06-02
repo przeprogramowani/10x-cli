@@ -35,7 +35,7 @@ import {
   readManifest,
   writeManifest,
 } from "./manifest";
-import { applyRulesBlockWithMarkers } from "./sentinel-migration";
+import { applyRulesBlockWithMarkers, removeRulesBlockWithMarkers } from "./sentinel-migration";
 import { PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
 import pkgJson from "../../package.json";
 
@@ -124,6 +124,14 @@ export interface ApplyOptions {
    * to "skip" (safe default matching non-TTY behavior).
    */
   onConflict?: ConflictResolver;
+  /**
+   * Whether to apply the course rules block (the sentinel-marked
+   * `@przeprogramowani/10x-cli` section) to the rules file. Defaults to
+   * `true` so every existing caller keeps today's behavior. When `false`,
+   * the block is not written and any existing one is stripped from the
+   * rules file (surrounding content preserved).
+   */
+  applyCourseRules?: boolean;
 }
 
 /**
@@ -139,6 +147,7 @@ export async function applyBundle(
   const course = options.course ?? DEFAULT_COURSE;
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
   const onConflict = options.onConflict;
+  const applyCourseRules = options.applyCourseRules !== false;
 
   const manifestDir = join(projectRoot, profile.manifestDir);
   const prevManifest = readManifest(manifestDir);
@@ -271,7 +280,25 @@ export async function applyBundle(
   const rulesFilePath = join(projectRoot, profile.rulesFile);
   const existingRules = readFileOrEmpty(rulesFilePath);
   let rulesAction: ArtifactAction;
-  if (bundle.rules.length === 0) {
+  if (!applyCourseRules) {
+    // Opt-out: never write the block. Strip an existing one if present so a
+    // previously-applied block goes away (surrounding content preserved).
+    // The server still ships `bundle.rules`; the flag, not the bundle,
+    // decides — so this runs regardless of `bundle.rules.length`.
+    const { content: stripped, removed } = removeRulesBlockWithMarkers(
+      existingRules,
+      profile.sentinelBegin,
+      profile.sentinelEnd,
+    );
+    if (removed && stripped !== existingRules) {
+      rulesAction = "removed";
+      if (!dryRun) {
+        writeFileAt(rulesFilePath, stripped);
+      }
+    } else {
+      rulesAction = "unchanged";
+    }
+  } else if (bundle.rules.length === 0) {
     rulesAction = "unchanged";
   } else {
     const rulesBody = bundle.rules.map((r) => r.content.trim()).join("\n\n");
