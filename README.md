@@ -90,7 +90,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 # Use with a different AI coding tool
 10x get m1l1 --tool cursor
 
-# Skip the course rules block (bring your own rules). Persisted across runs;
+# Skip the course rules block (use only your rules). Persisted across runs;
 # a previously-applied block is stripped. Re-enable later with --course-rules.
 10x get m1l1 --no-course-rules
 10x get m1l2 --course-rules
