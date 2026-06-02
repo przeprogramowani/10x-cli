@@ -1,10 +1,10 @@
 ---
 change_id: disable-course-rules
 title: Disable course rules
-status: impl_reviewed
+status: archived
 created: 2026-06-02
 updated: 2026-06-02
-archived_at: null
+archived_at: 2026-06-02T07:28:43Z
 ---
 
 ## Notes
