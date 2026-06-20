@@ -78,6 +78,15 @@ The manifest is **cumulative** — each `10x get` accumulates artifacts across l
 - `lessonId` is the last-applied lesson (for display/backward compat). `Object.keys(manifest.lessons)` gives all applied lesson IDs.
 - Upgrading from v2 or v3-without-`lessons` seeds the `lessons` record from the previous manifest's `lessonId` + `files` data so existing artifacts aren't orphaned.
 
+## `10x sync` & change detection
+
+`commands/sync.ts` is the bulk download + update command. It enumerates unlocked lessons in one `fetchCatalog` call, applies each via `applyBundle`, and emits one aggregate report — it **never `process.exit`s mid-loop** (per-lesson failures accumulate; exit code is worst-outcome, `1` only if a lesson errored) and **never prompts** (default conflict resolver skips, `--force` overwrites).
+
+- **Cheap-skip is digest-vs-digest.** The catalog advertises a per-lesson `contentHash` (`LessonSummary.contentHash`, optional). On apply, sync stores that exact value into `manifest.lessons[id].catalogContentHash` (via `ApplyOptions.catalogContentHash`). Next sync compares the *new catalog digest* against the *stored* one and skips the fetch entirely when equal. Never compare the catalog digest against the writer's per-file hashes — they live in a different hash space. Absent digest (older backend) or absent stored value → always-fetch fallback. `--force` bypasses the gate so it can overwrite local edits even when upstream is unchanged.
+- **`planBundle()` is the pure planner.** It classifies per-file `{ action, isConflict, upstreamChanged }` without writing or prompting; `applyBundle` consumes it so classification and application can't diverge. `sync --dry-run` reports off `planBundle`; the real path reports off `applyBundle`'s `WriteResult`. The parity is locked by `tests/writer-plan.test.ts`.
+- **Change visibility is skills + prompts only.** Configs are create-only (never overwritten, so nothing to report) and rules are sentinel-managed, not manifest-hash-tracked.
+- A plain `10x get` neither refreshes nor erases a stored `catalogContentHash` (it's carried forward in `applyBundle`), so at worst one redundant fetch never happens.
+
 ## Conventions worth knowing
 
 - TypeScript is `strict` + `noUncheckedIndexedAccess` + `noImplicitOverride`. Index access on arrays/records returns `T | undefined` — handle it.

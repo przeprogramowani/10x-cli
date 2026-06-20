@@ -5,6 +5,28 @@ All notable changes to `@przeprogramowani/10x-cli` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`10x sync` — bulk download & update with change visibility.** One command to
+  download every unlocked lesson (`--all`) or refresh the ones you've already
+  downloaded (default), with a report of what changed upstream. Each not-updated
+  resource prints the exact `10x get …` command to take it; `--force` takes all
+  upstream updates over local edits, `--dry-run` previews without writing. Exit
+  code is worst-outcome (`1` if any lesson errored, else `0`).
+- Unchanged lessons are skipped **without a download**: the catalog now advertises
+  a per-lesson `contentHash` (added in `@przeprogramowani/10x-toolkit`), compared
+  digest-vs-digest against the value stored in the manifest at last apply. Older
+  backends/manifests without a digest fall back to always-fetch.
+- `planBundle()` — a pure, non-writing, non-prompting writer planner that classifies
+  per-file actions + conflicts; `applyBundle` now consumes it so preview and apply
+  can't diverge.
+- Manifest `lessons[].catalogContentHash` (additive, optional) and
+  `LessonSummary.contentHash` (optional) carry the per-lesson digest. Change
+  visibility covers skills and prompts (configs are create-only; rules are
+  sentinel-managed).
+
 ## [1.0.0] - 2026-05-03
 
 ### Breaking changes

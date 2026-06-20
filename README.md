@@ -47,6 +47,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 10x auth        # Authenticate with your email
 10x list        # Browse available modules and lessons
 10x get m1l1    # Fetch and apply lesson artifacts
+10x sync        # Update everything you've downloaded; show what changed
 10x doctor      # Check everything is working
 ```
 
@@ -57,6 +58,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 | `10x auth` | Magic-link login with your Circle-registered email |
 | `10x list` | Browse modules and lessons in your course |
 | `10x get <ref>` | Fetch a lesson and apply artifacts to your workspace |
+| `10x sync` | Bulk-download / refresh lessons and report what changed upstream |
 | `10x doctor` | Diagnose auth, API connectivity, and local config |
 
 ### `10x get` Flags
@@ -103,6 +105,63 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 > in `config.json` and applies to subsequent plain `10x get` runs. An explicit
 > `--type rules` request overrides the opt-out for that run. Skills, prompts,
 > and config-templates are unaffected.
+
+### `10x sync`
+
+`10x sync` keeps your downloaded lessons up to date and tells you **what changed
+upstream** since you last fetched. By default it refreshes only the lessons you've
+already downloaded; `--all` pulls every unlocked lesson at once.
+
+Unchanged lessons are skipped **without a download** — the catalog advertises a
+per-lesson `contentHash` that the CLI compares against what it last applied, so the
+common "nothing changed" case is a single catalog request.
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Sync every unlocked lesson, not just the ones you've downloaded |
+| `--module <m>` | Limit to one module (e.g. `m2` or `2`) |
+| `--dry-run` | Preview what would change without writing anything |
+| `--force` | Ignore the cheap-skip digest and overwrite local edits with upstream |
+| `--tool <tool>` | AI coding tool (same set as `get`) |
+| `--lang <lang>` | Content language: `en` (default) or `pl` |
+| `--course <slug>` | Override the course slug (default: `10xdevs3`) |
+| `--no-course-rules` | Skip the course rules block (same semantics as `get`) |
+
+```bash
+# Refresh everything you've already downloaded; report what moved
+10x sync
+
+# Pull every unlocked lesson in one shot (fresh project)
+10x sync --all
+
+# Preview changes without writing
+10x sync --dry-run
+
+# Only module 2
+10x sync --module m2
+
+# Take all upstream updates, overwriting local edits
+10x sync --force
+```
+
+The report classifies every resource as **upstream-updated**, **created**,
+**unchanged**, **skipped (conflict)**, or **removed**. When a file you edited
+locally also changed upstream, sync **keeps your edit** and prints the exact
+command to take the update, e.g.:
+
+```
+m2l3 — conflicts (1 skipped)
+    skipped skills/auth-skill (SKILL.md) — you edited it → 10x get m2l3 --type skills --name auth-skill
+```
+
+Run that `10x get …` to take a single update, or `10x sync --force` to take them
+all. **Change visibility covers skills and prompts** — configs are create-only
+(never overwritten) and rules are sentinel-managed, so they aren't part of the
+"what changed" report.
+
+**Exit code is worst-outcome:** `0` when everything is clean/unchanged (a skipped
+conflict is reported, not a failure), `1` if any lesson failed to fetch. The full
+report is still emitted on a partial failure.
 
 ### Global Flags
 
