@@ -1,7 +1,7 @@
 ---
 change_id: bulk-sync-update
 title: Bulk download & update with change visibility (10x-cli + 10x-toolkit)
-status: implemented
+status: impl_reviewed
 created: 2026-06-16
 updated: 2026-06-20
 ---
