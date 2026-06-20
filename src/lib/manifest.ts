@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export const MANIFEST_FILENAME = ".10x-cli-manifest.json";
@@ -102,7 +102,14 @@ export function writeManifest(dir: string, manifest: CliManifest): void {
   // Ensure intermediate dirs exist even if `dir` was a nested path that
   // the caller hasn't created yet.
   mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  // Atomic write: a `10x sync` sweep rewrites the manifest once per applied
+  // lesson, so an interrupt mid-write must not truncate it (a corrupt manifest
+  // reads back as null and drops all per-lesson tracking). Write to a sibling
+  // .tmp then renameSync into place — same pattern as saveAuth in config.ts.
+  const tmp = `${manifestPath}.tmp`;
+  rmSync(tmp, { force: true });
+  writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);
+  renameSync(tmp, manifestPath);
 }
 
 function isManifest(value: unknown): value is CliManifest {

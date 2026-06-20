@@ -181,21 +181,32 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
   // Sequential sweep sharing one AbortSignal — no retry framework, the existing
   // per-call timeout stands. Never process.exit mid-loop.
   const controller = new AbortController();
+  // Ctrl-C aborts the in-flight fetch and stops the sweep at the next lesson
+  // boundary; lessons already applied keep their manifest entries (each apply
+  // writes atomically). The per-call 30s timeout bounds an individual fetch
+  // independently of this.
+  const onSigint = () => controller.abort();
+  process.once("SIGINT", onSigint);
   const outcomes: LessonOutcome[] = [];
-  for (const lesson of targets) {
-    outcomes.push(
-      await syncLesson(ctx, lesson, {
-        course,
-        profile,
-        lang,
-        dryRun,
-        force,
-        applyCourseRules,
-        token: auth.access_token,
-        manifest,
-        signal: controller.signal,
-      }),
-    );
+  try {
+    for (const lesson of targets) {
+      if (controller.signal.aborted) break;
+      outcomes.push(
+        await syncLesson(ctx, lesson, {
+          course,
+          profile,
+          lang,
+          dryRun,
+          force,
+          applyCourseRules,
+          token: auth.access_token,
+          manifest,
+          signal: controller.signal,
+        }),
+      );
+    }
+  } finally {
+    process.removeListener("SIGINT", onSigint);
   }
 
   renderReport(ctx, profile, {
