@@ -46,6 +46,7 @@ export interface paths {
                                 title: string;
                                 summary: string;
                                 bundlePath: string;
+                                contentHash?: string;
                             }[];
                         };
                     };

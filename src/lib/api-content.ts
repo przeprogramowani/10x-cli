@@ -32,6 +32,12 @@ export interface LessonSummary {
   summary: string;
   bundlePath: string;
   availableLanguages?: string[];
+  /**
+   * Per-lesson catalog digest aggregating the lesson's upstream artifact
+   * hashes. Optional: a backend that doesn't yet publish it (or a pre-transform
+   * catalog) omits it, and `sync` falls back to always-fetch when absent.
+   */
+  contentHash?: string;
 }
 
 export interface CatalogResponse {

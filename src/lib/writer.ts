@@ -85,6 +85,75 @@ export interface WriteResult {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Plan types — the pure classification `planBundle` returns and `applyBundle`
+// consumes. A plan never mutates the filesystem and never prompts; conflicts
+// are reported (`isConflict: true` with the pre-resolution `action`), not
+// resolved. `sync` builds its preview + change report off this shape.
+// ---------------------------------------------------------------------------
+
+export interface PlanFileEntry {
+  /** Absolute path the file would be written to. */
+  path: string;
+  /** Pre-resolution action. A conflict is reported as `updated` + isConflict. */
+  action: ArtifactAction;
+  /** Local file diverges from BOTH the stored hash and the upstream content. */
+  isConflict: boolean;
+  /** Upstream content differs from what was last applied (manifest-relative). */
+  upstreamChanged: boolean;
+}
+
+export interface SkillFilePlan extends PlanFileEntry {
+  /** Path relative to the skill directory (e.g. "SKILL.md"). */
+  relativePath: string;
+}
+
+export interface SkillPlan {
+  name: string;
+  files: SkillFilePlan[];
+}
+
+export interface PromptPlan extends PlanFileEntry {
+  name: string;
+}
+
+export interface ConfigPlan {
+  name: string;
+  path: string;
+  /** Configs are create-only: `created` or `skipped`, never a conflict. */
+  action: Extract<ArtifactAction, "created" | "skipped">;
+  isConflict: false;
+  upstreamChanged: boolean;
+}
+
+export interface RulesPlan {
+  action: ArtifactAction;
+  upstreamChanged: boolean;
+}
+
+export interface RemovalPlanEntry {
+  name: string;
+  path: string;
+}
+
+export interface WritePlan {
+  skills: SkillPlan[];
+  prompts: PromptPlan[];
+  rules: RulesPlan;
+  configs: ConfigPlan[];
+  removals: {
+    skills: RemovalPlanEntry[];
+    prompts: RemovalPlanEntry[];
+    configs: RemovalPlanEntry[];
+  };
+}
+
+export interface PlanOptions {
+  course?: string;
+  profile?: ToolProfile;
+  applyCourseRules?: boolean;
+}
+
 export interface ConflictInfo {
   artifactType: "skill" | "prompt";
   artifactName: string;
@@ -152,18 +221,11 @@ export async function applyBundle(
   const manifestDir = join(projectRoot, profile.manifestDir);
   const prevManifest = readManifest(manifestDir);
 
-  // Refuse to write anything if the bundle contains names that could
-  // escape the target directory — see `assertSafeName` below. This runs
-  // before any filesystem mutation so a malformed/tampered bundle aborts
-  // cleanly.
-  for (const skill of bundle.skills) {
-    assertSafeName(skill.name, "skill");
-    for (const file of skill.files) {
-      assertSafeSkillFilePath(file.path, skill.name);
-    }
-  }
-  for (const prompt of bundle.prompts) assertSafeName(prompt.name, "prompt");
-  for (const config of bundle.configs) assertSafeName(config.name, "config");
+  // Classify every file up front (read-only, no prompting). applyBundle then
+  // executes this plan; `sync` previews off the same planner, so the two can
+  // never diverge. planBundle also performs the safe-name validation that used
+  // to live here — it runs before any filesystem mutation below.
+  const plan = planBundle(bundle, projectRoot, { profile, applyCourseRules });
 
   // Track per-file hashes for the next manifest. Keys that get conflict-skipped
   // carry forward the old hash so the conflict re-triggers on next apply.
@@ -172,16 +234,19 @@ export async function applyBundle(
 
   // --- skills -----------------------------------------------------------
   const skills: SkillWrite[] = [];
-  for (const skill of bundle.skills) {
-    const skillDir = join(projectRoot, profile.skillDir(skill.name));
+  for (let si = 0; si < bundle.skills.length; si++) {
+    const skill = bundle.skills[si]!;
+    const planSkill = plan.skills[si]!;
     const prevEntry = prevManifest?.files.skills[skill.name];
     const fileWrites: SkillFileWrite[] = [];
     const skillHashes: Record<string, string> = {};
 
-    for (const file of skill.files) {
-      const target = join(skillDir, file.path);
+    for (let fi = 0; fi < skill.files.length; fi++) {
+      const file = skill.files[fi]!;
+      const planFile = planSkill.files[fi]!;
+      const target = planFile.path;
       const storedHash = prevEntry?.contentHashes?.[file.path];
-      const { action, isConflict } = computeFileAction(target, file.content, storedHash);
+      const { action, isConflict } = planFile;
 
       let finalAction = action;
       let userBackupPath: string | undefined;
@@ -231,11 +296,13 @@ export async function applyBundle(
 
   // --- prompts ----------------------------------------------------------
   const prompts: ArtifactWrite[] = [];
-  for (const prompt of bundle.prompts) {
-    const target = join(projectRoot, profile.promptPath(prompt.name));
+  for (let pi = 0; pi < bundle.prompts.length; pi++) {
+    const prompt = bundle.prompts[pi]!;
+    const planPrompt = plan.prompts[pi]!;
+    const target = planPrompt.path;
     const promptFilename = `${prompt.name}.md`;
     const storedHash = prevManifest?.files.promptHashes?.[promptFilename];
-    const { action, isConflict } = computeFileAction(target, prompt.content, storedHash);
+    const { action, isConflict } = planPrompt;
 
     let finalAction = action;
     let userBackupPath: string | undefined;
@@ -277,57 +344,27 @@ export async function applyBundle(
   }
 
   // --- rules (sentinel block in rules file) -----------------------------
+  // Same decision the planner reports (plan.rules.action) — applyBundle calls
+  // the shared `planRules` directly because it also needs the content to write.
   const rulesFilePath = join(projectRoot, profile.rulesFile);
   const existingRules = readFileOrEmpty(rulesFilePath);
-  let rulesAction: ArtifactAction;
-  if (!applyCourseRules) {
-    // Opt-out: never write the block. Strip an existing one if present so a
-    // previously-applied block goes away (surrounding content preserved).
-    // The server still ships `bundle.rules`; the flag, not the bundle,
-    // decides — so this runs regardless of `bundle.rules.length`.
-    const { content: stripped, removed } = removeRulesBlockWithMarkers(
-      existingRules,
-      profile.sentinelBegin,
-      profile.sentinelEnd,
-    );
-    if (removed && stripped !== existingRules) {
-      rulesAction = "removed";
-      if (!dryRun) {
-        writeFileAt(rulesFilePath, stripped);
-      }
-    } else {
-      rulesAction = "unchanged";
-    }
-  } else if (bundle.rules.length === 0) {
-    rulesAction = "unchanged";
-  } else {
-    const rulesBody = bundle.rules.map((r) => r.content.trim()).join("\n\n");
-    const { content: newRules } = applyRulesBlockWithMarkers(
-      existingRules,
-      rulesBody,
-      profile.sentinelBegin,
-      profile.sentinelEnd,
-    );
-    if (newRules === existingRules) {
-      rulesAction = "unchanged";
-    } else if (existingRules.length === 0) {
-      rulesAction = "created";
-    } else {
-      rulesAction = "updated";
-    }
-    if (!dryRun && rulesAction !== "unchanged") {
-      writeFileAt(rulesFilePath, newRules);
-    }
+  const { action: rulesAction, content: newRulesContent } = planRules(
+    existingRules,
+    bundle,
+    profile,
+    applyCourseRules,
+  );
+  if (!dryRun && rulesAction !== "unchanged") {
+    writeFileAt(rulesFilePath, newRulesContent);
   }
 
   // --- configs (skip-on-exists) -----------------------------------------
-  const configs: ArtifactWrite[] = bundle.configs.map((config) => {
-    const target = join(projectRoot, profile.configPath(config.name));
-    const action: ArtifactAction = existsSync(target) ? "skipped" : "created";
-    if (!dryRun && action === "created") {
-      writeFileAt(target, config.content);
+  const configs: ArtifactWrite[] = bundle.configs.map((config, ci) => {
+    const planConfig = plan.configs[ci]!;
+    if (!dryRun && planConfig.action === "created") {
+      writeFileAt(planConfig.path, config.content);
     }
-    return { name: config.name, path: target, action };
+    return { name: config.name, path: planConfig.path, action: planConfig.action };
   });
 
   // --- cleanup of stale artifacts from the previous lesson --------------
@@ -438,9 +475,155 @@ export async function applyBundle(
   };
 }
 
+/**
+ * Pure planner — classifies what `applyBundle` would do to `projectRoot`
+ * WITHOUT touching the filesystem and WITHOUT invoking any conflict resolver.
+ * Conflicts are reported (`isConflict: true`, pre-resolution `action`), never
+ * resolved. `applyBundle` consumes this so application and classification can't
+ * drift; `sync` consumes it to preview changes and build its change report.
+ */
+export function planBundle(
+  bundle: LessonBundle,
+  projectRoot: string,
+  options: PlanOptions = {},
+): WritePlan {
+  const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
+  const applyCourseRules = options.applyCourseRules !== false;
+
+  // Validate up front — the same guard applyBundle relied on, centralized here
+  // so a tampered bundle is rejected before any read or (downstream) write.
+  for (const skill of bundle.skills) {
+    assertSafeName(skill.name, "skill");
+    for (const file of skill.files) assertSafeSkillFilePath(file.path, skill.name);
+  }
+  for (const prompt of bundle.prompts) assertSafeName(prompt.name, "prompt");
+  for (const config of bundle.configs) assertSafeName(config.name, "config");
+
+  const manifestDir = join(projectRoot, profile.manifestDir);
+  const prevManifest = readManifest(manifestDir);
+
+  const skills: SkillPlan[] = bundle.skills.map((skill) => {
+    const skillDir = join(projectRoot, profile.skillDir(skill.name));
+    const prevEntry = prevManifest?.files.skills[skill.name];
+    const files: SkillFilePlan[] = skill.files.map((file) => {
+      const target = join(skillDir, file.path);
+      const storedHash = prevEntry?.contentHashes?.[file.path];
+      const { action, isConflict } = computeFileAction(target, file.content, storedHash);
+      return {
+        relativePath: file.path,
+        path: target,
+        action,
+        isConflict,
+        upstreamChanged: computeUpstreamChanged(file.content, storedHash, action),
+      };
+    });
+    return { name: skill.name, files };
+  });
+
+  const prompts: PromptPlan[] = bundle.prompts.map((prompt) => {
+    const target = join(projectRoot, profile.promptPath(prompt.name));
+    const storedHash = prevManifest?.files.promptHashes?.[`${prompt.name}.md`];
+    const { action, isConflict } = computeFileAction(target, prompt.content, storedHash);
+    return {
+      name: prompt.name,
+      path: target,
+      action,
+      isConflict,
+      upstreamChanged: computeUpstreamChanged(prompt.content, storedHash, action),
+    };
+  });
+
+  const rulesFilePath = join(projectRoot, profile.rulesFile);
+  const existingRules = readFileOrEmpty(rulesFilePath);
+  const { action: rulesAction } = planRules(existingRules, bundle, profile, applyCourseRules);
+
+  const configs: ConfigPlan[] = bundle.configs.map((config) => {
+    const target = join(projectRoot, profile.configPath(config.name));
+    const action: "created" | "skipped" = existsSync(target) ? "skipped" : "created";
+    return {
+      name: config.name,
+      path: target,
+      action,
+      isConflict: false,
+      upstreamChanged: action === "created",
+    };
+  });
+
+  const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
+  const removals: WritePlan["removals"] = {
+    skills: [
+      ...removed.skillDirs.map((e) => ({ name: e.name, path: e.path })),
+      ...removed.skillFiles.map((e) => ({ name: e.name, path: e.path })),
+    ],
+    prompts: removed.prompts.map((e) => ({ name: e.name, path: e.path })),
+    configs: removed.configs.map((e) => ({ name: e.name, path: e.path })),
+  };
+
+  return {
+    skills,
+    prompts,
+    rules: { action: rulesAction, upstreamChanged: rulesAction !== "unchanged" },
+    configs,
+    removals,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Did upstream content change relative to what was last applied? Compared
+ * against the manifest's stored hash (not the local file), so a user's local
+ * edit alone never reads as an upstream change. With no stored hash, fall back
+ * to "changed unless byte-identical on disk".
+ */
+function computeUpstreamChanged(
+  newContent: string,
+  storedHash: string | undefined,
+  action: ArtifactAction,
+): boolean {
+  if (storedHash === undefined) return action !== "unchanged";
+  return contentHash(newContent) !== storedHash;
+}
+
+/**
+ * Shared rules-block decision. Returns the action AND the content to write so
+ * both planBundle (action only) and applyBundle (action + content) classify
+ * identically.
+ */
+function planRules(
+  existingRules: string,
+  bundle: LessonBundle,
+  profile: ToolProfile,
+  applyCourseRules: boolean,
+): { action: ArtifactAction; content: string } {
+  if (!applyCourseRules) {
+    // Opt-out: never write the block. Strip an existing one if present so a
+    // previously-applied block goes away (surrounding content preserved). The
+    // server still ships `bundle.rules`; the flag, not the bundle, decides.
+    const { content: stripped, removed } = removeRulesBlockWithMarkers(
+      existingRules,
+      profile.sentinelBegin,
+      profile.sentinelEnd,
+    );
+    if (removed && stripped !== existingRules) return { action: "removed", content: stripped };
+    return { action: "unchanged", content: existingRules };
+  }
+  if (bundle.rules.length === 0) return { action: "unchanged", content: existingRules };
+  const rulesBody = bundle.rules.map((r) => r.content.trim()).join("\n\n");
+  const { content: newRules } = applyRulesBlockWithMarkers(
+    existingRules,
+    rulesBody,
+    profile.sentinelBegin,
+    profile.sentinelEnd,
+  );
+  let action: ArtifactAction;
+  if (newRules === existingRules) action = "unchanged";
+  else if (existingRules.length === 0) action = "created";
+  else action = "updated";
+  return { action, content: newRules };
+}
 
 function computeFileAction(
   filePath: string,

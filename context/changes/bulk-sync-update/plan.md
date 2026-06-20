@@ -487,10 +487,10 @@ fine and simply always-fetch until the next apply records a digest. No data migr
 ### Phase 2: CLI — planBundle() writer refactor + types
 
 #### Automated
-- [ ] 2.1 Typecheck passes
-- [ ] 2.2 Lint passes
-- [ ] 2.3 Writer tests pass, including planBundle parity tests
-- [ ] 2.4 Regenerated api-types.ts contains contentHash on the catalog lesson type
+- [x] 2.1 Typecheck passes
+- [x] 2.2 Lint passes
+- [x] 2.3 Writer tests pass, including planBundle parity tests
+- [x] 2.4 Regenerated api-types.ts contains contentHash on the catalog lesson type
 
 #### Manual
 - [ ] 2.5 planBundle output matches applyBundle actions across clean/unchanged/conflict/new
