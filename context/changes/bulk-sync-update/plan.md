@@ -518,9 +518,9 @@ fine and simply always-fetch until the next apply records a digest. No data migr
 ### Phase 4: Tests & docs
 
 #### Automated
-- [x] 4.1 Full suite passes in both repos (bun test / pnpm test)
-- [x] 4.2 Build + binary build pass
-- [x] 4.3 Lint + typecheck pass in both repos
+- [x] 4.1 Full suite passes in both repos (bun test / pnpm test) — 26d70d5
+- [x] 4.2 Build + binary build pass — 26d70d5
+- [x] 4.3 Lint + typecheck pass in both repos — 26d70d5
 
 #### Manual
 - [ ] 4.4 README reflects observed sync behavior (flags, report, exit codes)
