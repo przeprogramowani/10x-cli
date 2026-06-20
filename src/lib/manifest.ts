@@ -33,6 +33,13 @@ export interface LessonFilesEntry {
   skills: Record<string, { files: string[] }>;
   prompts: string[];
   configs: string[];
+  /**
+   * The catalog's per-lesson `contentHash` current when this lesson was last
+   * applied. `10x sync` compares the catalog's new digest against this stored
+   * one (digest-vs-digest) to skip unchanged lessons without downloading. Additive
+   * + optional: older manifests omit it → sync always-fetches that lesson once.
+   */
+  catalogContentHash?: string;
 }
 
 export interface CliManifest {
@@ -143,6 +150,9 @@ function isLessonFilesEntry(value: unknown): value is LessonFilesEntry {
   for (const skill of Object.values(e["skills"] as Record<string, unknown>)) {
     if (typeof skill !== "object" || skill === null) return false;
     if (!isStringArray((skill as Record<string, unknown>)["files"])) return false;
+  }
+  if (e["catalogContentHash"] !== undefined && typeof e["catalogContentHash"] !== "string") {
+    return false;
   }
   return isStringArray(e["prompts"]) && isStringArray(e["configs"]);
 }

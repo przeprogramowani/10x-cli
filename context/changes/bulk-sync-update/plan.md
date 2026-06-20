@@ -487,10 +487,10 @@ fine and simply always-fetch until the next apply records a digest. No data migr
 ### Phase 2: CLI — planBundle() writer refactor + types
 
 #### Automated
-- [x] 2.1 Typecheck passes
-- [x] 2.2 Lint passes
-- [x] 2.3 Writer tests pass, including planBundle parity tests
-- [x] 2.4 Regenerated api-types.ts contains contentHash on the catalog lesson type
+- [x] 2.1 Typecheck passes — ca4d0bf
+- [x] 2.2 Lint passes — ca4d0bf
+- [x] 2.3 Writer tests pass, including planBundle parity tests — ca4d0bf
+- [x] 2.4 Regenerated api-types.ts contains contentHash on the catalog lesson type — ca4d0bf
 
 #### Manual
 - [ ] 2.5 planBundle output matches applyBundle actions across clean/unchanged/conflict/new
@@ -499,15 +499,15 @@ fine and simply always-fetch until the next apply records a digest. No data migr
 ### Phase 3: CLI — the 10x sync command
 
 #### Automated
-- [ ] 3.1 Typecheck + lint pass
-- [ ] 3.2 `10x sync --all` downloads all unlocked lessons
-- [ ] 3.3 Default sync targets only manifest.lessons; --module filters
-- [ ] 3.4 Cheap-skip: matching catalog contentHash → lesson NOT fetched
-- [ ] 3.5 Changed lesson (digest differs) is fetched and applied
-- [ ] 3.6 --dry-run writes nothing and still reports the plan
-- [ ] 3.7 Conflict default → skipped-conflict with remediation command; --force → overwrite
-- [ ] 3.8 Partial failure → exit code 1, full report still emitted
-- [ ] 3.9 Locked-module lessons excluded with a reason
+- [x] 3.1 Typecheck + lint pass
+- [x] 3.2 `10x sync --all` downloads all unlocked lessons
+- [x] 3.3 Default sync targets only manifest.lessons; --module filters
+- [x] 3.4 Cheap-skip: matching catalog contentHash → lesson NOT fetched
+- [x] 3.5 Changed lesson (digest differs) is fetched and applied
+- [x] 3.6 --dry-run writes nothing and still reports the plan
+- [x] 3.7 Conflict default → skipped-conflict with remediation command; --force → overwrite
+- [x] 3.8 Partial failure → exit code 1, full report still emitted
+- [x] 3.9 Locked-module lessons excluded with a reason
 
 #### Manual
 - [ ] 3.10 Real sync --all against local API populates project in correct order

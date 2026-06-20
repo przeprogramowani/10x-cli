@@ -5,6 +5,7 @@ import { registerAuthCommand } from "./commands/auth";
 import { registerDoctorCommand } from "./commands/doctor";
 import { registerGetCommand } from "./commands/get";
 import { registerListCommand } from "./commands/list";
+import { registerSyncCommand } from "./commands/sync";
 
 const cli = cac("10x");
 
@@ -14,6 +15,7 @@ cli.option("--verbose", "Show detailed output on stderr");
 registerAuthCommand(cli);
 registerGetCommand(cli);
 registerListCommand(cli);
+registerSyncCommand(cli);
 registerDoctorCommand(cli);
 
 cli.help();

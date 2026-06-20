@@ -201,6 +201,14 @@ export interface ApplyOptions {
    * rules file (surrounding content preserved).
    */
   applyCourseRules?: boolean;
+  /**
+   * The catalog's per-lesson `contentHash` for this lesson, recorded into the
+   * manifest so the next `10x sync` can skip the lesson when upstream is
+   * unchanged (digest-vs-digest). When omitted, any previously stored digest
+   * for this lesson is preserved (so a plain `get` neither refreshes nor erases
+   * it). Ignored under `dryRun`/`partial` (no manifest write).
+   */
+  catalogContentHash?: string;
 }
 
 /**
@@ -397,6 +405,12 @@ export async function applyBundle(
 
   // --- manifest ---------------------------------------------------------
   if (!dryRun && !partial) {
+    // Preserve a previously stored catalog digest when this apply didn't supply
+    // one (e.g. a plain `get`), so it neither refreshes nor erases what `sync`
+    // recorded — at worst one redundant fetch never happens.
+    const catalogContentHash =
+      options.catalogContentHash ?? prevManifest?.lessons?.[bundle.lessonId]?.catalogContentHash;
+
     const newLessonEntry: LessonFilesEntry = {
       appliedAt: new Date().toISOString(),
       skills: Object.fromEntries(
@@ -404,6 +418,7 @@ export async function applyBundle(
       ),
       prompts: bundle.prompts.map((p) => `${p.name}.md`),
       configs: bundle.configs.map((c) => c.name),
+      ...(catalogContentHash !== undefined ? { catalogContentHash } : {}),
     };
 
     // Seed lessons from previous manifest if it lacks per-lesson tracking
