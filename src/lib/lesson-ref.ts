@@ -4,11 +4,12 @@
  * Grammar: `m<N>l<M>` — lowercase `m`, one-or-more digits, lowercase `l`,
  * one-or-more digits. 10xdevs3 ships with modules 0..5 (module 0 is the
  * prework), so the module number is range-checked here; lesson numbers
- * must be positive (≥ 1) but are not capped (the API is the source of
- * truth on per-module lesson counts).
+ * must be non-negative (≥ 0) but are not capped (the API is the source of
+ * truth on per-module lesson counts). Lesson 0 is reserved for general,
+ * non-lesson-bound artifacts (e.g. m0l0 — the General Toolkit).
  *
- * Accepted:   m0l1, m1l1, m1l2, m5l3
- * Rejected:   M1L1, m1, 1-1, m1l0, m6l1, "", whitespace, trailing garbage
+ * Accepted:   m0l0, m0l1, m1l1, m1l2, m5l3
+ * Rejected:   M1L1, m1, 1-1, m6l1, "", whitespace, trailing garbage
  *
  * The CLI exposes a single entry — `parseLessonRef` — used by `10x get`
  * to validate user input before hitting the API.
@@ -37,7 +38,7 @@ export function parseLessonRef(raw: string): ParsedLessonRef | null {
   const lesson = Number.parseInt(match[2]!, 10);
   if (!Number.isFinite(module) || !Number.isFinite(lesson)) return null;
   if (module < MIN_MODULE || module > MAX_MODULE) return null;
-  if (lesson < 1) return null;
+  if (lesson < 0) return null;
   return { lessonId: `m${module}l${lesson}`, module, lesson };
 }
 

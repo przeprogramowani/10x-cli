@@ -48,6 +48,14 @@ describe("parseLessonRef — valid input", () => {
     });
   });
 
+  it("parses general toolkit m0l0 (lesson 0)", () => {
+    expect(parseLessonRef("m0l0")).toEqual({
+      lessonId: "m0l0",
+      module: 0,
+      lesson: 0,
+    });
+  });
+
   it("exports the module-range constants used by the parser", () => {
     expect(MIN_MODULE).toBe(0);
     expect(MAX_MODULE).toBe(5);
@@ -81,10 +89,6 @@ describe("parseLessonRef — rejected input", () => {
 
   it("rejects negative-looking module (m-1l1 won't match regex)", () => {
     expect(parseLessonRef("m-1l1")).toBeNull();
-  });
-
-  it("rejects lesson zero (m1l0)", () => {
-    expect(parseLessonRef("m1l0")).toBeNull();
   });
 
   it("rejects out-of-range module m6l1 (course has modules 1..5)", () => {
