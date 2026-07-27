@@ -63,7 +63,7 @@ describe("verifyBundleSignature (v1 protocol)", () => {
   it("rejects a tampered signature", () => {
     const signature = signCanonical(1, sampleBody);
     const sigBuf = Buffer.from(signature, "base64");
-    sigBuf[0] = sigBuf[0]! ^ 0xff;
+    sigBuf[0] = sigBuf[0]! ^ 0xFF;
     const tamperedSig = sigBuf.toString("base64");
     expect(() => {
       verifyBundleSignatureWithKeyset(sampleBody, tamperedSig, 1, hashHex(sampleBody), testKeyset);

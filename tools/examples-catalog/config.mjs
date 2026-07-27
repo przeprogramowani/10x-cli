@@ -85,6 +85,20 @@ export const examples = [
     ],
   },
   {
+    id: 'plan-apply-boundary',
+    category: 'lib',
+    title: 'Read-only plan / filesystem apply boundary',
+    file: 'src/lib/writer.ts',
+    subject: 'tests/writer-plan.test.ts',
+    whenToUse:
+      'Adding preview, dry-run, or conflict reporting to a filesystem workflow without letting read-only and mutating paths drift.',
+    shape: [
+      'planBundle classifies every action without writing or prompting; applyBundle consumes that same plan.',
+      'The shared result vocabulary covers created, unchanged, updated, and conflict outcomes.',
+      'Parity tests prove planner classifications match apply results across the important state transitions.',
+    ],
+  },
+  {
     id: 'api-seam',
     category: 'lib',
     title: 'API client seam (allowlisted hosts)',
