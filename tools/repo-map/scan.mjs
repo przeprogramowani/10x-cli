@@ -204,13 +204,13 @@ function scanStructure(gd) {
     // dependency-cruiser afferent coupling (Ca) needs a fully installed toolchain
     // to resolve every import; without it Ca under-reports. State it, do not hide it.
     limitations.push(
-      'Afferent coupling (Ca) from dependency-cruiser is unreliable without a full `npm ci` toolchain (external/aliased imports go unresolved). Treat Ca as a lower bound.'
+      'Afferent coupling (Ca) from dependency-cruiser is unreliable without a fully installed toolchain (external/aliased imports go unresolved). Treat Ca as a lower bound.'
     );
   } else {
     limitations.push('dependency-cruiser not runnable — coupling metrics skipped this run.');
   }
   limitations.push(
-    'Static import graph only. Runtime wiring (dynamic import, Astro/Svelte template refs, feature flags, codegen) is invisible here and is an `unknown`, not "no dependency".'
+    'Static import graph only. Runtime wiring (dynamic import, template refs, feature flags, codegen) is invisible here and is an `unknown`, not "no dependency".'
   );
 
   const md = [
@@ -363,7 +363,7 @@ function synthesize({ territory, structure, contributors }) {
     ``,
     `## 1. TL;DR`,
     ``,
-    `- ${config.repoLabel}: ${structure.inventory.length} source modules; the centre of gravity is **\`${topArea[0]}\`** (${topArea[1]} commits in window, ${structure.inventory.find((m) => m.root === config.primaryModule)?.files ?? '?'} files).`,
+    `- ${config.repoLabel}: ${structure.inventory.length} source modules; the centre of gravity is **\`${topArea[0]}\`** (${topArea[1]} commits in window, ${structure.inventory.find((m) => m.root === config.primaryModule)?.files ?? structure.inventory.reduce((n, m) => n + (m.root.startsWith(config.primaryModule) ? m.files : 0), 0)} files).`,
     `- Work concentrates in a few active areas; most of the tree is comparatively stable.`,
     structure.cycles.length
       ? `- ⚠️ ${structure.cycles.length} import cycle(s) in \`${config.primaryModule}\` — the main structural risk.`

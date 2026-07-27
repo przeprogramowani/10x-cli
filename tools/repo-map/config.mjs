@@ -28,7 +28,6 @@ export const config = {
     { label: 'commands (CLI surface)', root: 'src/commands', app: 'commands' },
     { label: 'lib (core logic)', root: 'src/lib', app: 'lib' },
     { label: 'tests', root: 'tests', app: 'tests' },
-    { label: 'skills (agent skills)', root: 'skills', app: 'skills' },
   ],
 
   // The module the structural graph zooms into by default.
