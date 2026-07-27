@@ -35,13 +35,16 @@ for (const ex of examples) {
 // Skipped automatically when eslint is not installed, so the tool degrades like
 // the repo-map engine instead of failing on a bare checkout.
 let lintNote = 'lint check skipped (oxlint not installed)';
-const oxlintBin = join(repoRoot, 'node_modules', '.bin', 'oxlint');
+// Invoke oxlint the way the repo's own lint script does (bun run --bun) — the
+// npm .bin shim under plain node fails to resolve the platform binary on
+// bun-installed layouts (e.g. macOS darwin-arm64).
+const oxlintBin = join(repoRoot, 'node_modules', 'oxlint', 'bin', 'oxlint');
 if (existsSync(oxlintBin)) {
   const files = [...new Set(examples.flatMap((e) => [e.file, e.subject].filter(Boolean)))]
     .filter((f) => /\.(ts|tsx|js|mjs)$/.test(f))
     .map((f) => rel(f));
   try {
-    execFileSync(oxlintBin, ['--deny-warnings', ...files], {
+    execFileSync('bun', ['run', '--bun', oxlintBin, '--deny-warnings', ...files], {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
