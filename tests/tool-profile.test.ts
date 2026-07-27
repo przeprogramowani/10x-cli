@@ -202,8 +202,27 @@ describe("resolveToolProfile", () => {
 
   it("legacy config normalizes to one active target", async () => {
     saveToolConfig({ tool: "cursor" });
+    process.stdout.isTTY = false;
     const profiles = await resolveToolProfiles();
     expect(profiles.map((profile) => profile.toolId)).toEqual(["cursor"]);
+  });
+
+  it("second TTY call can add another tool without changing the default", async () => {
+    saveToolConfig({ tool: "cursor", tools: ["cursor"] });
+    process.stdout.isTTY = true;
+    clackMockState.selectImpl = (opts: SelectOpts) => {
+      if (opts.message.includes("Add another coding tool")) return "add";
+      if (opts.message.includes("Which additional coding tool")) return "codex";
+      return opts.initialValue;
+    };
+
+    const profiles = await resolveToolProfiles();
+
+    expect(profiles.map((profile) => profile.toolId)).toEqual(["cursor", "codex"]);
+    expect(readToolConfig()).toMatchObject({
+      tool: "cursor",
+      tools: ["cursor", "codex"],
+    });
   });
 });
 

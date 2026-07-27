@@ -94,12 +94,37 @@ async function resolveProfilesOnly(
   // 2. Saved config
   const config = readToolConfig();
   if (config?.tool && PROFILES[config.tool]) {
-    const ids = normalizeToolIds(config.tool, config.tools);
+    let ids = normalizeToolIds(config.tool, config.tools);
     for (const id of ids) {
       if (!PROFILES[id]) {
         throw new Error(
           `Unknown tool '${id}' in config. Supported: ${Object.keys(PROFILES).join(", ")}`,
         );
+      }
+    }
+    if (process.stdout.isTTY && config.tools !== undefined && ids.length === 1) {
+      const action = await p.select({
+        message: `Active tool: ${PROFILES[ids[0]!]!.displayName}. Add another coding tool?`,
+        options: [
+          { value: "keep", label: "Keep this tool only" },
+          { value: "add", label: "Add another tool" },
+        ],
+        initialValue: "keep",
+      });
+      if (!p.isCancel(action) && action === "add") {
+        const additional = await p.select({
+          message: "Which additional coding tool should receive artifacts?",
+          options: Object.values(PROFILES)
+            .filter((profile) => !ids.includes(profile.toolId))
+            .map((profile) => ({
+              value: profile.toolId,
+              label: profile.displayName,
+            })),
+        });
+        if (!p.isCancel(additional)) {
+          ids = [...ids, additional as string];
+          saveToolConfig({ ...config, tools: ids });
+        }
       }
     }
     return ids.map((id) => PROFILES[id]!);
