@@ -9,6 +9,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -38,7 +39,14 @@ const MAX_PATCH_BYTES = 1024 * 1024;
 const DEFAULT_COMMAND_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_BASE = "claude/context-loops-bootstrap";
 const VALID_REF = /^[A-Za-z0-9._/-]+$/;
-const NO_NETWORK_PROFILE = "(version 1)(allow default)(deny network*)";
+const NO_EXTERNAL_NETWORK_PROFILE = [
+  "(version 1)",
+  "(allow default)",
+  "(deny network*)",
+  '(allow network-bind (local ip "localhost:*"))',
+  '(allow network-inbound (local ip "localhost:*"))',
+  '(allow network-outbound (remote ip "localhost:*"))',
+].join("");
 const activeChildren = new Set();
 let lockPath;
 let fatalContext;
@@ -60,6 +68,15 @@ function sanitizedEnvironment() {
   return Object.fromEntries(
     allowed.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]]),
   );
+}
+
+function unitTestArgs(worktree) {
+  const tests = readdirSync(join(worktree, "tests"), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+    .map((entry) => join("tests", entry.name))
+    .sort();
+  if (tests.length === 0) throw new Error("No root unit tests found");
+  return ["test", ...tests];
 }
 
 function parseArgs(argv) {
@@ -466,7 +483,7 @@ async function captureBaseline({ repoRoot, base, deadlineMs, runRoot }) {
     );
     const lint = await runCommand({
       command: "sandbox-exec",
-      args: ["-p", NO_NETWORK_PROFILE, "bun", "run", "lint"],
+      args: ["-p", NO_EXTERNAL_NETWORK_PROFILE, "bun", "run", "lint"],
       cwd: baselineDir,
       deadlineMs,
       stdoutFile: join(logDir, "lint.log"),
@@ -476,7 +493,7 @@ async function captureBaseline({ repoRoot, base, deadlineMs, runRoot }) {
     });
     const tests = await runCommand({
       command: "sandbox-exec",
-      args: ["-p", NO_NETWORK_PROFILE, "bun", "test"],
+      args: ["-p", NO_EXTERNAL_NETWORK_PROFILE, "bun", ...unitTestArgs(baselineDir)],
       cwd: baselineDir,
       deadlineMs,
       stdoutFile: join(logDir, "test.log"),
@@ -492,8 +509,8 @@ async function captureBaseline({ repoRoot, base, deadlineMs, runRoot }) {
     if (testSummary.fail !== failedTests.length) {
       throw new Error("Baseline failing-test names do not match the failure count");
     }
-    if (testSummary.fail !== 8) {
-      throw new Error(`Expected the pinned baseline of 8 failures, found ${testSummary.fail}`);
+    if (testSummary.fail !== 0) {
+      throw new Error(`Expected a green unit-test baseline, found ${testSummary.fail} failures`);
     }
     return { baseSha, lint: lintSummary, tests: testSummary, failedTests };
   } finally {
@@ -606,7 +623,7 @@ async function validateIteration({
     ["diff", "git", ["diff", "--check"], true],
     ["typecheck", "bun", ["run", "typecheck"], true],
     ["lint", "bun", ["run", "lint"], true],
-    ["test", "bun", ["test"], false],
+    ["test", "bun", unitTestArgs(worktree), true],
     ["build", "bun", ["run", "build"], true],
     ["examples", "bun", ["run", "examples:catalog:check"], true],
     ["repo-map", "bun", ["run", "repo-map:check"], true],
@@ -616,7 +633,7 @@ async function validateIteration({
   for (const [name, command, args, expectZero] of commands) {
     const commandResult = await runCommand({
       command: "sandbox-exec",
-      args: ["-p", NO_NETWORK_PROFILE, command, ...args],
+      args: ["-p", NO_EXTERNAL_NETWORK_PROFILE, command, ...args],
       cwd: worktree,
       deadlineMs,
       stdoutFile: join(logDir, `gate-${name}.log`),

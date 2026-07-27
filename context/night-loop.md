@@ -18,15 +18,17 @@ outer gate.
   after the turn; no repair or later iteration starts after the ceiling.
 - One base commit is pinned for the entire run. If the remote base advances,
   the loop stops instead of comparing against a stale baseline.
-- Exact differential gate: lint cannot regress; passing tests cannot decrease;
-  the pinned set of 8 build-dependent failures must remain byte-for-byte the
-  same. Characterization work must increase the passing-test count.
+- Exact differential gate: the root unit-test suite must stay green, lint
+  cannot regress, and the passing-test count cannot decrease. Build-dependent
+  smoke and E2E suites remain separate explicit gates outside this lint-only
+  loop.
 - At most two repair turns in the same Codex session. Persistent failure opens
   an `automation` issue and preserves the failed worktree for diagnosis.
 - Successful iterations open one small PR each. The runner never merges PRs.
-- Agent and gate environments omit credential variables. Codex and outer gates
-  run without network; binary diffs and patches matching common secret formats
-  are rejected.
+- Agent and gate environments omit credential variables. Codex has no network
+  access; outer gates deny external network while allowing loopback-only test
+  fixtures. Binary diffs and patches matching common secret formats are
+  rejected.
 
 The machine must remain awake and online. Saved Codex authentication and `gh`
 authentication must already work.
