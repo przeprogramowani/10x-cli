@@ -1,0 +1,27 @@
+{
+  "generatedFor": "c745743",
+  "root": "src",
+  "folders": [
+    {
+      "name": "src/commands",
+      "ce": 38,
+      "ca": 5,
+      "modules": 5,
+      "instability": 0.8837209302325582
+    },
+    {
+      "name": "src",
+      "ce": 24,
+      "ca": 0,
+      "modules": 25,
+      "instability": 1
+    },
+    {
+      "name": "src/lib",
+      "ce": 17,
+      "ca": 33,
+      "modules": 19,
+      "instability": 0.34
+    }
+  ]
+}
