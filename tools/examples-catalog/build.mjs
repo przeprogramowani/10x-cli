@@ -11,7 +11,7 @@
 //   node tools/examples-catalog/build.mjs --check   # verify only; exit 1 on drift
 //                                                    # (CI / the loop's exit gate)
 
-import { existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';

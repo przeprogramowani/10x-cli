@@ -47,7 +47,7 @@ async function resolveProfileOnly(
     }
     const existing = readToolConfig();
     if (existing?.tool !== flagOverride) {
-      saveToolConfig({ ...(existing ?? {}), tool: flagOverride });
+      saveToolConfig({ ...existing, tool: flagOverride });
       if (process.stdout.isTTY) {
         process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
       }
@@ -86,7 +86,7 @@ async function resolveProfileOnly(
       return PROFILES[DEFAULT_TOOL]!;
     }
 
-    saveToolConfig({ ...(config ?? {}), tool: choice as string });
+    saveToolConfig({ ...config, tool: choice as string });
     return PROFILES[choice as string]!;
   }
 
@@ -144,7 +144,7 @@ async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile): P
         orphan.profile.toolId,
       ];
       saveToolConfig({
-        ...(existing ?? {}),
+        ...existing,
         tool: existing?.tool ?? newProfile.toolId,
         acknowledgedOrphans: nextAcks,
       });
