@@ -27,7 +27,11 @@
     "generate-types": "bun run scripts/generate-types.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "bun run --bun node_modules/oxlint/bin/oxlint ."
+    "lint": "bun run --bun node_modules/oxlint/bin/oxlint .",
+    "repo-map": "node tools/repo-map/scan.mjs",
+    "repo-map:check": "node tools/repo-map/scan.mjs --check",
+    "examples:catalog": "node tools/examples-catalog/build.mjs",
+    "examples:catalog:check": "node tools/examples-catalog/build.mjs --check"
   },
   "dependencies": {
     "@clack/prompts": "0.9.1",
@@ -41,6 +45,8 @@
     "conventional-changelog-angular": "8.3.1",
     "conventional-commits-parser": "6.4.0",
     "conventional-recommended-bump": "11.2.0",
+    "dependency-cruiser": "^18.1.0",
+    "madge": "^8.0.0",
     "openapi-typescript": "7.13.0",
     "oxlint": "0.16.12",
     "typescript": "5.9.3"
