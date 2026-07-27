@@ -1,7 +1,7 @@
 ---
 id: multi-tool-profiles
 title: Multiple active coding-tool profiles
-status: researching
+status: planned
 created: 2026-07-27
 updated: 2026-07-27
 archived_at: null
