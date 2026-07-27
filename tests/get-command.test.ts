@@ -277,6 +277,32 @@ describe("10x get — happy path", () => {
     expect(data.dry_run).toBe(true);
     expect(data.writes).toBeDefined();
   });
+
+  it("writes one lesson to three active tool profiles", async () => {
+    writeValidAuth();
+    const fetchedTools: string[] = [];
+    apiContentMockState.fetchLessonImpl = (_course, _lessonId, _token, options) => {
+      fetchedTools.push(options?.tool ?? "");
+      return lessonOk(makeBundle());
+    };
+
+    const { stdout, exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--tool",
+      "claude-code,codex,cursor",
+      "--json",
+    ]);
+
+    expect(exitCode ?? 0).toBe(0);
+    expect(fetchedTools).toEqual(["claude-code", "codex", "cursor"]);
+    expect(existsSync(join(projectRoot, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectRoot, ".agents/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectRoot, ".cursor/skills/code-review/SKILL.md"))).toBe(true);
+    const data = parseOk<{ tools: string[]; targets: Array<{ tool: string }> }>(stdout);
+    expect(data.tools).toEqual(["claude-code", "codex", "cursor"]);
+    expect(data.targets.map((target) => target.tool)).toEqual(data.tools);
+  });
 });
 
 describe("10x get — error handling", () => {

@@ -68,10 +68,10 @@ tool targets. Preserve every single-target contract while allowing `get` and
 
 ### Automated verification
 
-- [ ] One command writes to `.claude`, `.agents` and `.cursor`.
-- [ ] Each request carries the matching `tool` API parameter.
-- [ ] Single-target get tests remain green.
-- [ ] A failing target produces an actionable tool-labelled error.
+- [x] One command writes to `.claude`, `.agents` and `.cursor`.
+- [x] Each request carries the matching `tool` API parameter.
+- [x] Single-target get tests remain green.
+- [x] A failing target produces an actionable tool-labelled error.
 
 ### Manual verification
 
@@ -102,5 +102,5 @@ tool targets. Preserve every single-target contract while allowing `get` and
 ## Progress
 
 - [x] Phase 1: Configuration and resolver
-- [ ] Phase 2: Multi-target `get`
+- [x] Phase 2: Multi-target `get`
 - [ ] Phase 3: Multi-target `sync` and regression pass

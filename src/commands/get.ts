@@ -16,7 +16,7 @@ import {
   verbose,
 } from "../lib/output";
 import { readToolConfig, updateToolConfig } from "../lib/config";
-import { resolveToolProfile } from "../lib/tool-prompt";
+import { resolveToolProfiles } from "../lib/tool-prompt";
 import type { ToolProfile } from "../lib/tool-profile";
 import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
 
@@ -64,7 +64,7 @@ export function registerGetCommand(cli: CAC): void {
     .option("--course <course>", "Override the course slug (default: 10xdevs3)")
     .option(
       "--tool <tool>",
-      "AI coding tool (claude-code, cursor, copilot, codex, windsurf, gemini, generic)",
+      "AI coding tool(s), comma-separated (claude-code,codex,cursor)",
     )
     .option("--print", "Print artifact content to stdout instead of writing to files")
     .option("--type <type>", "Artifact type filter: skills, prompts, rules, configs")
@@ -129,7 +129,8 @@ export async function runGet(
 
   const auth = await requireAuth(ctx);
   const course = options.course ?? DEFAULT_COURSE;
-  const profile = await resolveToolProfile(options.tool, process.cwd());
+  const profiles = await resolveToolProfiles(options.tool, process.cwd());
+  const defaultProfile = profiles[0]!;
 
   const dryRun = options.dryRun === true;
 
@@ -146,7 +147,7 @@ export async function runGet(
   // other config fields. Skip under --dry-run (touch nothing). `tool` is
   // seeded so the persisted object stays valid when no prior config exists.
   if (!dryRun && (options.lang || explicitCourseRules !== undefined)) {
-    const tool = readToolConfig()?.tool ?? profile.toolId;
+    const tool = readToolConfig()?.tool ?? defaultProfile.toolId;
     const patch: { tool: string; lang?: string; courseRules?: boolean } = { tool };
     if (options.lang) patch.lang = options.lang;
     if (explicitCourseRules !== undefined) patch.courseRules = explicitCourseRules;
@@ -154,66 +155,109 @@ export async function runGet(
   }
 
   if (options.print) {
-    await runPrintMode(ctx, parsed.lessonId, course, profile, auth.access_token, lang, options);
+    if (profiles.length > 1) {
+      outputError(
+        ctx,
+        "multiple_tools_not_printable",
+        "--print requires exactly one tool target.",
+        ExitCodes.USAGE,
+        "Pass a single --tool value, for example: --tool codex.",
+      );
+    }
+    await runPrintMode(
+      ctx,
+      parsed.lessonId,
+      course,
+      defaultProfile,
+      auth.access_token,
+      lang,
+      options,
+    );
     return;
   }
 
-  verbose(ctx, `fetching lesson ${course}/${parsed.lessonId}`);
-  const result = await fetchLesson(course, parsed.lessonId, auth.access_token, {
-    lang,
-    tool: profile.toolId,
-  });
+  const targetResults: AppliedTarget[] = [];
+  for (const profile of profiles) {
+    verbose(ctx, `fetching lesson ${course}/${parsed.lessonId} for ${profile.toolId}`);
+    const result = await fetchLesson(course, parsed.lessonId, auth.access_token, {
+      lang,
+      tool: profile.toolId,
+    });
 
-  if (!result.ok) {
-    handleLessonError(ctx, result.status, result.code, result.error, result.payload);
+    if (!result.ok) {
+      verbose(ctx, `${profile.toolId}: target failed`);
+      handleLessonError(ctx, result.status, result.code, result.error, result.payload);
+    }
+
+    // Language fallback detection
+    const contentLang = result.responseHeaders.get("X-Content-Language");
+    const isFallback = result.responseHeaders.get("X-Content-Fallback") === "true";
+    if (isFallback && contentLang) {
+      verbose(
+        ctx,
+        `${lang.toUpperCase()} not available for ${parsed.lessonId}/${profile.toolId}, showing ${contentLang.toUpperCase()}.`,
+      );
+    }
+
+    // Non-TTY orphan surface for legacy single-target flows. In a multi-target
+    // run the other active manifests are peers, not orphans.
+    if (!process.stdout.isTTY && profiles.length === 1) {
+      const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
+      if (orphanWarning) verbose(ctx, orphanWarning);
+    }
+
+    const isFiltered = options.type !== undefined;
+    const bundle: LessonBundle = filterBundle(ctx, result.data, options);
+
+    const isTTY = process.stdout.isTTY === true;
+    const prevManifest = readManifest(join(process.cwd(), profile.manifestDir));
+    if (prevManifest && prevManifest.manifestVersion === 2) {
+      showUpgradeNotice(isTTY);
+    }
+
+    // An explicit `--type rules` request applies rules even when the setting is
+    // off (explicit intent wins). Any other `--type` filter empties the rules
+    // bucket, so forcing true there is a no-op that leaves the rules file alone.
+    // A full apply (no filter) respects the resolved setting (and strips when off).
+    const applyCourseRules = isFiltered ? true : resolvedCourseRules;
+
+    const writeResult = await applyBundle(bundle, process.cwd(), {
+      dryRun,
+      profile,
+      partial: isFiltered,
+      onConflict: createConflictResolver(isTTY),
+      applyCourseRules,
+    });
+
+    targetResults.push({
+      profile,
+      bundle,
+      writeResult,
+      language: contentLang ?? lang,
+      languageFallback: isFallback,
+      applyCourseRules,
+    });
   }
 
-  // Language fallback detection
-  const contentLang = result.responseHeaders.get("X-Content-Language");
-  const isFallback = result.responseHeaders.get("X-Content-Fallback") === "true";
-  if (isFallback && contentLang) {
-    verbose(
-      ctx,
-      `${lang.toUpperCase()} not available for ${parsed.lessonId}, showing ${contentLang.toUpperCase()}.`,
-    );
+  if (targetResults.length === 1) {
+    const target = targetResults[0]!;
+    renderGetResult(ctx, target.bundle, target.writeResult, dryRun, target.profile, {
+      language: target.language,
+      languageFallback: target.languageFallback,
+      applyCourseRules: target.applyCourseRules,
+    });
+  } else {
+    renderMultiGetResult(ctx, targetResults, dryRun);
   }
+}
 
-  // Non-TTY orphan surface for CI/logs. The interactive migration prompt
-  // inside resolveToolProfile handles TTY flows; here we only keep the
-  // legacy verbose line so CI output still flags the situation.
-  if (!process.stdout.isTTY) {
-    const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
-    if (orphanWarning) verbose(ctx, orphanWarning);
-  }
-
-  const isFiltered = options.type !== undefined;
-  const bundle: LessonBundle = filterBundle(ctx, result.data, options);
-
-  const isTTY = process.stdout.isTTY === true;
-  const prevManifest = readManifest(join(process.cwd(), profile.manifestDir));
-  if (prevManifest && prevManifest.manifestVersion === 2) {
-    showUpgradeNotice(isTTY);
-  }
-
-  // An explicit `--type rules` request applies rules even when the setting is
-  // off (explicit intent wins). Any other `--type` filter empties the rules
-  // bucket, so forcing true there is a no-op that leaves the rules file alone.
-  // A full apply (no filter) respects the resolved setting (and strips when off).
-  const applyCourseRules = isFiltered ? true : resolvedCourseRules;
-
-  const writeResult = await applyBundle(bundle, process.cwd(), {
-    dryRun,
-    profile,
-    partial: isFiltered,
-    onConflict: createConflictResolver(isTTY),
-    applyCourseRules,
-  });
-
-  renderGetResult(ctx, bundle, writeResult, dryRun, profile, {
-    language: contentLang ?? lang,
-    languageFallback: isFallback,
-    applyCourseRules,
-  });
+interface AppliedTarget {
+  profile: ToolProfile;
+  bundle: LessonBundle;
+  writeResult: WriteResult;
+  language: string;
+  languageFallback: boolean;
+  applyCourseRules: boolean;
 }
 
 /**
@@ -566,6 +610,53 @@ function renderGetResult(
   }
   for (const entry of writeResult.removals.configs) {
     lines.push(`  [removed] config ${entry.path}`);
+  }
+  output(ctx, lines.join("\n"), undefined);
+}
+
+function renderMultiGetResult(
+  ctx: OutputContext,
+  targets: AppliedTarget[],
+  dryRun: boolean,
+): void {
+  const first = targets[0]!;
+  if (ctx.json) {
+    output(ctx, "", {
+      lessonId: first.bundle.lessonId,
+      title: first.bundle.title,
+      tools: targets.map((target) => target.profile.toolId),
+      dry_run: dryRun,
+      targets: targets.map((target) => ({
+        tool: target.profile.toolId,
+        targetDir: target.profile.manifestDir,
+        language: target.language,
+        languageFallback: target.languageFallback,
+        writes: {
+          skills: target.writeResult.skills,
+          prompts: target.writeResult.prompts,
+          rules: target.writeResult.rules,
+          configs: target.writeResult.configs,
+          removals: target.writeResult.removals,
+        },
+      })),
+    });
+    return;
+  }
+
+  const lines = [
+    `${first.bundle.lessonId} — ${first.bundle.title}`,
+    "",
+    `${dryRun ? "Would write" : "Wrote"} artifacts for ${targets.length} tools:`,
+  ];
+  for (const target of targets) {
+    const skillFiles = target.writeResult.skills.reduce(
+      (count, skill) => count + skill.files.length,
+      0,
+    );
+    lines.push(
+      `  ${target.profile.displayName} → ${target.profile.manifestDir}/ ` +
+        `(${skillFiles} skill files, ${target.writeResult.prompts.length} prompts)`,
+    );
   }
   output(ctx, lines.join("\n"), undefined);
 }
