@@ -31,7 +31,8 @@
     "repo-map": "node tools/repo-map/scan.mjs",
     "repo-map:check": "node tools/repo-map/scan.mjs --check",
     "examples:catalog": "node tools/examples-catalog/build.mjs",
-    "examples:catalog:check": "node tools/examples-catalog/build.mjs --check"
+    "examples:catalog:check": "node tools/examples-catalog/build.mjs --check",
+    "night-loop": "node scripts/night-loop.mjs"
   },
   "dependencies": {
     "@clack/prompts": "0.9.1",
