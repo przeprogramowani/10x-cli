@@ -83,7 +83,7 @@ async function resolveProfilesOnly(
       JSON.stringify(normalizeToolIds(existing?.tool ?? profile.toolId, existing?.tools)) !==
         JSON.stringify(ids)
     ) {
-      saveToolConfig({ ...(existing ?? {}), tool: profile.toolId, tools: ids });
+      saveToolConfig({ ...existing, tool: profile.toolId, tools: ids });
       if (process.stdout.isTTY) {
         process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
       }
@@ -130,7 +130,7 @@ async function resolveProfilesOnly(
       return [PROFILES[DEFAULT_TOOL]!];
     }
 
-    saveToolConfig({ ...(config ?? {}), tool: choice as string, tools: [choice as string] });
+    saveToolConfig({ ...config, tool: choice as string, tools: [choice as string] });
     return [PROFILES[choice as string]!];
   }
 
@@ -193,7 +193,7 @@ async function handleToolSwitch(
         orphan.profile.toolId,
       ];
       saveToolConfig({
-        ...(existing ?? {}),
+        ...existing,
         tool: existing?.tool ?? newProfile.toolId,
         acknowledgedOrphans: nextAcks,
       });

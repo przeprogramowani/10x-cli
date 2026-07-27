@@ -33,7 +33,7 @@ import {
   verbose,
 } from "../lib/output";
 import { readToolConfig } from "../lib/config";
-import { resolveToolProfile } from "../lib/tool-prompt";
+import { resolveToolProfiles } from "../lib/tool-prompt";
 import type { ToolProfile } from "../lib/tool-profile";
 import {
   applyBundle,
@@ -99,7 +99,7 @@ export function registerSyncCommand(cli: CAC): void {
     .option("--course <course>", "Override the course slug (default: 10xdevs3)")
     .option(
       "--tool <tool>",
-      "AI coding tool (claude-code, cursor, copilot, codex, windsurf, gemini, generic)",
+      "AI coding tool(s), comma-separated (claude-code,codex,cursor)",
     )
     .option("--lang <lang>", "Content language: en (default) or pl")
     .option(
@@ -140,7 +140,7 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
 
   const auth = await requireAuth(ctx);
   const course = options.course ?? DEFAULT_COURSE;
-  const profile = await resolveToolProfile(options.tool, process.cwd());
+  const profiles = await resolveToolProfiles(options.tool, process.cwd());
   const dryRun = options.dryRun === true;
   const force = options.force === true;
   const lang = options.lang ?? readToolConfig()?.lang ?? "en";
@@ -169,15 +169,6 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
     return true;
   });
 
-  const manifest = readManifest(join(process.cwd(), profile.manifestDir));
-  const manifestLessonIds = new Set(manifest?.lessons ? Object.keys(manifest.lessons) : []);
-
-  let targets = unlocked;
-  if (moduleFilter !== undefined) targets = targets.filter((l) => l.module === moduleFilter);
-  // Default targets only already-downloaded lessons; --all pulls everything.
-  if (options.all !== true) targets = targets.filter((l) => manifestLessonIds.has(l.lessonId));
-  targets = [...targets].sort((a, b) => a.module - b.module || a.lesson - b.lesson);
-
   // Sequential sweep sharing one AbortSignal — no retry framework, the existing
   // per-call timeout stands. Never process.exit mid-loop.
   const controller = new AbortController();
@@ -187,41 +178,68 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
   // independently of this.
   const onSigint = () => controller.abort();
   process.once("SIGINT", onSigint);
-  const outcomes: LessonOutcome[] = [];
+  const reports: Array<{ profile: ToolProfile; input: ReportInput }> = [];
   try {
-    for (const lesson of targets) {
-      if (controller.signal.aborted) break;
-      outcomes.push(
-        await syncLesson(ctx, lesson, {
+    for (const profile of profiles) {
+      const manifest = readManifest(join(process.cwd(), profile.manifestDir));
+      const manifestLessonIds = new Set(
+        manifest?.lessons ? Object.keys(manifest.lessons) : [],
+      );
+
+      let targets = unlocked;
+      if (moduleFilter !== undefined) {
+        targets = targets.filter((lesson) => lesson.module === moduleFilter);
+      }
+      // Default targets only already-downloaded lessons; --all pulls everything.
+      if (options.all !== true) {
+        targets = targets.filter((lesson) => manifestLessonIds.has(lesson.lessonId));
+      }
+      targets = [...targets].sort((a, b) => a.module - b.module || a.lesson - b.lesson);
+
+      const outcomes: LessonOutcome[] = [];
+      for (const lesson of targets) {
+        if (controller.signal.aborted) break;
+        outcomes.push(
+          await syncLesson(ctx, lesson, {
+            course,
+            profile,
+            lang,
+            dryRun,
+            force,
+            applyCourseRules,
+            token: auth.access_token,
+            manifest,
+            signal: controller.signal,
+          }),
+        );
+      }
+      reports.push({
+        profile,
+        input: {
           course,
-          profile,
-          lang,
           dryRun,
           force,
-          applyCourseRules,
-          token: auth.access_token,
-          manifest,
-          signal: controller.signal,
-        }),
-      );
+          mode: options.all === true ? "all" : "downloaded",
+          module: moduleFilter,
+          outcomes,
+          exclusions,
+        },
+      });
     }
   } finally {
     process.removeListener("SIGINT", onSigint);
   }
 
-  renderReport(ctx, profile, {
-    course,
-    dryRun,
-    force,
-    mode: options.all === true ? "all" : "downloaded",
-    module: moduleFilter,
-    outcomes,
-    exclusions,
-  });
+  if (reports.length === 1) {
+    const report = reports[0]!;
+    renderReport(ctx, report.profile, report.input);
+  } else {
+    renderMultiReport(ctx, reports);
+  }
 
   // Worst-outcome exit code. Conflicts-skipped alone stays 0 (reported, not a
   // failure); any errored lesson → 1.
-  if (outcomes.some((o) => o.status === "errored")) {
+  if (reports.some((report) => report.input.outcomes.some((o) => o.status === "errored"))) {
     process.exit(ExitCodes.ERROR);
   }
 }
@@ -495,35 +513,10 @@ function countBuckets(outcomes: LessonOutcome[]): Record<Bucket, number> {
 function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInput): void {
   const { outcomes, exclusions } = input;
   const buckets = countBuckets(outcomes);
-  const lessonsErrored = outcomes.filter((o) => o.status === "errored").length;
   const lessonsConflicts = outcomes.filter((o) => o.status === "conflicts").length;
 
   if (ctx.json) {
-    output(ctx, "", {
-      course: input.course,
-      tool: profile.toolId,
-      dryRun: input.dryRun,
-      force: input.force,
-      mode: input.mode,
-      module: input.module ?? null,
-      lessons: outcomes,
-      excluded: exclusions,
-      totals: {
-        lessons: outcomes.length,
-        updated: outcomes.filter((o) => o.status === "updated").length,
-        unchanged: outcomes.filter((o) => o.status === "unchanged").length,
-        conflicts: lessonsConflicts,
-        errored: lessonsErrored,
-        excluded: exclusions.length,
-        resources: {
-          created: buckets.created,
-          upstreamUpdated: buckets["upstream-updated"],
-          unchanged: buckets.unchanged,
-          skippedConflict: buckets["skipped-conflict"],
-          removed: buckets.removed,
-        },
-      },
-    });
+    output(ctx, "", reportData(profile, input));
     return;
   }
 
@@ -568,6 +561,68 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
     lines.push("To take all upstream updates over your local edits: 10x sync --force");
   }
 
+  output(ctx, lines.join("\n"), undefined);
+}
+
+function reportData(profile: ToolProfile, input: ReportInput) {
+  const { outcomes, exclusions } = input;
+  const buckets = countBuckets(outcomes);
+  return {
+    course: input.course,
+    tool: profile.toolId,
+    dryRun: input.dryRun,
+    force: input.force,
+    mode: input.mode,
+    module: input.module ?? null,
+    lessons: outcomes,
+    excluded: exclusions,
+    totals: {
+      lessons: outcomes.length,
+      updated: outcomes.filter((o) => o.status === "updated").length,
+      unchanged: outcomes.filter((o) => o.status === "unchanged").length,
+      conflicts: outcomes.filter((o) => o.status === "conflicts").length,
+      errored: outcomes.filter((o) => o.status === "errored").length,
+      excluded: exclusions.length,
+      resources: {
+        created: buckets.created,
+        upstreamUpdated: buckets["upstream-updated"],
+        unchanged: buckets.unchanged,
+        skippedConflict: buckets["skipped-conflict"],
+        removed: buckets.removed,
+      },
+    },
+  };
+}
+
+function renderMultiReport(
+  ctx: OutputContext,
+  reports: Array<{ profile: ToolProfile; input: ReportInput }>,
+): void {
+  const first = reports[0]!;
+  if (ctx.json) {
+    output(ctx, "", {
+      course: first.input.course,
+      tools: reports.map((report) => report.profile.toolId),
+      dryRun: first.input.dryRun,
+      force: first.input.force,
+      mode: first.input.mode,
+      module: first.input.module ?? null,
+      targets: reports.map((report) => reportData(report.profile, report.input)),
+    });
+    return;
+  }
+
+  const lines = [
+    `${first.input.dryRun ? "Would sync" : "Synced"} ${first.input.course} for ${reports.length} tools:`,
+  ];
+  for (const report of reports) {
+    const data = reportData(report.profile, report.input);
+    lines.push(
+      `  ${report.profile.displayName} → ${report.profile.manifestDir}/ ` +
+        `(${data.totals.updated} updated, ${data.totals.unchanged} unchanged, ` +
+        `${data.totals.errored} errored)`,
+    );
+  }
   output(ctx, lines.join("\n"), undefined);
 }
 

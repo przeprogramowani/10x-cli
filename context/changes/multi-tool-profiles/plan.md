@@ -89,10 +89,10 @@ tool targets. Preserve every single-target contract while allowing `get` and
 
 ### Automated verification
 
-- [ ] `bun run typecheck`
-- [ ] `bun run lint`
-- [ ] `bun test`
-- [ ] `bun run build`
+- [x] `bun run typecheck`
+- [x] `bun run lint`
+- [x] `bun test` (475 tests; binary built first as required by smoke/E2E)
+- [x] `bun run build`
 
 ### Manual verification
 
@@ -103,4 +103,4 @@ tool targets. Preserve every single-target contract while allowing `get` and
 
 - [x] Phase 1: Configuration and resolver
 - [x] Phase 2: Multi-target `get`
-- [ ] Phase 3: Multi-target `sync` and regression pass
+- [x] Phase 3: Multi-target `sync` and regression pass

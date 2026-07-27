@@ -128,6 +128,7 @@ let tmp: string;
 let priorIsTTY: boolean | undefined;
 let priorCwd: string;
 let fetched: string[];
+let fetchedTools: string[];
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "10x-cli-sync-"));
@@ -137,6 +138,7 @@ beforeEach(() => {
   priorCwd = process.cwd();
   process.chdir(tmp);
   fetched = [];
+  fetchedTools = [];
   resetApiContentMock();
   writeValidAuth();
 });
@@ -216,8 +218,9 @@ function okLesson(bundle: LessonBundle): ApiResult<LessonBundle> {
 /** Wire the catalog + a per-lesson bundle map, tracking fetched lesson ids. */
 function wire(catalog: CatalogResponse, bundles: Record<string, LessonBundle>): void {
   apiContentMockState.fetchCatalogImpl = () => okCatalog(catalog);
-  apiContentMockState.fetchLessonImpl = (_course, lessonId) => {
+  apiContentMockState.fetchLessonImpl = (_course, lessonId, _token, options) => {
     fetched.push(lessonId);
+    fetchedTools.push(options?.tool ?? "");
     const bundle = bundles[lessonId];
     if (!bundle) {
       return { ok: false, status: 404, code: "lesson_not_found", error: "missing" } as ApiResult<LessonBundle>;
@@ -269,6 +272,31 @@ describe("10x sync — bulk download (--all)", () => {
     expect(existsSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"))).toBe(true);
     const data = envelope(res.stdout).data;
     expect((data.lessons as unknown[]).length).toBe(2);
+  });
+
+  it("syncs each lesson into three profile-specific manifests", async () => {
+    const catalog = makeCatalog([
+      lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h-m1l1" }),
+    ]);
+    wire(catalog, { m1l1: makeBundle("m1l1", "v1") });
+
+    const res = await runSyncCmd([
+      "--all",
+      "--tool",
+      "claude-code,codex,cursor",
+    ]);
+
+    expect(res.exitCode).toBeUndefined();
+    expect(fetchedTools).toEqual(["claude-code", "codex", "cursor"]);
+    expect(existsSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".agents/skills/auth-skill/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".cursor/skills/auth-skill/SKILL.md"))).toBe(true);
+    const data = envelope(res.stdout).data;
+    const tools = data.tools as string[];
+    expect(tools).toEqual(["claude-code", "codex", "cursor"]);
+    expect((data.targets as Array<{ tool: string }>).map((target) => target.tool)).toEqual(
+      tools,
+    );
   });
 });
 
