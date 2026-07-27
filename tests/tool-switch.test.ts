@@ -302,8 +302,8 @@ describe("migrateArtifacts", () => {
     const toPath = join(tmp, newProfile.skillPath("code-review"));
     mkdirSync(join(fromPath, ".."), { recursive: true });
     mkdirSync(join(toPath, ".."), { recursive: true });
-    writeFileSync(fromPath, Buffer.from([0xff, 0xfe]));
-    writeFileSync(toPath, Buffer.from([0xfe, 0xff]));
+    writeFileSync(fromPath, Buffer.from([0xFF, 0xFE]));
+    writeFileSync(toPath, Buffer.from([0xFE, 0xFF]));
 
     const summary = migrateArtifacts(tmp, orphan, newProfile);
 
@@ -318,9 +318,9 @@ describe("migrateArtifacts", () => {
     );
     // Source was not removed
     expect(existsSync(fromPath)).toBe(true);
-    expect(readFileSync(fromPath).equals(Buffer.from([0xff, 0xfe]))).toBe(true);
+    expect(readFileSync(fromPath).equals(Buffer.from([0xFF, 0xFE]))).toBe(true);
     // Destination untouched
-    expect(readFileSync(toPath).equals(Buffer.from([0xfe, 0xff]))).toBe(true);
+    expect(readFileSync(toPath).equals(Buffer.from([0xFE, 0xFF]))).toBe(true);
   });
 
   it("still treats byte-identical source and destination as a successful no-op move", () => {

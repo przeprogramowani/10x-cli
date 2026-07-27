@@ -2,7 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
   "rules": {
     "no-unused-vars": "warn",
-    "no-console": "off"
+    "no-console": "off",
+    "unicorn/number-literal-case": "error"
   },
   "ignorePatterns": ["dist", "node_modules", "src/generated"]
 }
