@@ -46,10 +46,10 @@ tool targets. Preserve every single-target contract while allowing `get` and
 
 ### Automated verification
 
-- [ ] Old config resolves to `[tool]`.
-- [ ] New config de-duplicates targets and preserves default-first ordering.
-- [ ] Invalid IDs fail with the supported-ID list.
-- [ ] Existing single-profile resolver tests remain green.
+- [x] Old config resolves to `[tool]`.
+- [x] New config de-duplicates targets and preserves default-first ordering.
+- [x] Invalid IDs fail with the supported-ID list.
+- [x] Existing single-profile resolver tests remain green.
 
 ### Manual verification
 
@@ -101,6 +101,6 @@ tool targets. Preserve every single-target contract while allowing `get` and
 
 ## Progress
 
-- [ ] Phase 1: Configuration and resolver
+- [x] Phase 1: Configuration and resolver
 - [ ] Phase 2: Multi-target `get`
 - [ ] Phase 3: Multi-target `sync` and regression pass

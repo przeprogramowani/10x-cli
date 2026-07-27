@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PROFILES, DEFAULT_TOOL, SENTINEL_BEGIN, SENTINEL_END } from "../src/lib/tool-profile";
 import { readToolConfig, saveToolConfig, toolConfigPath } from "../src/lib/config";
-import { resolveToolProfile } from "../src/lib/tool-prompt";
+import {
+  normalizeToolIds,
+  parseToolIds,
+  resolveToolProfile,
+  resolveToolProfiles,
+} from "../src/lib/tool-prompt";
 import { isSafeName } from "../src/lib/writer";
 import {
   CLI_PACKAGE_NAME,
@@ -180,6 +185,43 @@ describe("resolveToolProfile", () => {
 
   it("unknown tool name throws an error", async () => {
     await expect(resolveToolProfile("vim")).rejects.toThrow(/Unknown tool 'vim'/);
+  });
+
+  it("resolves a comma-separated ordered active set and persists the first as default", async () => {
+    const profiles = await resolveToolProfiles("claude-code,codex,cursor");
+    expect(profiles.map((profile) => profile.toolId)).toEqual([
+      "claude-code",
+      "codex",
+      "cursor",
+    ]);
+    expect(readToolConfig()).toMatchObject({
+      tool: "claude-code",
+      tools: ["claude-code", "codex", "cursor"],
+    });
+  });
+
+  it("legacy config normalizes to one active target", async () => {
+    saveToolConfig({ tool: "cursor" });
+    const profiles = await resolveToolProfiles();
+    expect(profiles.map((profile) => profile.toolId)).toEqual(["cursor"]);
+  });
+});
+
+describe("multi-tool parsing", () => {
+  it("trims and de-duplicates IDs without changing order", () => {
+    expect(parseToolIds("claude-code, codex,claude-code,cursor")).toEqual([
+      "claude-code",
+      "codex",
+      "cursor",
+    ]);
+  });
+
+  it("keeps the default first when normalizing persisted targets", () => {
+    expect(normalizeToolIds("cursor", ["codex", "cursor", "claude-code"])).toEqual([
+      "cursor",
+      "codex",
+      "claude-code",
+    ]);
   });
 });
 

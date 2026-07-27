@@ -126,6 +126,12 @@ export function deleteAuth(): void {
 
 export interface ToolConfig {
   tool: string;
+  /**
+   * Ordered active tool targets. `tool` remains the default and is normalized
+   * to the first entry by the resolver. Absent means the legacy single-target
+   * shape (`[tool]`).
+   */
+  tools?: string[];
   lang?: string;
   /** Tool IDs whose orphan warning has been dismissed by the user (migration "keep" path). */
   acknowledgedOrphans?: string[];
@@ -148,6 +154,14 @@ export function readToolConfig(): ToolConfig | null {
     const raw = readFileSync(file, "utf8");
     const parsed = JSON.parse(raw) as ToolConfig;
     if (typeof parsed.tool !== "string") return null;
+    if (
+      parsed.tools !== undefined &&
+      (!Array.isArray(parsed.tools) ||
+        parsed.tools.length === 0 ||
+        !parsed.tools.every((x: unknown) => typeof x === "string"))
+    ) {
+      delete parsed.tools;
+    }
     // Defense in depth: if a tampered or hand-edited config.json has a
     // non-string-array for acknowledgedOrphans, drop the field rather than
     // letting `new Set(parsed.acknowledgedOrphans)` behave unpredictably.

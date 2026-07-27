@@ -28,37 +28,81 @@ export async function resolveToolProfile(
   flagOverride?: string,
   projectRoot: string = process.cwd(),
 ): Promise<ToolProfile> {
-  const profile = await resolveProfileOnly(flagOverride, projectRoot);
-  await handleToolSwitch(projectRoot, profile);
-  return profile;
+  const profiles = await resolveToolProfiles(flagOverride, projectRoot);
+  return profiles[0]!;
 }
 
-async function resolveProfileOnly(
-  flagOverride: string | undefined,
-  projectRoot: string,
-): Promise<ToolProfile> {
-  // 1. Explicit --tool flag
-  if (flagOverride) {
-    const profile = PROFILES[flagOverride];
-    if (!profile) {
+/**
+ * Resolve every active tool profile. The first item is always the persisted
+ * default, so callers that only understand one target can keep using
+ * `resolveToolProfile()`.
+ */
+export async function resolveToolProfiles(
+  flagOverride?: string,
+  projectRoot: string = process.cwd(),
+): Promise<ToolProfile[]> {
+  const profiles = await resolveProfilesOnly(flagOverride, projectRoot);
+  await handleToolSwitch(projectRoot, profiles);
+  return profiles;
+}
+
+export function parseToolIds(value: string): string[] {
+  const ids = [...new Set(value.split(",").map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    throw new Error(`Select at least one tool. Supported: ${Object.keys(PROFILES).join(", ")}`);
+  }
+  for (const id of ids) {
+    if (!PROFILES[id]) {
       throw new Error(
-        `Unknown tool '${flagOverride}'. Supported: ${Object.keys(PROFILES).join(", ")}`,
+        `Unknown tool '${id}'. Supported: ${Object.keys(PROFILES).join(", ")}`,
       );
     }
+  }
+  return ids;
+}
+
+export function normalizeToolIds(defaultTool: string, activeTools?: string[]): string[] {
+  const candidates = activeTools ?? [defaultTool];
+  return [
+    defaultTool,
+    ...candidates.filter((id) => id !== defaultTool),
+  ].filter((id, index, all) => all.indexOf(id) === index);
+}
+
+async function resolveProfilesOnly(
+  flagOverride: string | undefined,
+  projectRoot: string,
+): Promise<ToolProfile[]> {
+  // 1. Explicit --tool flag
+  if (flagOverride) {
+    const ids = parseToolIds(flagOverride);
+    const profile = PROFILES[ids[0]!]!;
     const existing = readToolConfig();
-    if (existing?.tool !== flagOverride) {
-      saveToolConfig({ ...(existing ?? {}), tool: flagOverride });
+    if (
+      existing?.tool !== profile.toolId ||
+      JSON.stringify(normalizeToolIds(existing?.tool ?? profile.toolId, existing?.tools)) !==
+        JSON.stringify(ids)
+    ) {
+      saveToolConfig({ ...(existing ?? {}), tool: profile.toolId, tools: ids });
       if (process.stdout.isTTY) {
         process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
       }
     }
-    return profile;
+    return ids.map((id) => PROFILES[id]!);
   }
 
   // 2. Saved config
   const config = readToolConfig();
   if (config?.tool && PROFILES[config.tool]) {
-    return PROFILES[config.tool]!;
+    const ids = normalizeToolIds(config.tool, config.tools);
+    for (const id of ids) {
+      if (!PROFILES[id]) {
+        throw new Error(
+          `Unknown tool '${id}' in config. Supported: ${Object.keys(PROFILES).join(", ")}`,
+        );
+      }
+    }
+    return ids.map((id) => PROFILES[id]!);
   }
 
   // 3. Interactive prompt (TTY only), pre-filled by auto-detection
@@ -83,15 +127,15 @@ async function resolveProfileOnly(
 
     if (p.isCancel(choice)) {
       p.cancel("Using default (Claude Code).");
-      return PROFILES[DEFAULT_TOOL]!;
+      return [PROFILES[DEFAULT_TOOL]!];
     }
 
-    saveToolConfig({ ...(config ?? {}), tool: choice as string });
-    return PROFILES[choice as string]!;
+    saveToolConfig({ ...(config ?? {}), tool: choice as string, tools: [choice as string] });
+    return [PROFILES[choice as string]!];
   }
 
   // 4. Non-interactive fallback
-  return PROFILES[DEFAULT_TOOL]!;
+  return [PROFILES[DEFAULT_TOOL]!];
 }
 
 /**
@@ -101,12 +145,17 @@ async function resolveProfileOnly(
  * in non-TTY environments — `commands/get.ts` keeps the legacy verbose
  * warning for CI/Docker logs.
  */
-async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile): Promise<void> {
+async function handleToolSwitch(
+  projectRoot: string,
+  activeProfiles: ToolProfile[],
+): Promise<void> {
   if (!process.stdout.isTTY) return;
+  const newProfile = activeProfiles[0]!;
+  const activeIds = new Set(activeProfiles.map((profile) => profile.toolId));
   const cfg = readToolConfig();
   const acknowledged = new Set(cfg?.acknowledgedOrphans ?? []);
   const orphans = findOrphanedManifests(projectRoot, newProfile).filter(
-    (o) => !acknowledged.has(o.profile.toolId),
+    (o) => !activeIds.has(o.profile.toolId) && !acknowledged.has(o.profile.toolId),
   );
   if (orphans.length === 0) return;
 
