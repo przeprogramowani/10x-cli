@@ -42,7 +42,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- context/map; then
+          if git diff --quiet -- context/map && bun run repo-map:check; then
             echo "Repo map unchanged — no PR."
             exit 0
           fi

@@ -449,9 +449,12 @@ if (check) {
   generate(tmp);
   const files = ['repo-map.md', 'artifact-1-territory.md', 'artifact-2-structure.md', 'artifact-3-contributors.md'];
   const { readFileSync } = await import('node:fs');
+  // The scan stamp embeds the HEAD sha, so any new commit would register as
+  // drift. Compare with stamp lines normalized out — only real content counts.
+  const normalize = (txt) => txt.replace(/^> Scan of `[^`]+` \([^)]*\).*$/gm, '> Scan of <normalized>');
   const changed = files.filter((f) => {
     try {
-      return readFileSync(join(outDir, f), 'utf8') !== readFileSync(join(tmp, f), 'utf8');
+      return normalize(readFileSync(join(outDir, f), 'utf8')) !== normalize(readFileSync(join(tmp, f), 'utf8'));
     } catch {
       return true;
     }
