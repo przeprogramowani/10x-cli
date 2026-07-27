@@ -91,7 +91,7 @@ tool targets. Preserve every single-target contract while allowing `get` and
 
 - [x] `bun run typecheck`
 - [x] `bun run lint`
-- [x] `bun test` (475 tests; binary built first as required by smoke/E2E)
+- [x] `bun test` (476 tests; binary built first as required by smoke/E2E)
 - [x] `bun run build`
 
 ### Manual verification
