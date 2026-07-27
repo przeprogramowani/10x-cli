@@ -7,4 +7,6 @@ coverage/
 .env.local
 tests/e2e/.env.test
 .vitest-cache/
-.claude/
+# Local Claude artifacts stay ignored, but shared agent skills are tracked.
+.claude/*
+!.claude/skills/
