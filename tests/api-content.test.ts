@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import {
+  fetchArtifact,
   fetchCatalog,
   fetchHealth,
   fetchLesson,
@@ -35,10 +36,12 @@ const realFetch = globalThis.fetch;
 const realApiBase = process.env["API_BASE_URL"];
 const realKeyset = process.env["BUNDLE_PUBLIC_KEYSET"];
 let requestedUrls: string[] = [];
+let requestedInits: Array<RequestInit | undefined> = [];
 
 function mockFetchOnce(body: string, init: { status?: number; headers?: Record<string, string> } = {}) {
-  globalThis.fetch = (async (url: string | URL) => {
+  globalThis.fetch = (async (url: string | URL, requestInit?: RequestInit) => {
     requestedUrls.push(String(url));
+    requestedInits.push(requestInit);
     return new Response(body, {
       status: init.status ?? 200,
       headers: { "content-type": "application/json", ...init.headers },
@@ -66,6 +69,7 @@ const signedHeaders = (body: string, keyId = TEST_KEY_ID) => ({
 
 beforeEach(() => {
   requestedUrls = [];
+  requestedInits = [];
   process.env["API_BASE_URL"] = "http://localhost:8787";
   process.env["BUNDLE_PUBLIC_KEYSET"] = JSON.stringify([
     { keyId: TEST_KEY_ID, publicKey: publicKeyDerB64 },
@@ -142,24 +146,67 @@ describe("fetchLesson signature verification", () => {
     if (!result.ok) expect(result.code).toBe("signature_missing");
   });
 
-  it("passes API error envelopes through without signature checks", async () => {
-    mockFetchOnce(JSON.stringify({ error: "no", code: "no_membership" }), { status: 403 });
+  it("passes API error envelopes through before checking partial signing headers", async () => {
+    mockFetchOnce(JSON.stringify({ error: "module_locked", code: "locked_now" }), {
+      status: 403,
+      headers: { "X-Bundle-Signature": "ignored-on-error" },
+    });
     const result = await fetchLesson("10xdevs-3", "m1l1", "tok");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("no_membership");
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      code: "locked_now",
+      error: "This module is not available yet.",
+      payload: { error: "module_locked", code: "locked_now" },
+    });
   });
 });
 
 // --- plain endpoints -----------------------------------------------------------
 
 describe("fetchCatalog", () => {
-  it("hits the encoded catalog path and returns the payload", async () => {
-    const payload = { course: "10xdevs-3", modules: [], lessons: [] };
+  it("encodes the catalog path and forwards bearer token and caller signal", async () => {
+    const payload = { course: "course/alpha", modules: [], lessons: [] };
     mockFetchOnce(JSON.stringify(payload));
-    const result = await fetchCatalog("10xdevs-3", "tok");
+    const controller = new AbortController();
+
+    const result = await fetchCatalog("course/alpha", "token-1", {
+      signal: controller.signal,
+    });
+
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data.course).toBe("10xdevs-3");
-    expect(requestedUrls[0]).toContain("/api/catalog/10xdevs-3");
+    if (result.ok) expect(result.data.course).toBe("course/alpha");
+    expect(requestedUrls[0]).toBe("http://localhost:8787/api/catalog/course%2Falpha");
+    expect(new Headers(requestedInits[0]?.headers).get("authorization")).toBe("Bearer token-1");
+    expect(requestedInits[0]?.signal).toBe(controller.signal);
+  });
+});
+
+describe("fetchArtifact", () => {
+  it("always serializes tool while omitting an empty optional language", async () => {
+    mockFetchOnce(JSON.stringify({ type: "prompts", name: "review", content: "Review it" }));
+
+    const result = await fetchArtifact(
+      "course/alpha",
+      "m1/l1",
+      "prompts/custom",
+      "review notes",
+      "",
+      "token-4",
+      { lang: "" },
+    );
+
+    expect(requestedUrls[0]).toBe(
+      "http://localhost:8787/api/artifacts/course%2Falpha/m1%2Fl1/prompts%2Fcustom/review%20notes?tool=",
+    );
+    expect(result).toEqual({
+      ok: false,
+      status: 0,
+      code: "signature_missing",
+      error:
+        "Artifact is missing a signature. The API may be misconfigured or compromised. " +
+        "Do NOT use the content. Report this to the course team.",
+    });
   });
 });
 
