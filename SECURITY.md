@@ -35,11 +35,11 @@ The 10x CLI authenticates users, fetches lesson content from a remote API, and w
 
 ### T4 — Bundle Injection (Malicious Lesson Content)
 
-**Attack**: Compromised API or MITM injects malicious `.claude/` rules/prompts/skills via unsigned lesson bundles.
+**Attack**: A compromised API or MITM injects malicious rules, prompts, skills, or config templates into a supported AI tool's project files via unsigned lesson content.
 
-**Defense** (`src/lib/signing.ts`, `src/lib/api-content.ts`): Ed25519 signature verification with baked-in public keyset. Bundle integrity is verified before any artifacts are written to disk.
+**Defense** (`src/lib/signing.ts`, `src/lib/api-content.ts`): Ed25519 signature verification with a baked-in public keyset. Lesson bundles and individual artifact responses are verified before their content is returned to the writer.
 
-**Note**: `REQUIRE_SIGNATURES` is currently `false` (transition period). Once the API confirms all bundles are signed, this flag will be flipped to `true` to fail-closed.
+**Note**: `REQUIRE_SIGNATURES` is `true` (fail-closed). An unsigned response is rejected with `signature_missing`; a response whose signature or content hash fails verification is rejected with `signature_error`; and incomplete signing headers (only some of `X-Bundle-Signature`, `X-Bundle-Key-Id`, and `X-Bundle-Content-Hash`) are rejected as a misconfiguration. Rejected content is not passed to the filesystem writer.
 
 ### T5 — Sentinel Marker Injection
 
@@ -49,24 +49,27 @@ The 10x CLI authenticates users, fetches lesson content from a remote API, and w
 
 ### T6 — Path Traversal via Artifact Names
 
-**Attack**: Bundle artifact names like `../evil.json` or `CON` escape the target `.claude/` directory.
+**Attack**: Bundle artifact names such as `../evil.json` or `CON` escape the selected AI tool's target directory.
 
-**Defense** (`src/lib/writer.ts`): `isSafeName()` rejects path separators, dot-prefixed names, null bytes, NTFS reserved names/characters, and alternate data streams. Applied to every artifact before filesystem mutation.
-
-### T8 — Supply Chain Attack via Malicious Package Publish
-
-**Attack**: Attacker publishes a compromised version of a dependency (or typosquatted package). The malicious code runs at install time via `postinstall` scripts or at runtime after import.
-
-**Defense** (`.npmrc`):
-- `ignore-scripts=true` — blocks `postinstall` and other lifecycle scripts from executing during install, neutralizing the most common attack vector.
-- `minimum-release-age=604800` — refuses to install any package version published less than 7 days ago. Most malicious publishes are detected and pulled from the registry within this window, providing a quarantine buffer.
-- `--frozen-lockfile` in CI — prevents the lockfile from being modified during CI installs, ensuring only audited dependency versions are used.
+**Defense** (`src/lib/writer.ts`): `isSafeName()` rejects path separators, dot-prefixed names, null bytes, NTFS reserved names and characters, and alternate data streams. Nested skill file paths are validated segment by segment by `isSafeSkillFilePath()`. Validation runs during planning, before filesystem mutation.
 
 ### T7 — Terminal Control Sequence Injection
 
 **Attack**: API error messages contain ANSI escape sequences that clear the terminal, hide warnings, or spoof output.
 
 **Defense** (`src/lib/output.ts`): `sanitize()` strips CSI sequences and C0/C1 control characters from all untrusted text before stderr output.
+
+### T8 — Supply Chain Attack via Malicious Package Publish
+
+**Attack**: An attacker publishes a compromised version of a dependency (or a typosquatted package). The malicious code runs at install time via lifecycle scripts or at runtime after import.
+
+**Defense** (`.npmrc`, `bun.lock`, `.github/workflows/ci.yml`):
+
+- `ignore-scripts=true` blocks lifecycle scripts during dependency installation.
+- `bun install --frozen-lockfile` in CI rejects dependency resolution that would modify `bun.lock`.
+- GitHub Actions dependencies are pinned to full commit SHAs.
+
+**Note**: `.npmrc` sets `minimum-release-age=604800` for npm 11 installs. Bun requires the separate `--minimum-release-age` option or `minimumReleaseAge` in `bunfig.toml`; the current Bun-based CI relies on the frozen lockfile rather than a release-age gate.
 
 ---
 
@@ -78,6 +81,7 @@ The 10x CLI authenticates users, fetches lesson content from a remote API, and w
 | 2026-04-11 | F4      | Stale tmp file mode inheritance                  | Fixed   |
 | 2026-04-11 | F5      | Sentinel marker injection in rules body          | Fixed   |
 | 2026-04-12 | —       | Full security audit (auth, network, output, fs)  | Passed  |
+| 2026-07-27 | —       | Documentation review against current code and CI | Passed  |
 
 ---
 
