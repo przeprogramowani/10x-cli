@@ -19,7 +19,11 @@ export const config = {
   topN: 15,
 
   // Noise for an architecture map: lockfiles, generated code, artifacts.
-  noise: ['bun.lock', 'package-lock.json', 'node_modules/', 'dist/', 'src/generated/'],
+  noise: ['bun.lock', 'package-lock.json', 'node_modules/', 'dist/',
+    // Generated context artifacts: a pure map-refresh commit must not make the
+    // next scan stale (the map can never include its own commit).
+    'context/map/',
+    'context/examples/', 'src/generated/'],
   noiseExt: ['.lock', '.png', '.jpg', '.svg', '.ico', '.map', '.snap'],
 
   // The modules that make up this repo. Single-package CLI: the interesting
