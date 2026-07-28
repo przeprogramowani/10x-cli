@@ -27,9 +27,8 @@ bun run build                                    # node-target bundle
 ```
 
 Pinned baseline for loops: oxlint currently 2 warnings / 0 errors (both are
-deliberate control-char sanitization — do not "fix" to pass); bun test has 8
-pre-existing failures that are OFF-LIMITS: never touch them from an automated
-loop, never let a change add to them.
+deliberate control-char sanitization — do not "fix" to pass); bun test is fully green (491 tests) since PR #12: any new failure is
+yours — fix or revert before finishing.
 
 ## Engineering loops (delegable work)
 

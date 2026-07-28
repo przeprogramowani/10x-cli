@@ -54,7 +54,10 @@ Structural coupling and cycles live in `artifact-2-structure.md` and `graph/`.
 
 ## 4. Risk zones — where to be careful
 
-_No high-risk zones flagged this run._
+| Zone | What | Why it matters (evidence) |
+| --- | --- | --- |
+| `src/commands` | Fan-out Ce=38 across 5 modules | Depends on many things; wide blast radius on change. (dependency-cruiser) |
+| `src/lib` | Fan-out Ce=17 across 19 modules | Depends on many things; wide blast radius on change. (dependency-cruiser) |
 
 ## 5. Who to ask
 
@@ -81,7 +84,7 @@ _No high-risk zones flagged this run._
 ## 7. Limitations — what this map does NOT say
 
 - It is a map of **activity and structure over the last 12 months**, not of correctness or quality.
-- dependency-cruiser not runnable — coupling metrics skipped this run.
+- Afferent coupling (Ca) from dependency-cruiser is unreliable without a fully installed toolchain (external/aliased imports go unresolved). Treat Ca as a lower bound.
 - Static import graph only. Runtime wiring (dynamic import, template refs, feature flags, codegen) is invisible here and is an `unknown`, not "no dependency".
 
 ---

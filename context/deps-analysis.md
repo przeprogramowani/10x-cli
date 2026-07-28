@@ -7,7 +7,7 @@ gate (typecheck + lint + bun test, 8 pinned fails unchanged).
 
 | Package | Current → Latest | Major? | Used by | Risk | Recommendation |
 |---|---|---|---|---|---|
-| `@types/bun` (dev) | 1.3.12 → 1.3.14 | patch | typecheck only | none | **safe to bump** in the next loop iteration with full gate |
+| `@types/bun` (dev) | ~~1.3.12 → 1.3.14~~ **DONE** (overnight loop #5, full gate green) | patch | typecheck only | none | bumped |
 | `@clack/prompts` (runtime) | 0.9.1 → 1.7.0 | **yes** (0.x→1.x) | `conflict-prompt.ts`, `auth-flow.ts`, `tool-prompt.ts`, `commands/auth.ts` — the interactive UX of auth + conflict flows (map risk zone: commands/lib co-change) | HIGH — 0.x→1.x API changes in the only runtime prompt lib; brownfield UX regressions won't be caught by unit mocks | human decision; if bumped, needs the e2e auth flow + manual smoke of conflict prompts |
 | `typescript` (dev) | 5.9.3 → 7.0.2 | **yes** ×2 majors | whole repo typecheck | HIGH — TS 6/7 strictness changes; gate is typecheck itself | human; consider stepping 5.9 → 6.x first |
 | `oxlint` (dev) | 0.16.12 → 1.76.0 | **yes** | lint gate | MED — new rules will shift the warning baseline (currently pinned at 2 deliberate) | human; pairs naturally with a lint-ratchet iteration that re-pins the baseline |
@@ -18,7 +18,7 @@ gate (typecheck + lint + bun test, 8 pinned fails unchanged).
 
 ## Summary for the morning
 
-- **1 safe bump queued:** `@types/bun` patch (loop can take it with the full gate).
+- **Safe bump executed:** `@types/bun` 1.3.14 (loop iteration #5, gate green).
 - **1 high-risk runtime major:** `@clack/prompts` — touches the auth/conflict UX
   paths; deserves its own change with e2e coverage, not a casual bump.
 - **The three `conventional-*` majors are one logical batch** (release pipeline);

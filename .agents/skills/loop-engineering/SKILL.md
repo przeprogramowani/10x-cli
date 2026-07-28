@@ -19,8 +19,8 @@ the implementation itself.
 
 1. **Pin the baseline first** — lint warnings/errors count and the exact failing-test
    set (`bun run lint`, `bun test`). The gate is differential: a loop may only reduce
-   lint / raise pass-count, never add a failure. Pre-existing failures are pinned and
-   untouchable from a safe loop.
+   lint / raise pass-count, never add a failure. Pre-existing failures (if any) are pinned and
+   untouchable from a safe loop; this repo's unit suite is currently fully green.
 2. **One change per iteration, one PR per iteration.**
 3. **A monotonic exit metric** (lint → 0, cycles ↓, risk coverage ↑). No metric, no loop.
 4. **Safe rules first** (autofix/mechanical/report-only) before judgment or behaviour

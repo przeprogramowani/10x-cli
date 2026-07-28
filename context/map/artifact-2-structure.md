@@ -20,9 +20,13 @@ _None detected this run._
 
 ## Highest fan-out folders (efferent coupling Ce — depends on many)
 
-_Metrics unavailable this run (see limitations)._
+| Folder | Ce (out) | Ca (in, lower bound) | Modules |
+| --- | --- | --- | --- |
+| `src/commands` | 38 | 5 | 5 |
+| `src` | 24 | 0 | 25 |
+| `src/lib` | 17 | 33 | 19 |
 
 ## Limitations
 
-- dependency-cruiser not runnable — coupling metrics skipped this run.
+- Afferent coupling (Ca) from dependency-cruiser is unreliable without a fully installed toolchain (external/aliased imports go unresolved). Treat Ca as a lower bound.
 - Static import graph only. Runtime wiring (dynamic import, template refs, feature flags, codegen) is invisible here and is an `unknown`, not "no dependency".
