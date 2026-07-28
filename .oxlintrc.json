@@ -4,6 +4,7 @@
     "no-unused-vars": "warn",
     "no-console": "off",
     "no-eval": "error",
+    "no-implied-eval": "error",
     "no-var": "error",
     "prefer-const": "error",
     "no-debugger": "error",
