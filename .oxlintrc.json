@@ -3,6 +3,7 @@
   "rules": {
     "no-unused-vars": "warn",
     "no-console": "off",
+    "no-debugger": "error",
     "eqeqeq": "error",
     "unicorn/number-literal-case": "error"
   },
