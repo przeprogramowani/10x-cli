@@ -116,7 +116,9 @@ export function outputError(
  * remaining C0 (U+0000–U+001F) or C1 (U+007F–U+009F) control characters —
  * this also takes out bare ESC, BEL, and OSC/DCS introducers.
  *
- * Exported for tests only. Production callers go through `outputError`.
+ * Exported for tests and for commands that print remote-controlled strings
+ * on the human path (e.g. `bench` printing model names from 10xbench.ai) —
+ * `output()`'s human branch does not sanitize on its own.
  */
 export function sanitize(s: string): string {
   return s
