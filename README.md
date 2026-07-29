@@ -49,6 +49,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 10x get m1l1    # Fetch and apply lesson artifacts
 10x sync        # Update everything you've downloaded; show what changed
 10x doctor      # Check everything is working
+10x bench       # Show the 10xBench top-10 model leaderboard
 ```
 
 ## Commands
@@ -60,6 +61,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 | `10x get <ref>` | Fetch a lesson and apply artifacts to your workspace |
 | `10x sync` | Bulk-download / refresh lessons and report what changed upstream |
 | `10x doctor` | Diagnose auth, API connectivity, and local config |
+| `10x bench` | Live top-10 AI model leaderboard from [10xbench.ai](https://10xbench.ai) — no login needed |
 
 ### `10x get` Flags
 
@@ -162,6 +164,21 @@ all. **Change visibility covers skills and prompts** — configs are create-only
 **Exit code is worst-outcome:** `0` when everything is clean/unchanged (a skipped
 conflict is reported, not a failure), `1` if any lesson failed to fetch. The full
 report is still emitted on a partial failure.
+
+### `10x bench`
+
+Shows the [10xBench](https://10xbench.ai) leaderboard — the top 10 AI models
+benchmarked on vibe-coding the Przeprogramowani.pl website — rendered as
+color-coded score bars in your terminal. Public data, works without logging in.
+
+```bash
+10x bench             # Top 10 models with scores, runs, and cost per run
+10x bench --limit 5   # Just the top 5
+10x bench --json      # Machine-readable (also auto-selected when piped)
+```
+
+The data refreshes whenever new benchmark results are published on 10xbench.ai.
+Colors honor `NO_COLOR` and are disabled automatically when output is piped.
 
 ### Global Flags
 

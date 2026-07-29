@@ -1,6 +1,6 @@
 ---
 name: 10x-cli-guide
-description: "Invoke this skill when the user asks how to USE the 10x-cli day-to-day — fetching lessons, listing modules, switching AI tools, troubleshooting errors, understanding where artifacts land, or working on a specific OS (Windows, Linux, macOS). Covers commands (get, list, doctor, auth --status/--logout), tool profiles, artifact locations, common errors, and platform-specific tips. Excludes: first-time installation and onboarding (use 10x-cli-setup instead), developing or contributing to 10x-cli source code, and general programming help."
+description: "Invoke this skill when the user asks how to USE the 10x-cli day-to-day — fetching lessons, listing modules, switching AI tools, troubleshooting errors, understanding where artifacts land, checking the 10xBench model leaderboard, or working on a specific OS (Windows, Linux, macOS). Covers commands (get, list, doctor, auth --status/--logout, bench), tool profiles, artifact locations, common errors, and platform-specific tips. Excludes: first-time installation and onboarding (use 10x-cli-setup instead), developing or contributing to 10x-cli source code, and general programming help."
 ---
 
 # 10x-cli Daily Usage Guide
@@ -116,6 +116,22 @@ Exit code 78 means at least one check failed.
 ```
 
 Sessions refresh transparently — if a token is near expiry, the next command refreshes it automatically. You only need to re-auth manually if the session has fully expired.
+
+### `10x bench` — 10xBench model leaderboard
+
+```bash
+10x bench             # Top 10 AI models with color-coded score bars
+10x bench --limit 5   # Just the top 5
+10x bench --json      # Machine-readable envelope (also when piped)
+```
+
+Shows the live leaderboard from [10xbench.ai](https://10xbench.ai) — AI models
+benchmarked on vibe-coding the Przeprogramowani.pl website. Each row has the
+average score, number of runs, cost per run where measured, and the agent
+harness used. **No authentication needed** — this works before `10x auth`.
+Data updates when new benchmark results are published; superseded model
+versions are already filtered out upstream. If it reports the leaderboard as
+unavailable, the site may be mid-deploy — retry in a few minutes.
 
 ---
 
