@@ -24,6 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CAC } from "cac";
+import { requireExperimental } from "../lib/experimental";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -70,12 +71,16 @@ export interface BenchKitDeps {
 // action argument.
 export function registerBenchKitCommand(cli: CAC): void {
   cli
-    .command("bench-kit <action> [dir]", "Manage a benchmark instance (actions: init, update)")
+    .command(
+      "bench-kit <action> [dir]",
+      "Manage a benchmark instance (actions: init, update; experimental)",
+    )
     .option("--template-version <tag>", "Template tag to install (default: latest)")
     .option("--yes", "Run non-interactively, accepting defaults")
     .example("10x bench-kit init my-benchmark")
     .example("10x bench-kit init my-benchmark --template-version v0.1.0")
     .action(async (action: string, dir: string | undefined, options: BenchKitFlags) => {
+      requireExperimental(`bench-kit ${action}`, options);
       const ctx = resolveContext(options);
       if (action === "init") {
         await runBenchKitInit(ctx, dir, options);

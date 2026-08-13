@@ -6,7 +6,7 @@
  * All filesystem work happens in per-test temp directories.
  */
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import {
   registerBenchKitCommand,
   runBenchKitInit,
 } from "../src/commands/bench-kit";
+import { EXPERIMENTAL_ENV, experimentalEnabled } from "../src/lib/experimental";
 import type { OutputContext } from "../src/lib/output";
 
 interface CaptureResult {
@@ -246,17 +247,59 @@ describe("10x bench-kit init", () => {
   });
 });
 
+async function runCli(argv: string[]): Promise<CaptureResult> {
+  return captureStreams(async () => {
+    const cli = cac("10x");
+    cli.option("--json", "Output as JSON (auto-detected when piped)");
+    cli.option("--verbose", "Show detailed output on stderr");
+    registerBenchKitCommand(cli);
+    cli.parse(["bun", "10x", ...argv], { run: false });
+    await cli.runMatchedCommand();
+  });
+}
+
+describe("experimental gate", () => {
+  const savedEnv = process.env[EXPERIMENTAL_ENV];
+
+  afterEach(() => {
+    if (savedEnv === undefined) {
+      delete process.env[EXPERIMENTAL_ENV];
+    } else {
+      process.env[EXPERIMENTAL_ENV] = savedEnv;
+    }
+  });
+
+  it("is off by default and accepts 1 / true", () => {
+    expect(experimentalEnabled({})).toBe(false);
+    expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "0" })).toBe(false);
+    expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "1" })).toBe(true);
+    expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "true" })).toBe(true);
+  });
+
+  it("locks bench-kit actions before any side effects", async () => {
+    delete process.env[EXPERIMENTAL_ENV];
+    const result = await runCli(["bench-kit", "init", "some-dir", "--json"]);
+    expect(result.exitCode).toBe(4);
+    const envelope = parseEnvelope(result.stdout);
+    expect(envelope.error.code).toBe("experimental_locked");
+    expect(envelope.error.hint).toContain(EXPERIMENTAL_ENV);
+  });
+});
+
 describe("10x bench-kit dispatch", () => {
-  async function runCli(argv: string[]): Promise<CaptureResult> {
-    return captureStreams(async () => {
-      const cli = cac("10x");
-      cli.option("--json", "Output as JSON (auto-detected when piped)");
-      cli.option("--verbose", "Show detailed output on stderr");
-      registerBenchKitCommand(cli);
-      cli.parse(["bun", "10x", ...argv], { run: false });
-      await cli.runMatchedCommand();
-    });
-  }
+  const savedEnv = process.env[EXPERIMENTAL_ENV];
+
+  beforeEach(() => {
+    process.env[EXPERIMENTAL_ENV] = "1";
+  });
+
+  afterEach(() => {
+    if (savedEnv === undefined) {
+      delete process.env[EXPERIMENTAL_ENV];
+    } else {
+      process.env[EXPERIMENTAL_ENV] = savedEnv;
+    }
+  });
 
   it("routes 'update' to the not_implemented stub", async () => {
     const result = await runCli(["bench-kit", "update", "--json"]);
