@@ -3,6 +3,7 @@ import cac from "cac";
 import packageJson from "../package.json" with { type: "json" };
 import { registerAuthCommand } from "./commands/auth";
 import { registerBenchCommand } from "./commands/bench";
+import { registerBenchKitCommand } from "./commands/bench-kit";
 import { registerDoctorCommand } from "./commands/doctor";
 import { registerGetCommand } from "./commands/get";
 import { registerListCommand } from "./commands/list";
@@ -19,6 +20,7 @@ registerListCommand(cli);
 registerSyncCommand(cli);
 registerDoctorCommand(cli);
 registerBenchCommand(cli);
+registerBenchKitCommand(cli);
 
 cli.help();
 cli.version(packageJson.version);
