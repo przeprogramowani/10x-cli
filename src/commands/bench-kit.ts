@@ -22,8 +22,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { CAC } from "cac";
+import { parseDocument } from "yaml";
 import { experimentalEnabled, requireExperimental } from "../lib/experimental";
 import {
   ExitCodes,
@@ -38,12 +39,28 @@ import {
 
 export const TEMPLATE_REPO_URL = "https://github.com/przeprogramowani/10x-bench-kit";
 
+/** The template's placeholder base-repo entry that init may replace. */
+export const PLACEHOLDER_BASE_REPO = "demo-app";
+
+/** A git repo detected around the directory init was invoked from. */
+export interface DetectedBaseRepo {
+  /** Repo root directory (used to avoid registering the instance itself). */
+  rootDir: string;
+  /** Base-repo name for bench.config.yaml (basename of the repo root). */
+  name: string;
+  /** The `origin` remote URL. */
+  url: string;
+  /** Current HEAD — a candidate pin for the first task. */
+  headCommit: string;
+}
+
 /** Instance manifest written next to the template's VERSION file. */
 export interface InstanceManifest {
   templateVersion: string;
   templateRef: string;
   templateSource: string;
   initializedAt: string;
+  detectedBaseRepo?: DetectedBaseRepo;
 }
 
 interface BenchKitFlags extends GlobalFlags {
@@ -63,6 +80,8 @@ export interface BenchKitDeps {
   cloneTemplate(ref: string | null, destDir: string): Promise<{ ok: boolean; error: string }>;
   /** Runs git with `args` inside `cwd` (fresh `git init` + first commit). */
   runGit(args: string[], cwd: string): Promise<{ ok: boolean; error: string }>;
+  /** Detects the git repo containing `cwd` (null when absent or origin-less). */
+  detectBaseRepo(cwd: string): Promise<DetectedBaseRepo | null>;
   now(): Date;
 }
 
@@ -158,11 +177,25 @@ export async function runBenchKitInit(
     mkdirSync(targetDir, { recursive: true });
     const copied = materialize(scratch, targetDir, { skipExisting: repair });
 
+    // Running init from inside a product repo is the common flow — register
+    // that repo as the first base repo instead of leaving the placeholder.
+    let baseRepo: DetectedBaseRepo | null = null;
+    if (!repair) {
+      const detected = await deps.detectBaseRepo(process.cwd());
+      if (detected !== null && resolve(detected.rootDir) !== targetDir) {
+        if (registerBaseRepo(join(targetDir, "bench.config.yaml"), detected)) {
+          baseRepo = detected;
+          verbose(ctx, `registered base repo ${detected.name} (${detected.url})`);
+        }
+      }
+    }
+
     const manifest: InstanceManifest = {
       templateVersion,
       templateRef: requestedRef ?? "latest",
       templateSource: TEMPLATE_REPO_URL,
       initializedAt: deps.now().toISOString(),
+      ...(baseRepo === null ? {} : { detectedBaseRepo: baseRepo }),
     };
     writeFileSync(
       join(targetDir, ".bench-kit", "instance.json"),
@@ -181,6 +214,9 @@ export async function runBenchKitInit(
         ]
       : [
           `Created a benchmark instance in '${targetDir}' from template ${templateVersion}.`,
+          baseRepo === null
+            ? "No product repo detected here — add your base repos to bench.config.yaml."
+            : `Registered '${baseRepo.name}' (${baseRepo.url}) as the first base repo in bench.config.yaml.`,
           committed
             ? "Initialized a fresh git repository with an initial commit."
             : "Initialized a fresh git repository (initial commit skipped — commit the files yourself).",
@@ -192,6 +228,7 @@ export async function runBenchKitInit(
       templateVersion,
       templateRef: manifest.templateRef,
       filesCopied: copied,
+      baseRepo,
       gitInitialized: !repair,
       committed,
     });
@@ -286,6 +323,31 @@ function materialize(
   return copied;
 }
 
+/**
+ * Replaces the template's placeholder base-repo entry with the detected
+ * repo, editing bench.config.yaml in place (comments preserved via yaml
+ * document editing). Returns false when the config has no placeholder to
+ * replace — company content is never overwritten on a guess.
+ */
+export function registerBaseRepo(configPath: string, repo: DetectedBaseRepo): boolean {
+  if (!existsSync(configPath)) return false;
+  const doc = parseDocument(readFileSync(configPath, "utf8"));
+  const firstName = doc.getIn(["base_repos", 0, "name"]);
+  if (firstName !== PLACEHOLDER_BASE_REPO) return false;
+  doc.setIn(["base_repos", 0, "name"], repo.name);
+  doc.setIn(["base_repos", 0, "url"], repo.url);
+  // The entry is real now — drop the template's per-field placeholder
+  // comments (file-level comments stay).
+  const entry = doc.getIn(["base_repos", 0], true);
+  if (entry && typeof entry === "object" && "items" in entry) {
+    for (const pair of (entry as { items: { key?: { commentBefore?: string | null } }[] }).items) {
+      if (pair.key) pair.key.commentBefore = null;
+    }
+  }
+  writeFileSync(configPath, doc.toString());
+  return true;
+}
+
 /** Fresh `git init` + first commit. A failed commit degrades to a warning. */
 async function freshGitInit(
   ctx: OutputContext,
@@ -321,16 +383,32 @@ async function freshGitInit(
 // Default (real) side effects
 // ---------------------------------------------------------------------------
 
-function run(cmd: string, args: string[], cwd?: string): Promise<{ ok: boolean; error: string }> {
+function run(
+  cmd: string,
+  args: string[],
+  cwd?: string,
+): Promise<{ ok: boolean; stdout: string; error: string }> {
   return new Promise((resolvePromise) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
     let stderr = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on("error", (err) => resolvePromise({ ok: false, error: err.message }));
-    child.on("close", (code) => resolvePromise({ ok: code === 0, error: stderr }));
+    child.on("error", (err) => resolvePromise({ ok: false, stdout, error: err.message }));
+    child.on("close", (code) => resolvePromise({ ok: code === 0, stdout, error: stderr }));
   });
+}
+
+/** `git -C <cwd> …` returning trimmed stdout, or null on failure. */
+async function gitQuery(cwd: string, args: string[]): Promise<string | null> {
+  const result = await run("git", ["-C", cwd, ...args]);
+  if (!result.ok) return null;
+  const value = result.stdout.trim();
+  return value === "" ? null : value;
 }
 
 const defaultDeps: BenchKitDeps = {
@@ -346,6 +424,15 @@ const defaultDeps: BenchKitDeps = {
   },
   runGit(args, cwd) {
     return run("git", args, cwd);
+  },
+  async detectBaseRepo(cwd) {
+    const rootDir = await gitQuery(cwd, ["rev-parse", "--show-toplevel"]);
+    if (rootDir === null) return null;
+    const url = await gitQuery(cwd, ["remote", "get-url", "origin"]);
+    if (url === null) return null;
+    const headCommit = await gitQuery(cwd, ["rev-parse", "HEAD"]);
+    if (headCommit === null) return null;
+    return { rootDir, name: basename(rootDir), url, headCommit };
   },
   now: () => new Date(),
 };
