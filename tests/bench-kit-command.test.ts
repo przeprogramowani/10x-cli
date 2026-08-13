@@ -93,7 +93,19 @@ function buildTemplateFixture(version = "0.1.0"): string {
   writeFileSync(join(dir, ".bench-kit", "VERSION"), `${version}\n`);
   mkdirSync(join(dir, "tasks", "demo"), { recursive: true });
   writeFileSync(join(dir, "tasks", "demo", "prompt.md"), "demo prompt\n");
-  writeFileSync(join(dir, "bench.config.yaml"), "base_repos: []\n");
+  writeFileSync(
+    join(dir, "bench.config.yaml"),
+    [
+      "# Konfiguracja instancji benchmarku.",
+      "base_repos:",
+      "  - name: demo-app",
+      "    # (placeholder)",
+      "    url: git@github.com:example-org/demo-app.git",
+      "judge:",
+      "  model: anthropic/claude-fable-5",
+      "",
+    ].join("\n"),
+  );
   return dir;
 }
 
@@ -114,6 +126,7 @@ function fakeDeps(templateDir: string, overrides: Partial<BenchKitDeps> = {}): F
       gitCalls.push(args);
       return Promise.resolve({ ok: true, error: "" });
     },
+    detectBaseRepo: () => Promise.resolve(null),
     now: () => new Date("2026-08-13T12:00:00.000Z"),
     ...overrides,
   };
@@ -152,6 +165,63 @@ describe("10x bench-kit init", () => {
     expect(envelope.status).toBe("ok");
     expect(envelope.data.mode).toBe("init");
     expect(envelope.data.committed).toBe(true);
+  });
+
+  it("registers the surrounding product repo as the first base repo", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const detected = {
+      rootDir: "/somewhere/shop-app",
+      name: "shop-app",
+      url: "git@github.com:acme/shop-app.git",
+      headCommit: "a".repeat(40),
+    };
+    const { deps } = fakeDeps(template, {
+      detectBaseRepo: () => Promise.resolve(detected),
+    });
+
+    const result = await captureStreams(() =>
+      runBenchKitInit(JSON_CTX, target, {}, deps),
+    );
+
+    expect(result.exitCode).toBeUndefined();
+    const config = readFileSync(join(target, "bench.config.yaml"), "utf8");
+    expect(config).toContain("name: shop-app");
+    expect(config).toContain("url: git@github.com:acme/shop-app.git");
+    expect(config).not.toContain("demo-app");
+    // Comments survive the in-place edit.
+    expect(config).toContain("# Konfiguracja instancji benchmarku.");
+
+    const manifest = JSON.parse(readFileSync(join(target, ".bench-kit", "instance.json"), "utf8"));
+    expect(manifest.detectedBaseRepo.name).toBe("shop-app");
+    expect(manifest.detectedBaseRepo.headCommit).toBe("a".repeat(40));
+
+    const envelope = parseEnvelope(result.stdout);
+    expect(envelope.data.baseRepo.name).toBe("shop-app");
+  });
+
+  it("keeps the placeholder when init runs inside the instance itself", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const { deps } = fakeDeps(template, {
+      detectBaseRepo: () =>
+        Promise.resolve({
+          rootDir: target,
+          name: "instance",
+          url: "git@github.com:acme/instance.git",
+          headCommit: "b".repeat(40),
+        }),
+    });
+
+    const result = await captureStreams(() =>
+      runBenchKitInit(JSON_CTX, target, {}, deps),
+    );
+
+    expect(result.exitCode).toBeUndefined();
+    const config = readFileSync(join(target, "bench.config.yaml"), "utf8");
+    expect(config).toContain("name: demo-app");
+    const envelope = parseEnvelope(result.stdout);
+    expect(envelope.data.baseRepo).toBeNull();
   });
 
   it("refuses a non-empty directory that is not an instance", async () => {
