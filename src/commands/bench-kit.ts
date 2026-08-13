@@ -24,7 +24,6 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { CAC } from "cac";
-import { parseDocument } from "yaml";
 import { experimentalEnabled, requireExperimental } from "../lib/experimental";
 import {
   ExitCodes,
@@ -183,7 +182,7 @@ export async function runBenchKitInit(
     if (!repair) {
       const detected = await deps.detectBaseRepo(process.cwd());
       if (detected !== null && resolve(detected.rootDir) !== targetDir) {
-        if (registerBaseRepo(join(targetDir, "bench.config.yaml"), detected)) {
+        if (await registerBaseRepo(join(targetDir, "bench.config.yaml"), detected)) {
           baseRepo = detected;
           verbose(ctx, `registered base repo ${detected.name} (${detected.url})`);
         }
@@ -329,8 +328,14 @@ function materialize(
  * document editing). Returns false when the config has no placeholder to
  * replace — company content is never overwritten on a guess.
  */
-export function registerBaseRepo(configPath: string, repo: DetectedBaseRepo): boolean {
+export async function registerBaseRepo(
+  configPath: string,
+  repo: DetectedBaseRepo,
+): Promise<boolean> {
   if (!existsSync(configPath)) return false;
+  // Lazy import: yaml is needed only on this path, and a top-level import
+  // would tax every CLI start (the binary smoke test budgets startup).
+  const { parseDocument } = await import("yaml");
   const doc = parseDocument(readFileSync(configPath, "utf8"));
   const firstName = doc.getIn(["base_repos", 0, "name"]);
   if (firstName !== PLACEHOLDER_BASE_REPO) return false;
