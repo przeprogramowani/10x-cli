@@ -91,6 +91,8 @@ function buildTemplateFixture(version = "0.1.0"): string {
   writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/main\n");
   mkdirSync(join(dir, ".bench-kit"), { recursive: true });
   writeFileSync(join(dir, ".bench-kit", "VERSION"), `${version}\n`);
+  mkdirSync(join(dir, ".bench-kit", "workflows"), { recursive: true });
+  writeFileSync(join(dir, ".bench-kit", "workflows", "bench-run.yaml"), "name: bench-run\n");
   mkdirSync(join(dir, "tasks", "demo"), { recursive: true });
   writeFileSync(join(dir, "tasks", "demo", "prompt.md"), "demo prompt\n");
   writeFileSync(
@@ -151,6 +153,10 @@ describe("10x bench-kit init", () => {
     expect(existsSync(join(target, ".bench-kit", "VERSION"))).toBe(true);
     expect(existsSync(join(target, "tasks", "demo", "prompt.md"))).toBe(true);
     expect(existsSync(join(target, ".git", "HEAD"))).toBe(false);
+    // GitHub only runs workflows from .github/workflows/ — init installs them there.
+    expect(readFileSync(join(target, ".github", "workflows", "bench-run.yaml"), "utf8")).toBe(
+      "name: bench-run\n",
+    );
 
     const manifest = JSON.parse(readFileSync(join(target, ".bench-kit", "instance.json"), "utf8"));
     expect(manifest.templateVersion).toBe("0.1.0");
@@ -248,6 +254,9 @@ describe("10x bench-kit init", () => {
     mkdirSync(join(target, ".bench-kit"), { recursive: true });
     writeFileSync(join(target, ".bench-kit", "VERSION"), "0.1.0\n");
     writeFileSync(join(target, "bench.config.yaml"), "base_repos: [edited by company]\n");
+    // Workflow customized by the company (e.g. triggers/secrets) — repair keeps it.
+    mkdirSync(join(target, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(target, ".github", "workflows", "bench-run.yaml"), "name: customized\n");
     const { deps, gitCalls } = fakeDeps(template);
 
     const result = await captureStreams(() =>
@@ -259,6 +268,9 @@ describe("10x bench-kit init", () => {
     expect(existsSync(join(target, "tasks", "demo", "prompt.md"))).toBe(true);
     // …company content untouched…
     expect(readFileSync(join(target, "bench.config.yaml"), "utf8")).toContain("edited by company");
+    expect(readFileSync(join(target, ".github", "workflows", "bench-run.yaml"), "utf8")).toBe(
+      "name: customized\n",
+    );
     // …and no fresh git init in repair mode.
     expect(gitCalls.length).toBe(0);
 
