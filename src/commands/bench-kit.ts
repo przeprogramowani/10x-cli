@@ -24,7 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CAC } from "cac";
-import { requireExperimental } from "../lib/experimental";
+import { experimentalEnabled, requireExperimental } from "../lib/experimental";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -70,6 +70,10 @@ export interface BenchKitDeps {
 // bench-kit follows the `auth` precedent: one command dispatching on an
 // action argument.
 export function registerBenchKitCommand(cli: CAC): void {
+  // Experimental commands are all-or-nothing: without the opt-in the
+  // command is not registered at all — absent from help and behaving like
+  // any unknown command — instead of showing up half-locked.
+  if (!experimentalEnabled()) return;
   cli
     .command(
       "bench-kit <action> [dir]",

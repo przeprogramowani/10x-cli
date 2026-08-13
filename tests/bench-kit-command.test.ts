@@ -276,13 +276,23 @@ describe("experimental gate", () => {
     expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "true" })).toBe(true);
   });
 
-  it("locks bench-kit actions before any side effects", async () => {
+  it("keeps bench-kit fully hidden without the opt-in", async () => {
     delete process.env[EXPERIMENTAL_ENV];
+    const cli = cac("10x");
+    registerBenchKitCommand(cli);
+    expect(cli.commands.map((c) => c.name)).not.toContain("bench-kit");
+
+    // Invoking it behaves like any unknown command: no output, no error.
     const result = await runCli(["bench-kit", "init", "some-dir", "--json"]);
-    expect(result.exitCode).toBe(4);
-    const envelope = parseEnvelope(result.stdout);
-    expect(envelope.error.code).toBe("experimental_locked");
-    expect(envelope.error.hint).toContain(EXPERIMENTAL_ENV);
+    expect(result.exitCode).toBeUndefined();
+    expect(result.stdout).toBe("");
+  });
+
+  it("registers bench-kit when the opt-in is set", () => {
+    process.env[EXPERIMENTAL_ENV] = "1";
+    const cli = cac("10x");
+    registerBenchKitCommand(cli);
+    expect(cli.commands.map((c) => c.name)).toContain("bench-kit");
   });
 });
 
