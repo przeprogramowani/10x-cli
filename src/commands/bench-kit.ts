@@ -175,6 +175,7 @@ export async function runBenchKitInit(
     const templateVersion = readTemplateVersion(ctx, scratch);
     mkdirSync(targetDir, { recursive: true });
     const copied = materialize(scratch, targetDir, { skipExisting: repair });
+    installWorkflows(targetDir, { skipExisting: repair });
 
     // Running init from inside a product repo is the common flow — register
     // that repo as the first base repo instead of leaving the placeholder.
@@ -289,6 +290,27 @@ function readTemplateVersion(ctx: OutputContext, cloneDir: string): string {
     );
   }
   return readFileSync(versionFile, "utf8").trim();
+}
+
+/**
+ * GitHub only runs workflows from .github/workflows/, so the template's
+ * .bench-kit/workflows/ files are copied there. In repair mode existing
+ * files are kept — the company may have customized triggers or secrets.
+ */
+function installWorkflows(
+  targetDir: string,
+  opts: { skipExisting: boolean },
+): void {
+  const srcDir = join(targetDir, ".bench-kit", "workflows");
+  if (!existsSync(srcDir)) return;
+  const destDir = join(targetDir, ".github", "workflows");
+  mkdirSync(destDir, { recursive: true });
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const to = join(destDir, entry.name);
+    if (opts.skipExisting && existsSync(to)) continue;
+    cpSync(join(srcDir, entry.name), to);
+  }
 }
 
 /**
