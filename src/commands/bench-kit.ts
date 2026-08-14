@@ -8,10 +8,10 @@
  * the instance — never here.
  *
  * `bench-kit update` upgrades the template zone-by-zone: `.bench-kit/` is
- * replaced wholesale, workflows and skills are synced into the working
- * tree as an uncommitted *proposal* (the company reviews `git diff` and
- * decides), company content (`tasks/`, `evaluation-pool/`,
- * `bench.config.yaml`) is never touched.
+ * replaced wholesale; workflows, skills and shared root files (AGENTS.md)
+ * are synced into the working tree as an uncommitted *proposal* (the
+ * company reviews `git diff` and decides); company content (`tasks/`,
+ * `evaluation-pool/`, `bench.config.yaml`) is never touched.
  */
 
 import { spawn } from "node:child_process";
@@ -44,6 +44,13 @@ import { type DetectionSignal, detectTools } from "../lib/tool-detect";
 import { DEFAULT_TOOL, PROFILES } from "../lib/tool-profile";
 
 export const TEMPLATE_REPO_URL = "https://github.com/przeprogramowani/10x-bench-kit";
+
+/**
+ * Root-level template files that belong to the shared zone (like skills):
+ * update syncs them into the working tree as a reviewable proposal.
+ * `init` needs no special-casing — materialize copies the template root.
+ */
+export const SHARED_ROOT_FILES = ["AGENTS.md"];
 
 /** The template's placeholder base-repo entry that init may replace. */
 export const PLACEHOLDER_BASE_REPO = "demo-app";
@@ -400,6 +407,12 @@ export async function runBenchKitUpdate(
       overwrite: true,
     });
 
+    // Shared root files (AGENTS.md) — same proposal semantics as skills.
+    const shared: SyncCounts = { added: 0, updated: 0, unchanged: 0 };
+    for (const file of SHARED_ROOT_FILES) {
+      addSync(shared, syncFile(join(scratch, file), join(targetDir, file)));
+    }
+
     output(
       ctx,
       [
@@ -407,6 +420,7 @@ export async function runBenchKitUpdate(
         "  .bench-kit/            replaced wholesale (runtime zone)",
         `  .github/workflows/     ${describeSync(workflows)}`,
         `  ${`${skillRootFor(toolId)}/`.padEnd(23)}${describeSync(skills)} — proposal, review before committing`,
+        `  ${SHARED_ROOT_FILES.join(", ").padEnd(23)}${describeSync(shared)} — proposal, review before committing`,
         "  tasks/, evaluation-pool/, bench.config.yaml untouched (company zone)",
         "Next: review 'git diff', run 'bench validate' (it flags any schema changes to fix), then commit via PR.",
       ].join("\n"),
@@ -419,7 +433,7 @@ export async function runBenchKitUpdate(
         templateRef: updatedManifest.templateRef,
         tool: toolId,
         skillRoot: skillRootFor(toolId),
-        zones: { benchKit: "replaced", workflows, skills },
+        zones: { benchKit: "replaced", workflows, skills, shared },
       },
     );
   } finally {
@@ -619,6 +633,28 @@ function syncDir(
 
 function describeSync(counts: SyncCounts): string {
   return `${counts.added} added, ${counts.updated} updated, ${counts.unchanged} unchanged`;
+}
+
+/** Syncs a single file with the same add/overwrite semantics as syncDir. */
+function syncFile(from: string, to: string): SyncCounts {
+  const counts: SyncCounts = { added: 0, updated: 0, unchanged: 0 };
+  if (!existsSync(from)) return counts;
+  if (!existsSync(to)) {
+    cpSync(from, to);
+    counts.added++;
+  } else if (readFileSync(from).equals(readFileSync(to))) {
+    counts.unchanged++;
+  } else {
+    cpSync(from, to);
+    counts.updated++;
+  }
+  return counts;
+}
+
+function addSync(into: SyncCounts, counts: SyncCounts): void {
+  into.added += counts.added;
+  into.updated += counts.updated;
+  into.unchanged += counts.unchanged;
 }
 
 /**

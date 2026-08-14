@@ -101,6 +101,7 @@ function buildTemplateFixture(version = "0.1.0"): string {
   );
   mkdirSync(join(dir, "tasks", "demo"), { recursive: true });
   writeFileSync(join(dir, "tasks", "demo", "prompt.md"), "demo prompt\n");
+  writeFileSync(join(dir, "AGENTS.md"), `# agents (${version})\n`);
   writeFileSync(
     join(dir, "bench.config.yaml"),
     [
@@ -486,6 +487,8 @@ describe("10x bench-kit update", () => {
     );
     // Company zone untouched.
     expect(readFileSync(join(target, "bench.config.yaml"), "utf8")).toContain("edited by company");
+    // Shared root files (AGENTS.md) synced like skills — a reviewable proposal.
+    expect(readFileSync(join(target, "AGENTS.md"), "utf8")).toBe("# agents (0.2.0)\n");
 
     // Manifest survives the wholesale replacement, version-bumped.
     const manifest = JSON.parse(readFileSync(join(target, ".bench-kit", "instance.json"), "utf8"));
@@ -500,6 +503,7 @@ describe("10x bench-kit update", () => {
     expect(envelope.data.templateVersion).toBe("0.2.0");
     expect(envelope.data.zones.benchKit).toBe("replaced");
     expect(envelope.data.zones.skills.updated).toBe(1);
+    expect(envelope.data.zones.shared.updated).toBe(1);
   });
 
   it("is a no-op when the instance is already on the template version", async () => {
