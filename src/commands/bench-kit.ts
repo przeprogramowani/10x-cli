@@ -7,7 +7,11 @@
  * tasks, stack-specific images) happens later, via agent skills inside
  * the instance — never here.
  *
- * `bench-kit update` (zone-aware template upgrade) lands in a later phase.
+ * `bench-kit update` upgrades the template zone-by-zone: `.bench-kit/` is
+ * replaced wholesale, workflows and skills are synced into the working
+ * tree as an uncommitted *proposal* (the company reviews `git diff` and
+ * decides), company content (`tasks/`, `evaluation-pool/`,
+ * `bench.config.yaml`) is never touched.
  */
 
 import { spawn } from "node:child_process";
@@ -18,23 +22,26 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
+  rmdirSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import type { CAC } from "cac";
 import { experimentalEnabled, requireExperimental } from "../lib/experimental";
 import {
   ExitCodes,
   type GlobalFlags,
   type OutputContext,
-  exitNotImplemented,
   output,
   outputError,
   resolveContext,
   verbose,
 } from "../lib/output";
+import { type DetectionSignal, detectTools } from "../lib/tool-detect";
+import { DEFAULT_TOOL, PROFILES } from "../lib/tool-profile";
 
 export const TEMPLATE_REPO_URL = "https://github.com/przeprogramowani/10x-bench-kit";
 
@@ -59,12 +66,23 @@ export interface InstanceManifest {
   templateRef: string;
   templateSource: string;
   initializedAt: string;
+  /** Agent tool profile id (claude-code, cursor, …) — decides where skills live. */
+  tool?: string;
+  updatedAt?: string;
   detectedBaseRepo?: DetectedBaseRepo;
 }
 
 interface BenchKitFlags extends GlobalFlags {
   templateVersion?: string;
+  tool?: string;
   yes?: boolean;
+}
+
+/** Per-file outcome counts of a directory sync. */
+export interface SyncCounts {
+  added: number;
+  updated: number;
+  unchanged: number;
 }
 
 /**
@@ -77,10 +95,14 @@ export interface BenchKitDeps {
   toolAvailable(cmd: string): Promise<boolean>;
   /** Clones the template at `ref` (null = default branch) into `destDir`. */
   cloneTemplate(ref: string | null, destDir: string): Promise<{ ok: boolean; error: string }>;
-  /** Runs git with `args` inside `cwd` (fresh `git init` + first commit). */
-  runGit(args: string[], cwd: string): Promise<{ ok: boolean; error: string }>;
+  /** Runs git with `args` inside `cwd` (init/commit/status). */
+  runGit(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string; error: string }>;
   /** Detects the git repo containing `cwd` (null when absent or origin-less). */
   detectBaseRepo(cwd: string): Promise<DetectedBaseRepo | null>;
+  /** Scans `cwd` for agent-tool markers (ranked, strongest first). */
+  detectToolSignals(cwd: string): DetectionSignal[];
+  /** Interactive tool picker; resolves the chosen id, or null on cancel. */
+  chooseTool(initial: string, detectedReason: string | null): Promise<string | null>;
   now(): Date;
 }
 
@@ -98,9 +120,11 @@ export function registerBenchKitCommand(cli: CAC): void {
       "Manage a benchmark instance (actions: init, update; experimental)",
     )
     .option("--template-version <tag>", "Template tag to install (default: latest)")
+    .option("--tool <id>", `Agent tool for skill placement (${Object.keys(PROFILES).join(", ")})`)
     .option("--yes", "Run non-interactively, accepting defaults")
     .example("10x bench-kit init my-benchmark")
     .example("10x bench-kit init my-benchmark --template-version v0.1.0")
+    .example("10x bench-kit update")
     .action(async (action: string, dir: string | undefined, options: BenchKitFlags) => {
       requireExperimental(`bench-kit ${action}`, options);
       const ctx = resolveContext(options);
@@ -109,7 +133,8 @@ export function registerBenchKitCommand(cli: CAC): void {
         return;
       }
       if (action === "update") {
-        exitNotImplemented("bench-kit update", "a later bench-kit phase", options);
+        await runBenchKitUpdate(ctx, dir, options);
+        return;
       }
       outputError(
         ctx,
@@ -154,6 +179,9 @@ export async function runBenchKitInit(
     );
   }
 
+  const existingManifest = repair ? readManifest(targetDir) : null;
+  const toolId = await resolveInstanceTool(ctx, options, deps, existingManifest);
+
   // Materialize the template into a scratch clone first, so a failed
   // download can never leave a half-written instance behind.
   const scratch = mkdtempSync(join(tmpdir(), "bench-kit-"));
@@ -174,7 +202,20 @@ export async function runBenchKitInit(
 
     const templateVersion = readTemplateVersion(ctx, scratch);
     mkdirSync(targetDir, { recursive: true });
-    const copied = materialize(scratch, targetDir, { skipExisting: repair });
+    const skillSource = templateSkillSource(scratch);
+    // Skills are placed per tool profile, so materialize skips them here.
+    const copied = materialize(scratch, targetDir, {
+      skipExisting: repair,
+      skip: (rel) => {
+        const posix = rel.split(sep).join("/");
+        return posix === skillSource || posix.startsWith(`${skillSource}/`);
+      },
+    });
+    const skills = syncDir(
+      join(scratch, skillSource),
+      join(targetDir, skillRootFor(toolId)),
+      { overwrite: !repair },
+    );
     installWorkflows(targetDir, { skipExisting: repair });
 
     // Running init from inside a product repo is the common flow — register
@@ -194,26 +235,31 @@ export async function runBenchKitInit(
       templateVersion,
       templateRef: requestedRef ?? "latest",
       templateSource: TEMPLATE_REPO_URL,
-      initializedAt: deps.now().toISOString(),
-      ...(baseRepo === null ? {} : { detectedBaseRepo: baseRepo }),
+      initializedAt: existingManifest?.initializedAt ?? deps.now().toISOString(),
+      tool: toolId,
+      ...(existingManifest?.updatedAt === undefined ? {} : { updatedAt: existingManifest.updatedAt }),
+      ...(baseRepo !== null
+        ? { detectedBaseRepo: baseRepo }
+        : existingManifest?.detectedBaseRepo !== undefined
+          ? { detectedBaseRepo: existingManifest.detectedBaseRepo }
+          : {}),
     };
-    writeFileSync(
-      join(targetDir, ".bench-kit", "instance.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    writeManifest(targetDir, manifest);
 
     let committed = false;
     if (!repair) {
       committed = await freshGitInit(ctx, deps, targetDir, templateVersion);
     }
 
+    const toolName = PROFILES[toolId]?.displayName ?? toolId;
     const humanLines = repair
       ? [
           `Repaired the benchmark instance in '${targetDir}' (template ${templateVersion}).`,
-          `Restored ${copied} missing file${copied === 1 ? "" : "s"}; your tasks, evaluation pool and config were not touched.`,
+          `Restored ${copied + skills.added} missing file${copied + skills.added === 1 ? "" : "s"}; your tasks, evaluation pool and config were not touched.`,
         ]
       : [
           `Created a benchmark instance in '${targetDir}' from template ${templateVersion}.`,
+          `Agent skills installed for ${toolName} under ${skillRootFor(toolId)}/.`,
           baseRepo === null
             ? "No product repo detected here — add your base repos to bench.config.yaml."
             : `Registered '${baseRepo.name}' (${baseRepo.url}) as the first base repo in bench.config.yaml.`,
@@ -227,7 +273,9 @@ export async function runBenchKitInit(
       mode: repair ? "repair" : "init",
       templateVersion,
       templateRef: manifest.templateRef,
-      filesCopied: copied,
+      tool: toolId,
+      skillRoot: skillRootFor(toolId),
+      filesCopied: copied + skills.added,
       baseRepo,
       gitInitialized: !repair,
       committed,
@@ -235,6 +283,209 @@ export async function runBenchKitInit(
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/**
+ * Zone-aware template upgrade. `.bench-kit/` is replaced wholesale (the
+ * manifest survives, version-bumped); workflows and skills are synced into
+ * the working tree as an uncommitted proposal — hence the clean-worktree
+ * gate, so `git diff` afterwards shows exactly what the update changed.
+ * Company zones (`tasks/`, `evaluation-pool/`, `bench.config.yaml`) are
+ * never touched. Schema compatibility is `bench validate`'s job — the
+ * closing hint points there.
+ */
+export async function runBenchKitUpdate(
+  ctx: OutputContext,
+  dirArg: string | undefined,
+  options: BenchKitFlags,
+  deps: BenchKitDeps = defaultDeps,
+): Promise<void> {
+  const targetDir = resolve(dirArg ?? ".");
+  const requestedRef = normalizeRef(ctx, options.templateVersion);
+
+  await preflight(ctx, deps);
+
+  const currentVersion = readInstanceVersion(targetDir);
+  if (currentVersion === null) {
+    outputError(
+      ctx,
+      "not_an_instance",
+      `Directory '${targetDir}' is not a benchmark instance (no .bench-kit/VERSION).`,
+      ExitCodes.ERROR,
+      "Run '10x bench-kit init <dir>' to create one.",
+    );
+    return;
+  }
+  const manifest = readManifest(targetDir);
+
+  // The skills/workflows proposal is delivered as uncommitted changes; a
+  // dirty tree would mix it with unrelated edits and make review impossible.
+  const status = await deps.runGit(["status", "--porcelain"], targetDir);
+  if (status.ok && status.stdout.trim() !== "") {
+    outputError(
+      ctx,
+      "dirty_worktree",
+      "The instance has uncommitted changes — update delivers its proposal as a git diff and needs a clean working tree.",
+      ExitCodes.ERROR,
+      "Commit or stash your changes, then run '10x bench-kit update' again.",
+    );
+  }
+  if (!status.ok) {
+    verbose(ctx, "not a git repository — proceeding, but review the changes without git diff");
+  }
+
+  const scratch = mkdtempSync(join(tmpdir(), "bench-kit-"));
+  try {
+    verbose(ctx, `cloning ${TEMPLATE_REPO_URL} (${requestedRef ?? "latest"}) into ${scratch}`);
+    const clone = await deps.cloneTemplate(requestedRef, scratch);
+    if (!clone.ok) {
+      outputError(
+        ctx,
+        "clone_failed",
+        `Could not download the template from ${TEMPLATE_REPO_URL}.`,
+        ExitCodes.ERROR,
+        clone.error
+          ? `Git said: ${clone.error.trim()}`
+          : "Check your internet connection and run '10x bench-kit update' again.",
+      );
+    }
+
+    const newVersion = readTemplateVersion(ctx, scratch);
+    if (newVersion === currentVersion) {
+      output(ctx, `Already on template ${currentVersion} — nothing to update.`, {
+        dir: targetDir,
+        mode: "update",
+        upToDate: true,
+        templateVersion: currentVersion,
+      });
+      return;
+    }
+
+    const toolId =
+      manifest?.tool !== undefined && PROFILES[manifest.tool] ? manifest.tool : DEFAULT_TOOL;
+    const skillSource = templateSkillSource(scratch);
+
+    // Zone .bench-kit/ — wholesale, atomic-ish replacement: stage the new
+    // tree (with the bumped manifest) next to the old one, then swap, so a
+    // crash mid-copy can't leave a versionless half-instance.
+    const updatedManifest: InstanceManifest = {
+      templateVersion: newVersion,
+      templateRef: requestedRef ?? "latest",
+      templateSource: manifest?.templateSource ?? TEMPLATE_REPO_URL,
+      initializedAt: manifest?.initializedAt ?? deps.now().toISOString(),
+      tool: toolId,
+      updatedAt: deps.now().toISOString(),
+      ...(manifest?.detectedBaseRepo === undefined
+        ? {}
+        : { detectedBaseRepo: manifest.detectedBaseRepo }),
+    };
+    const staging = join(targetDir, ".bench-kit.update-staging");
+    rmSync(staging, { recursive: true, force: true });
+    cpSync(join(scratch, ".bench-kit"), staging, { recursive: true });
+    writeFileSync(join(staging, "instance.json"), `${JSON.stringify(updatedManifest, null, 2)}\n`);
+    rmSync(join(targetDir, ".bench-kit"), { recursive: true, force: true });
+    renameSync(staging, join(targetDir, ".bench-kit"));
+
+    // Zone .github/workflows/ — synced (overwrite): the company reviews the
+    // resulting diff before committing, same as skills.
+    const workflows = syncDir(
+      join(targetDir, ".bench-kit", "workflows"),
+      join(targetDir, ".github", "workflows"),
+      { overwrite: true },
+    );
+
+    // Skills zone — the diff proposal: template files are added/overwritten
+    // in the working tree, company-only skills are never deleted.
+    const skills = syncDir(join(scratch, skillSource), join(targetDir, skillRootFor(toolId)), {
+      overwrite: true,
+    });
+
+    output(
+      ctx,
+      [
+        `Updated the benchmark instance from template ${currentVersion} to ${newVersion}.`,
+        "  .bench-kit/            replaced wholesale (runtime zone)",
+        `  .github/workflows/     ${describeSync(workflows)}`,
+        `  ${`${skillRootFor(toolId)}/`.padEnd(23)}${describeSync(skills)} — proposal, review before committing`,
+        "  tasks/, evaluation-pool/, bench.config.yaml untouched (company zone)",
+        "Next: review 'git diff', run 'bench validate' (it flags any schema changes to fix), then commit via PR.",
+      ].join("\n"),
+      {
+        dir: targetDir,
+        mode: "update",
+        upToDate: false,
+        fromVersion: currentVersion,
+        templateVersion: newVersion,
+        templateRef: updatedManifest.templateRef,
+        tool: toolId,
+        skillRoot: skillRootFor(toolId),
+        zones: { benchKit: "replaced", workflows, skills },
+      },
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Resolves the agent tool profile for skill placement: explicit --tool >
+ * existing manifest (repair) > interactive pick pre-filled by marker
+ * detection in cwd > detection result > claude-code.
+ */
+async function resolveInstanceTool(
+  ctx: OutputContext,
+  options: BenchKitFlags,
+  deps: BenchKitDeps,
+  existingManifest: InstanceManifest | null,
+): Promise<string> {
+  if (options.tool !== undefined) {
+    if (!PROFILES[options.tool]) {
+      outputError(
+        ctx,
+        "unknown_tool",
+        `'${options.tool}' is not a supported agent tool.`,
+        ExitCodes.USAGE,
+        `Supported: ${Object.keys(PROFILES).join(", ")}.`,
+      );
+    }
+    return options.tool;
+  }
+  if (existingManifest?.tool !== undefined && PROFILES[existingManifest.tool]) {
+    return existingManifest.tool;
+  }
+  const signals = deps.detectToolSignals(process.cwd());
+  const top = signals[0];
+  const detected = top !== undefined && PROFILES[top.profileId] ? top.profileId : null;
+  const initial = detected ?? DEFAULT_TOOL;
+
+  const interactive =
+    options.yes !== true && !ctx.json && process.stdout.isTTY && existingManifest === null;
+  if (!interactive) {
+    verbose(
+      ctx,
+      detected === null
+        ? `no agent-tool markers found — defaulting to ${initial}`
+        : `detected ${initial} (${top?.reason}) — using it as the tool profile`,
+    );
+    return initial;
+  }
+  const choice = await deps.chooseTool(initial, top?.reason ?? null);
+  return choice !== null && PROFILES[choice] ? choice : initial;
+}
+
+/** Skill root directory (relative) for a tool profile, e.g. `.agents/skills`. */
+export function skillRootFor(toolId: string): string {
+  const profile = PROFILES[toolId] ?? PROFILES[DEFAULT_TOOL]!;
+  return join(profile.manifestDir, "skills");
+}
+
+/**
+ * Where the template keeps its skills. Today that is `.claude/skills/`;
+ * the planned migration to the tool-agnostic `.agents/skills/` convention
+ * is picked up automatically once the template moves.
+ */
+function templateSkillSource(templateDir: string): string {
+  return existsSync(join(templateDir, ".agents", "skills")) ? ".agents/skills" : ".claude/skills";
 }
 
 function normalizeRef(ctx: OutputContext, raw: string | undefined): string | null {
@@ -278,6 +529,24 @@ function readInstanceVersion(dir: string): string | null {
   return readFileSync(versionFile, "utf8").trim();
 }
 
+/** Reads the instance manifest, tolerating its absence (older inits). */
+function readManifest(dir: string): InstanceManifest | null {
+  const file = join(dir, ".bench-kit", "instance.json");
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as InstanceManifest;
+  } catch {
+    return null;
+  }
+}
+
+function writeManifest(dir: string, manifest: InstanceManifest): void {
+  writeFileSync(
+    join(dir, ".bench-kit", "instance.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+}
+
 function readTemplateVersion(ctx: OutputContext, cloneDir: string): string {
   const versionFile = join(cloneDir, ".bench-kit", "VERSION");
   if (!existsSync(versionFile)) {
@@ -302,37 +571,81 @@ function installWorkflows(
   opts: { skipExisting: boolean },
 ): void {
   const srcDir = join(targetDir, ".bench-kit", "workflows");
-  if (!existsSync(srcDir)) return;
-  const destDir = join(targetDir, ".github", "workflows");
-  mkdirSync(destDir, { recursive: true });
-  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
-    if (!entry.isFile()) continue;
-    const to = join(destDir, entry.name);
-    if (opts.skipExisting && existsSync(to)) continue;
-    cpSync(join(srcDir, entry.name), to);
-  }
+  syncDir(srcDir, join(targetDir, ".github", "workflows"), { overwrite: !opts.skipExisting });
 }
 
 /**
- * Copies the clone into the target without git history. In repair mode
- * existing files are never overwritten — company content is untouchable.
- * Returns the number of files copied.
+ * Recursively syncs `srcDir` into `destDir` and counts per-file outcomes.
+ * Files only ever get added or overwritten — never deleted — so company
+ * files living alongside template ones survive. With `overwrite: false`,
+ * existing files are left alone and counted as unchanged.
  */
-function materialize(
+function syncDir(
   srcDir: string,
   destDir: string,
-  opts: { skipExisting: boolean },
-): number {
-  let copied = 0;
+  opts: { overwrite: boolean },
+): SyncCounts {
+  const counts: SyncCounts = { added: 0, updated: 0, unchanged: 0 };
+  if (!existsSync(srcDir)) return counts;
   const walk = (rel: string): void => {
     for (const entry of readdirSync(join(srcDir, rel), { withFileTypes: true })) {
-      if (rel === "" && entry.name === ".git") continue;
       const relPath = join(rel, entry.name);
       const from = join(srcDir, relPath);
       const to = join(destDir, relPath);
       if (entry.isDirectory()) {
         mkdirSync(to, { recursive: true });
         walk(relPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!existsSync(to)) {
+        mkdirSync(join(destDir, rel), { recursive: true });
+        cpSync(from, to);
+        counts.added++;
+      } else if (readFileSync(from).equals(readFileSync(to))) {
+        counts.unchanged++;
+      } else if (opts.overwrite) {
+        cpSync(from, to);
+        counts.updated++;
+      } else {
+        counts.unchanged++;
+      }
+    }
+  };
+  mkdirSync(destDir, { recursive: true });
+  walk("");
+  return counts;
+}
+
+function describeSync(counts: SyncCounts): string {
+  return `${counts.added} added, ${counts.updated} updated, ${counts.unchanged} unchanged`;
+}
+
+/**
+ * Copies the clone into the target without git history. In repair mode
+ * existing files are never overwritten — company content is untouchable.
+ * `skip` excludes subtrees handled elsewhere (skills go per tool profile).
+ * Returns the number of files copied.
+ */
+function materialize(
+  srcDir: string,
+  destDir: string,
+  opts: { skipExisting: boolean; skip?: (relPath: string) => boolean },
+): number {
+  let copied = 0;
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(join(srcDir, rel), { withFileTypes: true })) {
+      if (rel === "" && entry.name === ".git") continue;
+      const relPath = join(rel, entry.name);
+      if (opts.skip?.(relPath)) continue;
+      const from = join(srcDir, relPath);
+      const to = join(destDir, relPath);
+      if (entry.isDirectory()) {
+        mkdirSync(to, { recursive: true });
+        walk(relPath);
+        // A directory whose whole content was skipped (e.g. `.claude/` when
+        // skills go elsewhere) should not linger empty in the instance.
+        if (readdirSync(to).length === 0) rmdirSync(to);
         continue;
       }
       if (opts.skipExisting && existsSync(to)) continue;
@@ -460,6 +773,30 @@ const defaultDeps: BenchKitDeps = {
     const headCommit = await gitQuery(cwd, ["rev-parse", "HEAD"]);
     if (headCommit === null) return null;
     return { rootDir, name: basename(rootDir), url, headCommit };
+  },
+  detectToolSignals(cwd) {
+    return detectTools(cwd);
+  },
+  async chooseTool(initial, detectedReason) {
+    // Lazy import — @clack/prompts is needed only on this interactive path.
+    const p = await import("@clack/prompts");
+    if (detectedReason !== null) {
+      p.note(`Detected: ${PROFILES[initial]?.displayName ?? initial} (${detectedReason})`);
+    }
+    const choice = await p.select({
+      message: "Which AI coding tool will work with this benchmark instance?",
+      options: Object.values(PROFILES).map((profile) => ({
+        value: profile.toolId,
+        label: profile.displayName,
+        hint: profile.toolId === initial ? "default" : undefined,
+      })),
+      initialValue: initial,
+    });
+    if (p.isCancel(choice)) {
+      p.cancel(`Using default (${PROFILES[initial]?.displayName ?? initial}).`);
+      return null;
+    }
+    return choice as string;
   },
   now: () => new Date(),
 };
