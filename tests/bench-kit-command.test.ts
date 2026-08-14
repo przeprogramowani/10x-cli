@@ -16,6 +16,7 @@ import {
   registerBenchKitCommand,
   runBenchKitInit,
   runBenchKitUpdate,
+  toHttpsUrl,
 } from "../src/commands/bench-kit";
 import { EXPERIMENTAL_ENV, experimentalEnabled } from "../src/lib/experimental";
 import type { OutputContext } from "../src/lib/output";
@@ -103,6 +104,17 @@ function buildTemplateFixture(version = "0.1.0"): string {
   writeFileSync(join(dir, "tasks", "demo", "prompt.md"), "demo prompt\n");
   writeFileSync(join(dir, "AGENTS.md"), `# agents (${version})\n`);
   writeFileSync(
+    join(dir, "tasks", "demo", "task.yaml"),
+    [
+      "# Zadanie-demo.",
+      "repo: demo-app",
+      "# (placeholder)",
+      `commit: "${"0".repeat(40)}"`,
+      "timeout_s: 300",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
     join(dir, "bench.config.yaml"),
     [
       "# Konfiguracja instancji benchmarku.",
@@ -136,6 +148,8 @@ function fakeDeps(templateDir: string, overrides: Partial<BenchKitDeps> = {}): F
       return Promise.resolve({ ok: true, stdout: "", error: "" });
     },
     detectBaseRepo: () => Promise.resolve(null),
+    remoteReachable: () => Promise.resolve(false),
+    installRunnerDeps: () => Promise.resolve({ ok: true, error: "" }),
     detectToolSignals: () => [],
     chooseTool: () => Promise.resolve(null),
     now: () => new Date("2026-08-13T12:00:00.000Z"),
@@ -274,6 +288,96 @@ describe("10x bench-kit init", () => {
 
     const envelope = parseEnvelope(result.stdout);
     expect(envelope.data.baseRepo.name).toBe("shop-app");
+  });
+
+  it("pins the placeholder demo task to the detected repo and its HEAD", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const head = "c".repeat(40);
+    const { deps } = fakeDeps(template, {
+      detectBaseRepo: () =>
+        Promise.resolve({
+          rootDir: "/somewhere/shop-app",
+          name: "shop-app",
+          url: "git@github.com:acme/shop-app.git",
+          headCommit: head,
+        }),
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    const taskYaml = readFileSync(join(target, "tasks", "demo", "task.yaml"), "utf8");
+    expect(taskYaml).toContain("repo: shop-app");
+    expect(taskYaml).toContain(head);
+    expect(taskYaml).not.toContain("0".repeat(40));
+    // Untouched fields and file comments survive the in-place edit.
+    expect(taskYaml).toContain("timeout_s: 300");
+    expect(taskYaml).toContain("# Zadanie-demo.");
+    const envelope = parseEnvelope(result.stdout);
+    expect(envelope.data.demoTasksPinned).toBe(1);
+  });
+
+  it("prefers https over SSH when the repo answers publicly", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const probed: string[] = [];
+    const { deps } = fakeDeps(template, {
+      detectBaseRepo: () =>
+        Promise.resolve({
+          rootDir: "/somewhere/shop-app",
+          name: "shop-app",
+          url: "git@github.com:acme/shop-app.git",
+          headCommit: "a".repeat(40),
+        }),
+      remoteReachable: (url) => {
+        probed.push(url);
+        return Promise.resolve(true);
+      },
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(probed).toEqual(["https://github.com/acme/shop-app.git"]);
+    const config = readFileSync(join(target, "bench.config.yaml"), "utf8");
+    expect(config).toContain("url: https://github.com/acme/shop-app.git");
+    expect(config).not.toContain("git@github.com");
+  });
+
+  it("installs runner dependencies when the template ships a runner", async () => {
+    const template = buildTemplateFixture();
+    mkdirSync(join(template, ".bench-kit", "runner"), { recursive: true });
+    writeFileSync(join(template, ".bench-kit", "runner", "package.json"), "{}\n");
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const installedIn: string[] = [];
+    const { deps } = fakeDeps(template, {
+      installRunnerDeps: (runnerDir) => {
+        installedIn.push(runnerDir);
+        return Promise.resolve({ ok: true, error: "" });
+      },
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(installedIn).toEqual([join(target, ".bench-kit", "runner")]);
+    expect(parseEnvelope(result.stdout).data.runnerDeps).toBe("installed");
+  });
+
+  it("degrades to a hint when npm ci fails (init still succeeds)", async () => {
+    const template = buildTemplateFixture();
+    mkdirSync(join(template, ".bench-kit", "runner"), { recursive: true });
+    writeFileSync(join(template, ".bench-kit", "runner", "package.json"), "{}\n");
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const { deps } = fakeDeps(template, {
+      installRunnerDeps: () => Promise.resolve({ ok: false, error: "npm exploded" }),
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(parseEnvelope(result.stdout).data.runnerDeps).toBe("failed");
   });
 
   it("keeps the placeholder when init runs inside the instance itself", async () => {
@@ -506,6 +610,26 @@ describe("10x bench-kit update", () => {
     expect(envelope.data.zones.shared.updated).toBe(1);
   });
 
+  it("reinstalls runner dependencies after the wholesale .bench-kit swap", async () => {
+    const target = await initInstance();
+    const newTemplate = buildTemplateFixture("0.2.0");
+    mkdirSync(join(newTemplate, ".bench-kit", "runner"), { recursive: true });
+    writeFileSync(join(newTemplate, ".bench-kit", "runner", "package.json"), "{}\n");
+    const installedIn: string[] = [];
+    const { deps } = fakeDeps(newTemplate, {
+      installRunnerDeps: (runnerDir) => {
+        installedIn.push(runnerDir);
+        return Promise.resolve({ ok: true, error: "" });
+      },
+    });
+
+    const result = await captureStreams(() => runBenchKitUpdate(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(installedIn).toEqual([join(target, ".bench-kit", "runner")]);
+    expect(parseEnvelope(result.stdout).data.runnerDeps).toBe("installed");
+  });
+
   it("is a no-op when the instance is already on the template version", async () => {
     const target = await initInstance();
     const sameTemplate = buildTemplateFixture("0.1.0");
@@ -588,6 +712,18 @@ async function runCli(argv: string[]): Promise<CaptureResult> {
     await cli.runMatchedCommand();
   });
 }
+
+describe("toHttpsUrl", () => {
+  it("maps scp-style and ssh:// URLs to https, leaves the rest alone", () => {
+    expect(toHttpsUrl("git@github.com:acme/shop.git")).toBe("https://github.com/acme/shop.git");
+    expect(toHttpsUrl("ssh://git@github.com/acme/shop.git")).toBe("https://github.com/acme/shop.git");
+    expect(toHttpsUrl("ssh://git@gitlab.example.com:2222/team/app")).toBe(
+      "https://gitlab.example.com/team/app",
+    );
+    expect(toHttpsUrl("https://github.com/acme/shop.git")).toBeNull();
+    expect(toHttpsUrl("/local/path/to/repo")).toBeNull();
+  });
+});
 
 describe("experimental gate", () => {
   const savedEnv = process.env[EXPERIMENTAL_ENV];
