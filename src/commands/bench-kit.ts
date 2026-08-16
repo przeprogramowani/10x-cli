@@ -30,7 +30,6 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import type { CAC } from "cac";
-import { experimentalEnabled, requireExperimental } from "../lib/experimental";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -121,15 +120,8 @@ export interface BenchKitDeps {
 // bench-kit follows the `auth` precedent: one command dispatching on an
 // action argument.
 export function registerBenchKitCommand(cli: CAC): void {
-  // Experimental commands are all-or-nothing: without the opt-in the
-  // command is not registered at all — absent from help and behaving like
-  // any unknown command — instead of showing up half-locked.
-  if (!experimentalEnabled()) return;
   cli
-    .command(
-      "bench-kit <action> [dir]",
-      "Manage a benchmark instance (actions: init, update; experimental)",
-    )
+    .command("bench-kit <action> [dir]", "Manage a benchmark instance (actions: init, update)")
     .option("--template-version <tag>", "Template tag to install (default: latest)")
     .option("--tool <id>", `Agent tool for skill placement (${Object.keys(PROFILES).join(", ")})`)
     .option("--yes", "Run non-interactively, accepting defaults")
@@ -137,7 +129,6 @@ export function registerBenchKitCommand(cli: CAC): void {
     .example("10x bench-kit init my-benchmark --template-version v0.1.0")
     .example("10x bench-kit update")
     .action(async (action: string, dir: string | undefined, options: BenchKitFlags) => {
-      requireExperimental(`bench-kit ${action}`, options);
       const ctx = resolveContext(options);
       if (action === "init") {
         await runBenchKitInit(ctx, dir, options);

@@ -18,7 +18,6 @@ import {
   runBenchKitUpdate,
   toHttpsUrl,
 } from "../src/commands/bench-kit";
-import { EXPERIMENTAL_ENV, experimentalEnabled } from "../src/lib/experimental";
 import type { OutputContext } from "../src/lib/output";
 
 interface CaptureResult {
@@ -725,57 +724,11 @@ describe("toHttpsUrl", () => {
   });
 });
 
-describe("experimental gate", () => {
-  const savedEnv = process.env[EXPERIMENTAL_ENV];
-
-  afterEach(() => {
-    if (savedEnv === undefined) {
-      delete process.env[EXPERIMENTAL_ENV];
-    } else {
-      process.env[EXPERIMENTAL_ENV] = savedEnv;
-    }
-  });
-
-  it("is off by default and accepts 1 / true", () => {
-    expect(experimentalEnabled({})).toBe(false);
-    expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "0" })).toBe(false);
-    expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "1" })).toBe(true);
-    expect(experimentalEnabled({ [EXPERIMENTAL_ENV]: "true" })).toBe(true);
-  });
-
-  it("keeps bench-kit fully hidden without the opt-in", async () => {
-    delete process.env[EXPERIMENTAL_ENV];
-    const cli = cac("10x");
-    registerBenchKitCommand(cli);
-    expect(cli.commands.map((c) => c.name)).not.toContain("bench-kit");
-
-    // Invoking it behaves like any unknown command: no output, no error.
-    const result = await runCli(["bench-kit", "init", "some-dir", "--json"]);
-    expect(result.exitCode).toBeUndefined();
-    expect(result.stdout).toBe("");
-  });
-
-  it("registers bench-kit when the opt-in is set", () => {
-    process.env[EXPERIMENTAL_ENV] = "1";
+describe("10x bench-kit dispatch", () => {
+  it("registers bench-kit unconditionally", () => {
     const cli = cac("10x");
     registerBenchKitCommand(cli);
     expect(cli.commands.map((c) => c.name)).toContain("bench-kit");
-  });
-});
-
-describe("10x bench-kit dispatch", () => {
-  const savedEnv = process.env[EXPERIMENTAL_ENV];
-
-  beforeEach(() => {
-    process.env[EXPERIMENTAL_ENV] = "1";
-  });
-
-  afterEach(() => {
-    if (savedEnv === undefined) {
-      delete process.env[EXPERIMENTAL_ENV];
-    } else {
-      process.env[EXPERIMENTAL_ENV] = savedEnv;
-    }
   });
 
   it("routes 'update' to the real implementation", async () => {
