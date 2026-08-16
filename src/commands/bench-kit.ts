@@ -54,6 +54,14 @@ export const SHARED_ROOT_FILES = ["AGENTS.md"];
 /** The template's placeholder base-repo entry that init may replace. */
 export const PLACEHOLDER_BASE_REPO = "demo-app";
 
+/**
+ * Instance-local base-repo clones live under `.repos/<name>` (gitignored).
+ * The authoring skills (bench-task, bench-refresh, bench-wiring) read this
+ * convention from AGENTS.md — init pre-clones the detected repo there so
+ * the first `/bench-task` never starts with a cold network clone.
+ */
+export const BASE_REPOS_DIR = ".repos";
+
 /** A git repo detected around the directory init was invoked from. */
 export interface DetectedBaseRepo {
   /** Repo root directory (used to avoid registering the instance itself). */
@@ -105,6 +113,8 @@ export interface BenchKitDeps {
   runGit(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string; error: string }>;
   /** Detects the git repo containing `cwd` (null when absent or origin-less). */
   detectBaseRepo(cwd: string): Promise<DetectedBaseRepo | null>;
+  /** Clones the detected repo into `destDir` (local source, remote origin). */
+  cloneBaseRepo(repo: DetectedBaseRepo, destDir: string): Promise<{ ok: boolean; error: string }>;
   /** True when `git ls-remote` succeeds against `url` (https preference probe). */
   remoteReachable(url: string): Promise<boolean>;
   /** Installs runner dependencies (`npm ci`) inside `runnerDir`. */
@@ -248,6 +258,25 @@ export async function runBenchKitInit(
       }
     }
 
+    // Working copy for the authoring skills: clone the base repo into
+    // .repos/<name> (gitignored) so /bench-task explores locally instead of
+    // re-cloning into a scratchpad. Failure degrades to a hint — the clone
+    // is a convenience, not a prerequisite of a valid instance.
+    let baseRepoClone: "cloned" | "failed" | "skipped" = "skipped";
+    if (baseRepo !== null) {
+      ensureIgnored(targetDir, `${BASE_REPOS_DIR}/`);
+      const cloneDest = join(targetDir, BASE_REPOS_DIR, baseRepo.name);
+      verbose(ctx, `cloning base repo into ${BASE_REPOS_DIR}/${baseRepo.name}`);
+      const cloned = await deps.cloneBaseRepo(baseRepo, cloneDest);
+      if (cloned.ok) {
+        baseRepoClone = "cloned";
+      } else {
+        baseRepoClone = "failed";
+        rmSync(cloneDest, { recursive: true, force: true });
+        verbose(ctx, `base repo clone failed (${cloned.error.trim().split("\n").pop() ?? ""})`);
+      }
+    }
+
     const runnerDeps = await installRunnerDependencies(ctx, deps, targetDir);
 
     const manifest: InstanceManifest = {
@@ -285,6 +314,15 @@ export async function runBenchKitInit(
           ...(demoTasksPinned > 0
             ? [`Pinned the demo task to ${baseRepo?.headCommit.slice(0, 12)} (current HEAD of the base repo).`]
             : []),
+          ...(baseRepoClone === "cloned"
+            ? [
+                `Cloned '${baseRepo?.name}' into ${BASE_REPOS_DIR}/${baseRepo?.name}/ — local working copy for the authoring skills (gitignored).`,
+              ]
+            : baseRepoClone === "failed"
+              ? [
+                  `Base repo clone failed — run 'git clone ${baseRepo?.url} ${BASE_REPOS_DIR}/${baseRepo?.name}' yourself.`,
+                ]
+              : []),
           ...(runnerDeps === "failed"
             ? ["Runner dependencies did not install — run 'npm ci --prefix .bench-kit/runner' yourself."]
             : runnerDeps === "installed"
@@ -304,6 +342,7 @@ export async function runBenchKitInit(
       skillRoot: skillRootFor(toolId),
       filesCopied: copied + skills.added,
       baseRepo,
+      baseRepoClone,
       demoTasksPinned,
       runnerDeps,
       gitInitialized: !repair,
@@ -769,6 +808,19 @@ export function toHttpsUrl(url: string): string | null {
   return null;
 }
 
+/**
+ * Guarantees `.gitignore` covers `entry` before the local clone lands —
+ * the template ships the rule, but an older template tag must not end up
+ * committing a whole product repo into the instance's initial commit.
+ */
+function ensureIgnored(dir: string, entry: string): void {
+  const file = join(dir, ".gitignore");
+  const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (current.split("\n").some((line) => line.trim() === entry)) return;
+  const prefix = current === "" || current.endsWith("\n") ? current : `${current}\n`;
+  writeFileSync(file, `${prefix}${entry}\n`);
+}
+
 /** All-zeros commit the template ships in the demo task. */
 const PLACEHOLDER_COMMIT = /^0{40}$/;
 
@@ -914,6 +966,14 @@ const defaultDeps: BenchKitDeps = {
     const headCommit = await gitQuery(cwd, ["rev-parse", "HEAD"]);
     if (headCommit === null) return null;
     return { rootDir, name: basename(rootDir), url, headCommit };
+  },
+  async cloneBaseRepo(repo, destDir) {
+    // Clone from the local working copy (instant, offline, full history),
+    // then point origin at the registered remote so `git fetch` behaves
+    // like in a network clone.
+    const clone = await run("git", ["clone", "--quiet", repo.rootDir, destDir]);
+    if (!clone.ok) return { ok: false, error: clone.error };
+    return run("git", ["-C", destDir, "remote", "set-url", "origin", repo.url]);
   },
   async remoteReachable(url) {
     // No terminal prompt: an auth-gated remote must fail fast, not hang.

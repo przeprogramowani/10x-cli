@@ -147,6 +147,10 @@ function fakeDeps(templateDir: string, overrides: Partial<BenchKitDeps> = {}): F
       return Promise.resolve({ ok: true, stdout: "", error: "" });
     },
     detectBaseRepo: () => Promise.resolve(null),
+    cloneBaseRepo: (_repo, destDir) => {
+      mkdirSync(destDir, { recursive: true });
+      return Promise.resolve({ ok: true, error: "" });
+    },
     remoteReachable: () => Promise.resolve(false),
     installRunnerDeps: () => Promise.resolve({ ok: true, error: "" }),
     detectToolSignals: () => [],
@@ -315,6 +319,73 @@ describe("10x bench-kit init", () => {
     expect(taskYaml).toContain("# Zadanie-demo.");
     const envelope = parseEnvelope(result.stdout);
     expect(envelope.data.demoTasksPinned).toBe(1);
+  });
+
+  it("clones the detected repo into .repos/<name> and gitignores it", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const detected = {
+      rootDir: "/somewhere/shop-app",
+      name: "shop-app",
+      url: "git@github.com:acme/shop-app.git",
+      headCommit: "a".repeat(40),
+    };
+    const cloneCalls: { rootDir: string; destDir: string }[] = [];
+    const { deps } = fakeDeps(template, {
+      detectBaseRepo: () => Promise.resolve(detected),
+      cloneBaseRepo: (repo, destDir) => {
+        cloneCalls.push({ rootDir: repo.rootDir, destDir });
+        mkdirSync(destDir, { recursive: true });
+        return Promise.resolve({ ok: true, error: "" });
+      },
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(cloneCalls).toEqual([
+      { rootDir: "/somewhere/shop-app", destDir: join(target, ".repos", "shop-app") },
+    ]);
+    // The clone never enters the instance's git history.
+    expect(readFileSync(join(target, ".gitignore"), "utf8")).toContain(".repos/");
+    expect(parseEnvelope(result.stdout).data.baseRepoClone).toBe("cloned");
+  });
+
+  it("degrades to a hint when the base repo clone fails (init still succeeds)", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const { deps } = fakeDeps(template, {
+      detectBaseRepo: () =>
+        Promise.resolve({
+          rootDir: "/somewhere/shop-app",
+          name: "shop-app",
+          url: "git@github.com:acme/shop-app.git",
+          headCommit: "a".repeat(40),
+        }),
+      cloneBaseRepo: () => Promise.resolve({ ok: false, error: "disk full" }),
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(existsSync(join(target, ".repos", "shop-app"))).toBe(false);
+    expect(parseEnvelope(result.stdout).data.baseRepoClone).toBe("failed");
+  });
+
+  it("skips the base repo clone when no product repo was detected", async () => {
+    const template = buildTemplateFixture();
+    const target = join(tempDir("bench-kit-target-"), "instance");
+    const { deps } = fakeDeps(template, {
+      cloneBaseRepo: () => {
+        throw new Error("must not be called");
+      },
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(existsSync(join(target, ".repos"))).toBe(false);
+    expect(parseEnvelope(result.stdout).data.baseRepoClone).toBe("skipped");
   });
 
   it("prefers https over SSH when the repo answers publicly", async () => {
