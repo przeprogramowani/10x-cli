@@ -106,6 +106,10 @@ export interface BenchKitDeps {
   runGit(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string; error: string }>;
   /** Detects the git repo containing `cwd` (null when absent or origin-less). */
   detectBaseRepo(cwd: string): Promise<DetectedBaseRepo | null>;
+  /** True when `git ls-remote` succeeds against `url` (https preference probe). */
+  remoteReachable(url: string): Promise<boolean>;
+  /** Installs runner dependencies (`npm ci`) inside `runnerDir`. */
+  installRunnerDeps(runnerDir: string): Promise<{ ok: boolean; error: string }>;
   /** Scans `cwd` for agent-tool markers (ranked, strongest first). */
   detectToolSignals(cwd: string): DetectionSignal[];
   /** Interactive tool picker; resolves the chosen id, or null on cancel. */
@@ -228,15 +232,32 @@ export async function runBenchKitInit(
     // Running init from inside a product repo is the common flow — register
     // that repo as the first base repo instead of leaving the placeholder.
     let baseRepo: DetectedBaseRepo | null = null;
+    let demoTasksPinned = 0;
     if (!repair) {
       const detected = await deps.detectBaseRepo(process.cwd());
       if (detected !== null && resolve(detected.rootDir) !== targetDir) {
-        if (await registerBaseRepo(join(targetDir, "bench.config.yaml"), detected)) {
-          baseRepo = detected;
-          verbose(ctx, `registered base repo ${detected.name} (${detected.url})`);
+        // Prefer https over SSH when the repo answers publicly: https clones
+        // in CI/containers with zero secrets, SSH always demands a key.
+        let repo = detected;
+        const https = toHttpsUrl(detected.url);
+        if (https !== null && (await deps.remoteReachable(https))) {
+          repo = { ...detected, url: https };
+          verbose(ctx, `repo answers over https — using ${https} instead of SSH`);
+        }
+        if (await registerBaseRepo(join(targetDir, "bench.config.yaml"), repo)) {
+          baseRepo = repo;
+          verbose(ctx, `registered base repo ${repo.name} (${repo.url})`);
+          // The tool already knows the repo and its HEAD — a human should
+          // not have to retype them into the demo task's placeholders.
+          demoTasksPinned = await pinPlaceholderTasks(join(targetDir, "tasks"), repo);
+          if (demoTasksPinned > 0) {
+            verbose(ctx, `pinned ${demoTasksPinned} demo task(s) to ${repo.headCommit.slice(0, 12)}`);
+          }
         }
       }
     }
+
+    const runnerDeps = await installRunnerDependencies(ctx, deps, targetDir);
 
     const manifest: InstanceManifest = {
       templateVersion,
@@ -270,6 +291,14 @@ export async function runBenchKitInit(
           baseRepo === null
             ? "No product repo detected here — add your base repos to bench.config.yaml."
             : `Registered '${baseRepo.name}' (${baseRepo.url}) as the first base repo in bench.config.yaml.`,
+          ...(demoTasksPinned > 0
+            ? [`Pinned the demo task to ${baseRepo?.headCommit.slice(0, 12)} (current HEAD of the base repo).`]
+            : []),
+          ...(runnerDeps === "failed"
+            ? ["Runner dependencies did not install — run 'npm ci --prefix .bench-kit/runner' yourself."]
+            : runnerDeps === "installed"
+              ? ["Runner dependencies installed (.bench-kit/runner/node_modules)."]
+              : []),
           committed
             ? "Initialized a fresh git repository with an initial commit."
             : "Initialized a fresh git repository (initial commit skipped — commit the files yourself).",
@@ -284,6 +313,8 @@ export async function runBenchKitInit(
       skillRoot: skillRootFor(toolId),
       filesCopied: copied + skills.added,
       baseRepo,
+      demoTasksPinned,
+      runnerDeps,
       gitInitialized: !repair,
       committed,
     });
@@ -413,11 +444,20 @@ export async function runBenchKitUpdate(
       addSync(shared, syncFile(join(scratch, file), join(targetDir, file)));
     }
 
+    // The wholesale swap just deleted the runner's node_modules — reinstall,
+    // so the first `bench` command after update is not MODULE_NOT_FOUND.
+    const runnerDeps = await installRunnerDependencies(ctx, deps, targetDir);
+
     output(
       ctx,
       [
         `Updated the benchmark instance from template ${currentVersion} to ${newVersion}.`,
         "  .bench-kit/            replaced wholesale (runtime zone)",
+        ...(runnerDeps === "failed"
+          ? ["  .bench-kit/runner/     npm ci FAILED — run 'npm ci --prefix .bench-kit/runner' yourself"]
+          : runnerDeps === "installed"
+            ? ["  .bench-kit/runner/     dependencies reinstalled (npm ci)"]
+            : []),
         `  .github/workflows/     ${describeSync(workflows)}`,
         `  ${`${skillRootFor(toolId)}/`.padEnd(23)}${describeSync(skills)} — proposal, review before committing`,
         `  ${SHARED_ROOT_FILES.join(", ").padEnd(23)}${describeSync(shared)} — proposal, review before committing`,
@@ -433,6 +473,7 @@ export async function runBenchKitUpdate(
         templateRef: updatedManifest.templateRef,
         tool: toolId,
         skillRoot: skillRootFor(toolId),
+        runnerDeps,
         zones: { benchKit: "replaced", workflows, skills, shared },
       },
     );
@@ -724,6 +765,74 @@ export async function registerBaseRepo(
   return true;
 }
 
+/**
+ * Rewrites an SSH remote URL to its https equivalent, or null when the URL
+ * is already https (or unrecognized). `git@host:org/repo.git` and
+ * `ssh://git@host/org/repo.git` both map to `https://host/org/repo.git`.
+ */
+export function toHttpsUrl(url: string): string | null {
+  const scp = url.match(/^git@([^:/]+):(.+)$/);
+  if (scp !== null) return `https://${scp[1]}/${scp[2]}`;
+  const ssh = url.match(/^ssh:\/\/(?:[^@/]+@)?([^:/]+)(?::\d+)?\/(.+)$/);
+  if (ssh !== null) return `https://${ssh[1]}/${ssh[2]}`;
+  return null;
+}
+
+/** All-zeros commit the template ships in the demo task. */
+const PLACEHOLDER_COMMIT = /^0{40}$/;
+
+/**
+ * Pins template placeholder tasks to the detected base repo: any
+ * tasks/<x>/task.yaml still pointing at the placeholder repo gets the
+ * detected repo name, and its all-zeros commit gets the detected HEAD.
+ * Company-authored tasks are never touched (no placeholder → no edit).
+ * Returns the number of tasks pinned.
+ */
+export async function pinPlaceholderTasks(
+  tasksDir: string,
+  repo: DetectedBaseRepo,
+): Promise<number> {
+  if (!existsSync(tasksDir) || !/^[0-9a-f]{40}$/.test(repo.headCommit)) return 0;
+  const { parseDocument } = await import("yaml");
+  let pinned = 0;
+  for (const entry of readdirSync(tasksDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const taskYaml = join(tasksDir, entry.name, "task.yaml");
+    if (!existsSync(taskYaml)) continue;
+    const doc = parseDocument(readFileSync(taskYaml, "utf8"));
+    if (doc.getIn(["repo"]) !== PLACEHOLDER_BASE_REPO) continue;
+    const commit = doc.getIn(["commit"]);
+    doc.setIn(["repo"], repo.name);
+    if (typeof commit === "string" && PLACEHOLDER_COMMIT.test(commit)) {
+      doc.setIn(["commit"], repo.headCommit);
+    }
+    writeFileSync(taskYaml, doc.toString());
+    pinned++;
+  }
+  return pinned;
+}
+
+/**
+ * Installs the runner's dependencies so the first `bench` command does not
+ * die with MODULE_NOT_FOUND. Returns "skipped" when the template ships no
+ * runner package.json; a failure degrades to a hint, never blocks init.
+ */
+async function installRunnerDependencies(
+  ctx: OutputContext,
+  deps: BenchKitDeps,
+  targetDir: string,
+): Promise<"installed" | "failed" | "skipped"> {
+  const runnerDir = join(targetDir, ".bench-kit", "runner");
+  if (!existsSync(join(runnerDir, "package.json"))) return "skipped";
+  verbose(ctx, "installing runner dependencies (npm ci in .bench-kit/runner)");
+  const result = await deps.installRunnerDeps(runnerDir);
+  if (!result.ok) {
+    verbose(ctx, `npm ci failed (${result.error.trim().split("\n").pop() ?? ""})`);
+    return "failed";
+  }
+  return "installed";
+}
+
 /** Fresh `git init` + first commit. A failed commit degrades to a warning. */
 async function freshGitInit(
   ctx: OutputContext,
@@ -763,9 +872,14 @@ function run(
   cmd: string,
   args: string[],
   cwd?: string,
+  env?: Record<string, string>,
 ): Promise<{ ok: boolean; stdout: string; error: string }> {
   return new Promise((resolvePromise) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+    });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -809,6 +923,16 @@ const defaultDeps: BenchKitDeps = {
     const headCommit = await gitQuery(cwd, ["rev-parse", "HEAD"]);
     if (headCommit === null) return null;
     return { rootDir, name: basename(rootDir), url, headCommit };
+  },
+  async remoteReachable(url) {
+    // No terminal prompt: an auth-gated remote must fail fast, not hang.
+    const result = await run("git", ["ls-remote", "--heads", url], undefined, {
+      GIT_TERMINAL_PROMPT: "0",
+    });
+    return result.ok;
+  },
+  installRunnerDeps(runnerDir) {
+    return run("npm", ["ci", "--no-audit", "--no-fund"], runnerDir);
   },
   detectToolSignals(cwd) {
     return detectTools(cwd);
