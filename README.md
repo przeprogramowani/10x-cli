@@ -62,6 +62,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 | `10x sync` | Bulk-download / refresh lessons and report what changed upstream |
 | `10x doctor` | Diagnose auth, API connectivity, and local config |
 | `10x bench` | Live top-10 AI model leaderboard from [10xbench.ai](https://10xbench.ai) — no login needed |
+| `10x bench-kit <action>` | Create (`init`) and update (`update`) a company benchmark instance from the [10x-bench-kit](https://github.com/przeprogramowani/10x-bench-kit) template |
 
 ### `10x get` Flags
 
@@ -179,6 +180,40 @@ color-coded score bars in your terminal. Public data, works without logging in.
 
 The data refreshes whenever new benchmark results are published on 10xbench.ai.
 Colors honor `NO_COLOR` and are disabled automatically when output is piped.
+
+### `10x bench-kit`
+
+Creates and maintains a **company benchmark instance** from the
+[10x-bench-kit](https://github.com/przeprogramowani/10x-bench-kit) template —
+a self-hosted benchmark that scores AI agents on tasks embedded in your own
+repositories. The CLI is a thin installer/updater; tasks, assertions, and
+scoring live in the template and the instance.
+
+| Action | Description |
+|--------|-------------|
+| `init [dir]` | Materialize a fresh instance from the template (no git history, fresh `git init`), register the detected base repo, install runner dependencies |
+| `update [dir]` | Upgrade the instance to a newer template: runtime zone replaced wholesale, skills proposed as a reviewable diff, company content untouched |
+
+| Flag | Description |
+|------|-------------|
+| `--template-version <tag>` | Template tag to install (default: latest) |
+| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `windsurf`, `gemini`, `generic`) |
+| `--yes` | Run non-interactively, accepting defaults |
+
+```bash
+# Create an instance next to your product repo (run inside it to auto-register)
+10x bench-kit init my-benchmark
+
+# Pin the template version
+10x bench-kit init my-benchmark --template-version v0.8.0
+
+# Upgrade an existing instance to the latest template
+10x bench-kit update
+```
+
+Re-running `init` on an existing instance is a **repair**: missing template
+files are restored, company content is never touched. After `update`, run the
+instance's `bench validate` to confirm the content still matches the new kit.
 
 ### Global Flags
 

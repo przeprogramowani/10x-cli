@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`10x bench-kit` is generally available.** The `TENX_CLI_EXPERIMENTAL`
+  opt-in is gone: `init` and `update` are registered unconditionally, appear
+  in `--help`, and are documented in the README. The `experimental_locked`
+  error envelope no longer exists (the gating module has been removed).
+
 ### Added
 
 - **`10x sync` — bulk download & update with change visibility.** One command to
