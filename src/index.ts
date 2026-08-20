@@ -26,6 +26,11 @@ cli.help();
 cli.version(packageJson.version);
 
 try {
+  if (process.argv.slice(2).length === 0) {
+    cli.outputHelp();
+    process.exit(0);
+  }
+
   cli.parse();
 } catch (err) {
   // CAC throws on unknown options / bad usage. Exit code 2 = USAGE per plan.
