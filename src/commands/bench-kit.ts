@@ -305,7 +305,7 @@ export async function runBenchKitInit(
             ? "Initialized a fresh git repository with an initial commit."
             : "Initialized a fresh git repository (initial commit skipped — commit the files yourself).",
           ...(res.warnings ?? []).map((warning) => `Warning: ${warning}`),
-          "Next: wire up secrets, then run 'bench validate' before the first run.",
+          `Next: go to ${targetDir}, launch you preferred agent and apply skill *bench-wiring*`,
         ];
     output(ctx, humanLines.join("\n"), {
       dir: targetDir,
