@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Windsurf is now Devin Desktop.** The tool selector uses `devin-desktop`,
+  writes new artifacts under `.devin/`, and uses root `AGENTS.md` for course
+  rules. The former `windsurf` ID and `.windsurf/` markers remain supported for
+  config compatibility, detection, and artifact migration.
 - **`10x bench-kit` is generally available.** The `TENX_CLI_EXPERIMENTAL`
   opt-in is gone: `init` and `update` are registered unconditionally, appear
   in `--help`, and are documented in the README. The `experimental_locked`

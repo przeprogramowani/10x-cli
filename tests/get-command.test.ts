@@ -472,6 +472,28 @@ describe("10x get — --tool persistence", () => {
     expect(capturedTool).toBe("cursor");
   });
 
+  it("uses the Devin Desktop profile while retaining the Windsurf API transform", async () => {
+    writeValidAuth();
+    let capturedTool: string | undefined;
+    apiContentMockState.fetchLessonImpl = (_course, _lessonId, _token, options) => {
+      capturedTool = options?.tool;
+      return lessonOk(makeBundle());
+    };
+
+    const { exitCode } = await runGet([
+      "get",
+      "m1l1",
+      "--tool",
+      "devin-desktop",
+      "--json",
+    ]);
+
+    expect(exitCode ?? 0).toBe(0);
+    expect(capturedTool).toBe("windsurf");
+    expect(readToolConfig()?.tool).toBe("devin-desktop");
+    expect(existsSync(join(projectRoot, ".devin/skills/code-review/SKILL.md"))).toBe(true);
+  });
+
   it("shows feedback on stderr when tool changes (TTY mode)", async () => {
     writeValidAuth();
     apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());

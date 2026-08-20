@@ -68,7 +68,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 
 | Flag | Description |
 |------|-------------|
-| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `windsurf`, `gemini`, `generic` |
+| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `generic` |
 | `--print` | Output artifact content to stdout instead of writing files |
 | `--type <type>` | Filter by artifact type: `skills`, `prompts`, `rules`, `configs` |
 | `--name <name>` | Filter by artifact name (requires `--type`) |
@@ -197,7 +197,7 @@ scoring live in the template and the instance.
 | Flag | Description |
 |------|-------------|
 | `--template-version <tag>` | Template tag to install (default: latest) |
-| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `windsurf`, `gemini`, `generic`) |
+| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `generic`) |
 | `--yes` | Run non-interactively, accepting defaults |
 
 ```bash
@@ -239,11 +239,14 @@ On first run, the CLI prompts you to choose your AI coding tool. Artifacts are w
 | Cursor | `.cursor/` | `.cursor/rules/10x-course.mdc` |
 | GitHub Copilot | `.github/` | `.github/copilot-instructions.md` |
 | Codex CLI | `.agents/` | `AGENTS.md` |
-| Windsurf | `.windsurf/` | `.windsurfrules` |
+| Devin Desktop | `.devin/` | `AGENTS.md` |
 | Gemini CLI | `.gemini/` | `GEMINI.md` |
 | Generic | `.ai/` | `AGENTS.md` |
 
 Override anytime with `--tool <name>`. Your choice is saved in `~/.config/10x-cli/config.json`.
+The former `windsurf` ID remains accepted as an alias and is upgraded to
+`devin-desktop`; existing `.windsurf/` artifacts can be migrated by the normal
+tool-switch prompt.
 
 ## Development
 

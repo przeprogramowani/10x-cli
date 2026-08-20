@@ -12,6 +12,8 @@ export const SENTINEL_END = "<!-- END @przeprogramowani/10x-cli -->" as const;
 
 export interface ToolProfile {
   toolId: string;
+  /** Delivery API transform ID when it differs from the user-facing profile ID. */
+  contentToolId?: string;
   displayName: string;
   skillPath: (name: string) => string;
   skillDir: (name: string) => string;
@@ -72,15 +74,18 @@ export const PROFILES: Record<string, ToolProfile> = {
     sentinelBegin: SENTINEL_BEGIN,
     sentinelEnd: SENTINEL_END,
   },
-  windsurf: {
-    toolId: "windsurf",
-    displayName: "Windsurf",
-    skillPath: (n) => `.windsurf/skills/${n}/SKILL.md`,
-    skillDir: (n) => `.windsurf/skills/${n}`,
-    promptPath: (n) => `.windsurf/prompts/${n}.md`,
-    configPath: (n) => `.windsurf/config-templates/${n}`,
-    rulesFile: ".windsurfrules",
-    manifestDir: ".windsurf",
+  "devin-desktop": {
+    toolId: "devin-desktop",
+    // The delivery API predates the product rename and still uses this transform ID.
+    contentToolId: "windsurf",
+    displayName: "Devin Desktop",
+    skillPath: (n) => `.devin/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.devin/skills/${n}`,
+    promptPath: (n) => `.devin/prompts/${n}.md`,
+    configPath: (n) => `.devin/config-templates/${n}`,
+    // Supported by both Cascade and Devin Local; root AGENTS.md is always on.
+    rulesFile: "AGENTS.md",
+    manifestDir: ".devin",
     sentinelBegin: SENTINEL_BEGIN,
     sentinelEnd: SENTINEL_END,
   },
@@ -109,5 +114,41 @@ export const PROFILES: Record<string, ToolProfile> = {
     sentinelEnd: SENTINEL_END,
   },
 };
+
+/** Previous product ID accepted by flags/config files after the rename. */
+export const TOOL_ALIASES: Readonly<Record<string, string>> = {
+  windsurf: "devin-desktop",
+};
+
+/**
+ * Filesystem layouts that are no longer selectable but may contain manifests
+ * written by an older 10x-cli. The orphan flow can migrate these safely.
+ */
+export const LEGACY_PROFILES: Readonly<Record<string, ToolProfile>> = {
+  windsurf: {
+    toolId: "windsurf",
+    displayName: "Windsurf",
+    skillPath: (n) => `.windsurf/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.windsurf/skills/${n}`,
+    promptPath: (n) => `.windsurf/prompts/${n}.md`,
+    configPath: (n) => `.windsurf/config-templates/${n}`,
+    rulesFile: ".windsurfrules",
+    manifestDir: ".windsurf",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
+  },
+};
+
+export function canonicalToolId(toolId: string): string {
+  return TOOL_ALIASES[toolId] ?? toolId;
+}
+
+export function getToolProfile(toolId: string): ToolProfile | undefined {
+  return PROFILES[canonicalToolId(toolId)];
+}
+
+export function contentToolId(profile: ToolProfile): string {
+  return profile.contentToolId ?? profile.toolId;
+}
 
 export const DEFAULT_TOOL = "claude-code";

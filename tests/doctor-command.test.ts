@@ -304,7 +304,7 @@ describe("10x doctor — tool-profile-aware directory check", () => {
     expect(toolDir?.message).toContain(".cursor");
   });
 
-  it("fails when configured tool directory is missing", async () => {
+  it("legacy windsurf config checks the current .devin directory", async () => {
     writeValidAuth();
     healthyApi();
     saveToolConfig({ tool: "windsurf" });
@@ -315,7 +315,7 @@ describe("10x doctor — tool-profile-aware directory check", () => {
     const report = parseDoctor(stdout);
     const toolDir = report.checks.find((c) => c.name === "tool-dir");
     expect(toolDir?.status).toBe("fail");
-    expect(toolDir?.message).toContain(".windsurf/");
+    expect(toolDir?.message).toContain(".devin/");
   });
 });
 

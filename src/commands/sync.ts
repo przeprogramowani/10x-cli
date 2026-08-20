@@ -34,7 +34,7 @@ import {
 } from "../lib/output";
 import { readToolConfig } from "../lib/config";
 import { resolveToolProfile } from "../lib/tool-prompt";
-import type { ToolProfile } from "../lib/tool-profile";
+import { contentToolId, type ToolProfile } from "../lib/tool-profile";
 import {
   applyBundle,
   type ArtifactAction,
@@ -99,7 +99,7 @@ export function registerSyncCommand(cli: CAC): void {
     .option("--course <course>", "Override the course slug (default: 10xdevs3)")
     .option(
       "--tool <tool>",
-      "AI coding tool (claude-code, cursor, copilot, codex, windsurf, gemini, generic)",
+      "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, gemini, generic)",
     )
     .option("--lang <lang>", "Content language: en (default) or pl")
     .option(
@@ -267,7 +267,7 @@ async function syncLesson(
   verbose(ctx, `${lesson.lessonId}: fetching`);
   const result = await fetchLesson(opts.course, lesson.lessonId, opts.token, {
     lang: opts.lang,
-    tool: opts.profile.toolId,
+    tool: contentToolId(opts.profile),
     signal: opts.signal,
   });
 

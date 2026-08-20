@@ -62,7 +62,7 @@ The CLI writes artifacts to the correct directory for your AI coding tool:
 | Cursor | `.cursor/skills/` | `.cursor/rules/10x-course.mdc` | `.cursor/config-templates/` |
 | GitHub Copilot | `.github/skills/` | `.github/copilot-instructions.md` | `.github/config-templates/` |
 | Codex CLI | `.agents/skills/` | `AGENTS.md` | `.agents/config-templates/` |
-| Windsurf | `.windsurf/skills/` | `.windsurfrules` | `.windsurf/config-templates/` |
+| Devin Desktop | `.devin/skills/` | `AGENTS.md` | `.devin/config-templates/` |
 | Generic | `.ai/skills/` | `AGENTS.md` | `.ai/config-templates/` |
 
 The CLI auto-detects your tool from project markers on first run. Override anytime with `--tool`:
@@ -70,6 +70,10 @@ The CLI auto-detects your tool from project markers on first run. Override anyti
 ```
 10x get m1l1 --tool cursor
 ```
+
+`windsurf` remains a backward-compatible alias for `devin-desktop`. New files
+use Devin Desktop's `.devin/` workspace convention; legacy `.windsurf/` markers
+are still detected so existing 10x artifacts can be migrated.
 
 ## CI testing
 

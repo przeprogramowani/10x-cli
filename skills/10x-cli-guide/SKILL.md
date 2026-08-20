@@ -81,6 +81,7 @@ The primary daily command. Fetches a lesson bundle from the API and writes skill
 | Cursor | `.cursor/skills/<name>/SKILL.md` | `.cursor/prompts/<name>.md` | `.cursor/rules/10x-course.mdc` | `.cursor/config-templates/<name>` |
 | GitHub Copilot | `.github/skills/<name>/SKILL.md` | `.github/prompts/<name>.md` | `.github/copilot-instructions.md` | `.github/config-templates/<name>` |
 | Codex CLI | `.agents/skills/<name>/SKILL.md` | `.agents/prompts/<name>.md` | `AGENTS.md` | `.agents/config-templates/<name>` |
+| Devin Desktop | `.devin/skills/<name>/SKILL.md` | `.devin/prompts/<name>.md` | `AGENTS.md` | `.devin/config-templates/<name>` |
 | Generic | `.ai/skills/<name>/SKILL.md` | `.ai/prompts/<name>.md` | `AGENTS.md` | `.ai/config-templates/<name>` |
 
 **Re-applying a lesson** overwrites skills and prompts if content changed, updates the rules sentinel block, but never overwrites config templates (they may contain user edits).

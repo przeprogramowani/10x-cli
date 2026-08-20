@@ -6,7 +6,7 @@ import { apiBaseUrl, fetchHealth } from "../lib/api-content";
 import { isExpired, isNearExpiry } from "../lib/auth-guard";
 import { configDir, readAuth, readToolConfig } from "../lib/config";
 import { formatReleaseAt } from "../lib/format";
-import { PROFILES, DEFAULT_TOOL } from "../lib/tool-profile";
+import { getToolProfile, PROFILES, DEFAULT_TOOL } from "../lib/tool-profile";
 import { compareSemver, fetchLatestVersion, upgradeCommand } from "../lib/update-check";
 import {
   type GlobalFlags,
@@ -246,7 +246,7 @@ async function checkCliVersion(): Promise<CheckResult> {
 function checkToolDirectory(): CheckResult {
   const cwd = process.cwd();
   const toolId = readToolConfig()?.tool ?? DEFAULT_TOOL;
-  const profile = PROFILES[toolId] ?? PROFILES[DEFAULT_TOOL]!;
+  const profile = getToolProfile(toolId) ?? PROFILES[DEFAULT_TOOL]!;
   const dirName = profile.manifestDir;
   const toolDir = join(cwd, dirName);
 
@@ -280,4 +280,3 @@ function checkToolDirectory(): CheckResult {
     };
   }
 }
-

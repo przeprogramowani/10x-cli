@@ -16,7 +16,13 @@
 import * as p from "@clack/prompts";
 import { readToolConfig, saveToolConfig } from "./config";
 import { detectTools, topDetectedProfile } from "./tool-detect";
-import { PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
+import {
+  canonicalToolId,
+  getToolProfile,
+  PROFILES,
+  DEFAULT_TOOL,
+  type ToolProfile,
+} from "./tool-profile";
 import {
   deleteArtifacts,
   migrateArtifacts,
@@ -39,15 +45,16 @@ async function resolveProfileOnly(
 ): Promise<ToolProfile> {
   // 1. Explicit --tool flag
   if (flagOverride) {
-    const profile = PROFILES[flagOverride];
+    const canonicalId = canonicalToolId(flagOverride);
+    const profile = getToolProfile(flagOverride);
     if (!profile) {
       throw new Error(
         `Unknown tool '${flagOverride}'. Supported: ${Object.keys(PROFILES).join(", ")}`,
       );
     }
     const existing = readToolConfig();
-    if (existing?.tool !== flagOverride) {
-      saveToolConfig({ ...(existing ?? {}), tool: flagOverride });
+    if (existing?.tool !== canonicalId) {
+      saveToolConfig({ ...(existing ?? {}), tool: canonicalId });
       if (process.stdout.isTTY) {
         process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
       }
@@ -57,8 +64,15 @@ async function resolveProfileOnly(
 
   // 2. Saved config
   const config = readToolConfig();
-  if (config?.tool && PROFILES[config.tool]) {
-    return PROFILES[config.tool]!;
+  if (config?.tool) {
+    const profile = getToolProfile(config.tool);
+    if (profile) {
+      const canonicalId = canonicalToolId(config.tool);
+      if (canonicalId !== config.tool) {
+        saveToolConfig({ ...config, tool: canonicalId });
+      }
+      return profile;
+    }
   }
 
   // 3. Interactive prompt (TTY only), pre-filled by auto-detection

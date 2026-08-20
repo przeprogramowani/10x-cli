@@ -31,7 +31,12 @@ import {
   verbose,
 } from "../lib/output";
 import { type DetectionSignal, detectTools } from "../lib/tool-detect";
-import { DEFAULT_TOOL, PROFILES } from "../lib/tool-profile";
+import {
+  canonicalToolId,
+  DEFAULT_TOOL,
+  getToolProfile,
+  PROFILES,
+} from "../lib/tool-profile";
 
 export const TEMPLATE_REPO_URL = "https://github.com/przeprogramowani/10x-bench-kit";
 
@@ -464,7 +469,8 @@ async function resolveInstanceTool(
   existingInstance: boolean,
 ): Promise<{ id: string; explicit: boolean }> {
   if (options.tool !== undefined) {
-    if (!PROFILES[options.tool]) {
+    const canonicalId = canonicalToolId(options.tool);
+    if (!getToolProfile(options.tool)) {
       outputError(
         ctx,
         "unknown_tool",
@@ -473,7 +479,7 @@ async function resolveInstanceTool(
         `Supported: ${Object.keys(PROFILES).join(", ")}.`,
       );
     }
-    return { id: options.tool, explicit: true };
+    return { id: canonicalId, explicit: true };
   }
   const signals = deps.detectToolSignals(process.cwd());
   const top = signals[0];
@@ -496,7 +502,7 @@ async function resolveInstanceTool(
 
 /** Skill root (relative, posix — the contract is cross-platform JSON). */
 export function skillRootFor(toolId: string): string {
-  const profile = PROFILES[toolId] ?? PROFILES[DEFAULT_TOOL]!;
+  const profile = getToolProfile(toolId) ?? PROFILES[DEFAULT_TOOL]!;
   return `${profile.manifestDir}/skills`;
 }
 

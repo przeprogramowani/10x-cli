@@ -17,7 +17,7 @@ import {
 } from "../lib/output";
 import { readToolConfig, updateToolConfig } from "../lib/config";
 import { resolveToolProfile } from "../lib/tool-prompt";
-import type { ToolProfile } from "../lib/tool-profile";
+import { contentToolId, type ToolProfile } from "../lib/tool-profile";
 import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
 
 const ARTIFACT_TYPES = ["skills", "prompts", "rules", "configs"] as const;
@@ -64,7 +64,7 @@ export function registerGetCommand(cli: CAC): void {
     .option("--course <course>", "Override the course slug (default: 10xdevs3)")
     .option(
       "--tool <tool>",
-      "AI coding tool (claude-code, cursor, copilot, codex, windsurf, gemini, generic)",
+      "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, gemini, generic)",
     )
     .option("--print", "Print artifact content to stdout instead of writing to files")
     .option("--type <type>", "Artifact type filter: skills, prompts, rules, configs")
@@ -161,7 +161,7 @@ export async function runGet(
   verbose(ctx, `fetching lesson ${course}/${parsed.lessonId}`);
   const result = await fetchLesson(course, parsed.lessonId, auth.access_token, {
     lang,
-    tool: profile.toolId,
+    tool: contentToolId(profile),
   });
 
   if (!result.ok) {
@@ -311,7 +311,7 @@ async function runPrintMode(
       lessonId,
       options.type,
       options.name,
-      profile.toolId,
+      contentToolId(profile),
       token,
       { lang },
     );
@@ -335,7 +335,7 @@ async function runPrintMode(
   } else {
     // Fetch full bundle, filter by type, concatenate
     verbose(ctx, `fetching lesson ${course}/${lessonId} (filtering by ${options.type})`);
-    const result = await fetchLesson(course, lessonId, token, { lang, tool: profile.toolId });
+    const result = await fetchLesson(course, lessonId, token, { lang, tool: contentToolId(profile) });
 
     if (!result.ok) {
       handleLessonError(ctx, result.status, result.code, result.error, result.payload);

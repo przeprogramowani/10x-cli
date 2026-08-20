@@ -92,17 +92,36 @@ export function detectTools(projectRoot: string): DetectionSignal[] {
     signals.push({ profileId: "codex", confidence: "medium", reason: "AGENTS.md" });
   }
 
-  // Windsurf
-  if (hit(".windsurf/" + MANIFEST_FILENAME)) {
+  // Devin Desktop (formerly Windsurf). Prefer new markers, but detect legacy
+  // projects so the tool-switch flow can offer to migrate their artifacts.
+  if (hit(".devin/" + MANIFEST_FILENAME)) {
     signals.push({
-      profileId: "windsurf",
+      profileId: "devin-desktop",
       confidence: "strong",
-      reason: ".windsurf/.10x-cli-manifest.json",
+      reason: ".devin/.10x-cli-manifest.json",
+    });
+  } else if (hit(".devin/rules")) {
+    signals.push({ profileId: "devin-desktop", confidence: "strong", reason: ".devin/rules/" });
+  } else if (hit(".devin")) {
+    signals.push({ profileId: "devin-desktop", confidence: "medium", reason: ".devin/ directory" });
+  } else if (hit(".windsurf/" + MANIFEST_FILENAME)) {
+    signals.push({
+      profileId: "devin-desktop",
+      confidence: "strong",
+      reason: ".windsurf/.10x-cli-manifest.json (legacy)",
     });
   } else if (hit(".windsurfrules")) {
-    signals.push({ profileId: "windsurf", confidence: "strong", reason: ".windsurfrules" });
+    signals.push({
+      profileId: "devin-desktop",
+      confidence: "strong",
+      reason: ".windsurfrules (legacy)",
+    });
   } else if (hit(".windsurf")) {
-    signals.push({ profileId: "windsurf", confidence: "medium", reason: ".windsurf/ directory" });
+    signals.push({
+      profileId: "devin-desktop",
+      confidence: "medium",
+      reason: ".windsurf/ directory (legacy)",
+    });
   }
 
   // Gemini CLI
@@ -135,7 +154,15 @@ export function detectTools(projectRoot: string): DetectionSignal[] {
 }
 
 const CONFIDENCE_ORDER: Record<Confidence, number> = { strong: 3, medium: 2, weak: 1 };
-const PROFILE_ORDER = ["claude-code", "cursor", "copilot", "codex", "windsurf", "gemini", "generic"];
+const PROFILE_ORDER = [
+  "claude-code",
+  "cursor",
+  "copilot",
+  "codex",
+  "devin-desktop",
+  "gemini",
+  "generic",
+];
 
 function rankSignals(signals: DetectionSignal[]): DetectionSignal[] {
   return [...signals].sort((a, b) => {

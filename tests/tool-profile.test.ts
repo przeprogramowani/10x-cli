@@ -7,7 +7,13 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PROFILES, DEFAULT_TOOL, SENTINEL_BEGIN, SENTINEL_END } from "../src/lib/tool-profile";
+import {
+  DEFAULT_TOOL,
+  LEGACY_PROFILES,
+  PROFILES,
+  SENTINEL_BEGIN,
+  SENTINEL_END,
+} from "../src/lib/tool-profile";
 import { readToolConfig, saveToolConfig, toolConfigPath } from "../src/lib/config";
 import { resolveToolProfile } from "../src/lib/tool-prompt";
 import { isSafeName } from "../src/lib/writer";
@@ -58,6 +64,16 @@ describe("tool profiles — path generation", () => {
     expect(p.configPath("settings.json")).toBe(".agents/config-templates/settings.json");
     expect(p.rulesFile).toBe("AGENTS.md");
     expect(p.manifestDir).toBe(".agents");
+  });
+
+  it("devin-desktop profile produces current .devin/ paths", () => {
+    const p = PROFILES["devin-desktop"]!;
+    expect(p.displayName).toBe("Devin Desktop");
+    expect(p.skillPath("code-review")).toBe(".devin/skills/code-review/SKILL.md");
+    expect(p.promptPath("plan")).toBe(".devin/prompts/plan.md");
+    expect(p.configPath("settings.json")).toBe(".devin/config-templates/settings.json");
+    expect(p.rulesFile).toBe("AGENTS.md");
+    expect(p.manifestDir).toBe(".devin");
   });
 
   it("generic profile produces .ai/ paths", () => {
@@ -172,6 +188,25 @@ describe("resolveToolProfile", () => {
     expect(profile.toolId).toBe("cursor");
   });
 
+  it("legacy windsurf config resolves to Devin Desktop and is canonicalized", async () => {
+    saveToolConfig({ tool: "windsurf" });
+    process.stdout.isTTY = false;
+
+    const profile = await resolveToolProfile();
+
+    expect(profile.toolId).toBe("devin-desktop");
+    expect(readToolConfig()?.tool).toBe("devin-desktop");
+  });
+
+  it("legacy --tool windsurf flag remains an alias for Devin Desktop", async () => {
+    process.stdout.isTTY = false;
+
+    const profile = await resolveToolProfile("windsurf");
+
+    expect(profile.toolId).toBe("devin-desktop");
+    expect(readToolConfig()?.tool).toBe("devin-desktop");
+  });
+
   it("defaults to claude-code in non-interactive mode with no config", async () => {
     process.stdout.isTTY = false;
     const profile = await resolveToolProfile();
@@ -270,7 +305,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
   });
 
   function seedOrphanManifest(toolId: string, skills: string[] = []): void {
-    const profile = PROFILES[toolId]!;
+    const profile = PROFILES[toolId] ?? LEGACY_PROFILES[toolId]!;
     const skillsRecord = Object.fromEntries(
       skills.map((s) => [s, { files: ["SKILL.md"] }]),
     );
@@ -319,6 +354,24 @@ describe("resolveToolProfile — tool-switch migration", () => {
     expect(existsSync(join(projectRoot, PROFILES["claude-code"]!.skillPath("code-review")))).toBe(
       false,
     );
+  });
+
+  it("migrates legacy Windsurf artifacts into the Devin Desktop layout", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "windsurf" });
+    seedOrphanManifest("windsurf", ["code-review"]);
+    clackMockState.selectImpl = (opts: SelectOpts) => {
+      if (opts.message.includes("What should we do")) return "migrate";
+      return opts.initialValue;
+    };
+
+    const profile = await resolveToolProfile(undefined, projectRoot);
+
+    expect(profile.toolId).toBe("devin-desktop");
+    expect(readToolConfig()?.tool).toBe("devin-desktop");
+    expect(existsSync(join(projectRoot, ".devin/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectRoot, ".windsurf/skills/code-review/SKILL.md"))).toBe(false);
+    expect(existsSync(join(projectRoot, ".windsurf", MANIFEST_FILENAME))).toBe(false);
   });
 
   it("does NOT prompt for an orphan that is already acknowledged", async () => {

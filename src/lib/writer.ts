@@ -36,7 +36,7 @@ import {
   writeManifest,
 } from "./manifest";
 import { applyRulesBlockWithMarkers, removeRulesBlockWithMarkers } from "./sentinel-migration";
-import { PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
+import { LEGACY_PROFILES, PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
 import pkgJson from "../../package.json";
 
 const CLI_VERSION = pkgJson.version;
@@ -833,7 +833,7 @@ export function findOrphanedManifests(
   currentProfile: ToolProfile,
 ): OrphanInfo[] {
   const out: OrphanInfo[] = [];
-  for (const profile of Object.values(PROFILES)) {
+  for (const profile of [...Object.values(PROFILES), ...Object.values(LEGACY_PROFILES)]) {
     if (profile.toolId === currentProfile.toolId) continue;
     const manifestPath = join(projectRoot, profile.manifestDir, MANIFEST_FILENAME);
     if (!existsSync(manifestPath)) continue;

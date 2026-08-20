@@ -222,6 +222,16 @@ describe("10x bench-kit init", () => {
     });
     expect(parseEnvelope(result.stdout).data.skillRoot).toBe(".agents/skills");
 
+    const legacyAliasTarget = join(tempDir("bench-kit-target-"), "legacy-alias");
+    await captureStreams(() =>
+      runBenchKitInit(JSON_CTX, legacyAliasTarget, { tool: "windsurf" }, deps),
+    );
+    expect(bootstrapCalls[1]!.request.tool).toEqual({
+      id: "devin-desktop",
+      skillRoot: ".devin/skills",
+      explicit: true,
+    });
+
     const rejected = await captureStreams(() =>
       runBenchKitInit(JSON_CTX, target, { tool: "vim" }, deps),
     );

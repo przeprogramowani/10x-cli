@@ -128,27 +128,51 @@ describe("detectTools", () => {
     expect(signals[0]!.confidence).toBe("weak");
   });
 
-  it(".windsurfrules → windsurf (strong)", () => {
-    touchFile(".windsurfrules", "# rules\n");
+  it(".devin/rules/ → devin-desktop (strong)", () => {
+    touchDir(".devin/rules");
     const signals = detectTools(tmp);
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.profileId).toBe("windsurf");
+    expect(signals[0]!.profileId).toBe("devin-desktop");
     expect(signals[0]!.confidence).toBe("strong");
   });
 
-  it(".windsurf/ directory only → windsurf (medium)", () => {
-    touchDir(".windsurf");
+  it(".devin/ directory only → devin-desktop (medium)", () => {
+    touchDir(".devin");
     const signals = detectTools(tmp);
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.profileId).toBe("windsurf");
+    expect(signals[0]!.profileId).toBe("devin-desktop");
     expect(signals[0]!.confidence).toBe("medium");
   });
 
-  it(".windsurf manifest → windsurf (strong)", () => {
+  it(".devin manifest → devin-desktop (strong)", () => {
+    writeManifestAt(".devin");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("devin-desktop");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it("legacy .windsurfrules → devin-desktop (strong)", () => {
+    touchFile(".windsurfrules", "# rules\n");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("devin-desktop");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it("legacy .windsurf/ directory only → devin-desktop (medium)", () => {
+    touchDir(".windsurf");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("devin-desktop");
+    expect(signals[0]!.confidence).toBe("medium");
+  });
+
+  it("legacy .windsurf manifest → devin-desktop (strong)", () => {
     writeManifestAt(".windsurf");
     const signals = detectTools(tmp);
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.profileId).toBe("windsurf");
+    expect(signals[0]!.profileId).toBe("devin-desktop");
     expect(signals[0]!.confidence).toBe("strong");
   });
 });

@@ -136,6 +136,23 @@ describe("writer with codex profile", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Devin Desktop profile
+// ---------------------------------------------------------------------------
+
+describe("writer with Devin Desktop profile", () => {
+  const devinProfile = PROFILES["devin-desktop"]!;
+
+  it("writes artifacts under .devin/ and always-on rules to AGENTS.md", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: devinProfile });
+    expect(existsSync(join(tmp, ".devin/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".devin/prompts/plan.md"))).toBe(true);
+    expect(existsSync(join(tmp, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".devin/config-templates/settings.json"))).toBe(true);
+    expect(readManifest(join(tmp, ".devin"))?.tool).toBe("devin-desktop");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Generic profile
 // ---------------------------------------------------------------------------
 
@@ -237,6 +254,28 @@ describe("detectOrphanedArtifacts", () => {
     expect(warning).toContain(".cursor/");
     expect(warning).toContain("Cursor");
     expect(warning).toContain(".claude/");
+  });
+
+  it("recognizes a legacy .windsurf manifest when Devin Desktop is current", () => {
+    const legacyManifest = join(tmp, ".windsurf", MANIFEST_FILENAME);
+    mkdirSync(join(tmp, ".windsurf"), { recursive: true });
+    writeFileSync(
+      legacyManifest,
+      JSON.stringify({
+        package: "@przeprogramowani/10x-cli",
+        version: "1.19.0",
+        manifestVersion: 2,
+        lastApplied: new Date().toISOString(),
+        lessonId: "m1l1",
+        course: "10xdevs3",
+        tool: "windsurf",
+        files: { skills: {}, prompts: [], configs: [] },
+      }),
+    );
+
+    const warning = detectOrphanedArtifacts(tmp, PROFILES["devin-desktop"]!);
+    expect(warning).toContain(".windsurf/");
+    expect(warning).toContain(".devin/");
   });
 
   it("does not warn about the current tool's own manifest", async () => {
