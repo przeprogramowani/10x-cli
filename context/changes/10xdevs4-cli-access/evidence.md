@@ -215,3 +215,38 @@ still awaits the user's answer. This continuation did not change remote settings
 merge anything, run later phases or mark any Progress criterion complete. The
 previous turn made progress (source PR, tests, lessons); this turn adds the bounded
 independent review and exact-head CI evidence. No full-goal completion is claimed.
+
+
+### Corrected merge dependency: continue candidate verification before merge — 2026-09-12
+
+The user challenged whether PR #30 must merge immediately. Parent re-inspected
+the builder: v4 `latest` accepts CONTENT_SOURCE_REVISION as an immutable candidate
+source and does not turn that value into a permanent package/file/default pin.
+The earlier conclusion that the entire implementation must stop was too broad.
+The outstanding workflow-suspension question is deferred; no such setting change
+or immediate merge is needed to continue independent phase-3 candidate checks.
+
+Verified command:
+`CONTENT_SOURCE_REVISION=e6e9f3f2e807d14019f0fe5cd087554f7dbd7864 pnpm --filter @przeprogramowani/course-content build:lessons --course 10xdevs4`
+PASS: exactly m1l1–m1l5 built, stack-assess includes all seven files, and provenance
+records that source SHA with no package or file pins. Selected base-bundle
+validation also passes. Logs: `/tmp/10x-v4-pr-candidate-build.log` and
+`/tmp/10x-v4-pr-candidate-validation.log`.
+
+This is local candidate evidence, not production release certification. Keep all
+final phase-3 gates open until their full requirements pass. In particular, the
+v3 maintenance pin still requires the actual post-merge master SHA, and the full
+ci:local frozen-v3 source build cannot be certified using the PR head as a pin.
+Continue independent v4 transforms, release/publisher/API/CLI checks within phase
+3; do not skip remaining gates or advance to later phases as if phase 3 passed.
+The final publisher proof remains a real isolated R2 test, not a mocked substitute.
+
+
+Additional independent candidate checks after correcting the dependency:
+- API content-release and publisher regression files: 63 tests PASS
+  (`/tmp/10x-v4-pr-candidate-release-tests.log`).
+- CLI content-release and sync-command regression files: 35 tests PASS
+  (`/tmp/10x-v4-pr-candidate-cli-tests.log`).
+These local regressions make further progress without merging. They do not replace
+real final EN/PL transformation, the isolated real-R2 publisher trial, full frozen-v3
+verification or later-phase gates. No production writes or workflow changes occurred.

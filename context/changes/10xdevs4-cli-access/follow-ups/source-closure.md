@@ -54,3 +54,14 @@ Draft Toolkit PR #30: https://github.com/przeprogramowani/10x-toolkit/pull/30
 `fix/stack-assess-reference-closure`). Full local CI passed on the isolated master
 base. This is a review-candidate SHA only; wait for the resulting master commit
 before adding the maintenance pin. Canonical evidence.md records verification.
+
+
+## Correction: immediate merge is not a prerequisite for every phase-3 check
+
+The earlier blanket halt was too broad. V4 candidate build/validation and isolated
+release tests can use PR #30's immutable source via CONTENT_SOURCE_REVISION without
+creating a permanent pin. Parent verified five lessons plus base validation, 63
+API/publisher tests and 35 CLI tests on this path. The final v3 maintenance pin and
+full frozen-v3 build remain dependent on the actual master merge SHA. Keep that
+final dependency visible while continuing independent phase-3 work. Workflow
+suspension is deferred, not a prerequisite to those local checks.

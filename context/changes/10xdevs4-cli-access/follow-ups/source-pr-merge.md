@@ -1,7 +1,10 @@
 # Reviewable source-prerequisite merge procedure
 
-This is an operational proposal, not an execution tracker. Canonical plan Progress
-remains authoritative. No workflow suspension or merge has been performed.
+This is a deferred operational proposal, not an execution tracker. Canonical plan
+Progress remains authoritative. No workflow suspension or merge has been performed.
+Immediate merge is not required for independent v4 candidate verification. The
+earlier workflow-suspension question is deferred; request that decision only when
+the actual master pin is the remaining prerequisite for final verification.
 
 ## Prepared input
 
