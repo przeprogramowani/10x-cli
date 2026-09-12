@@ -17,11 +17,13 @@ import { join } from "node:path";
 import type { CAC } from "cac";
 import {
   fetchCatalog,
+  catalogRelease,
+  type ReleaseSelection,
   fetchLesson,
   type LessonBundle,
   type LessonSummary,
 } from "../lib/api-content";
-import { requireAuth } from "../lib/auth-guard";
+import { resolveCourseSelection, type SelectionReason } from "../lib/course-selection";
 import { type CliManifest, readManifest } from "../lib/manifest";
 import {
   ExitCodes,
@@ -33,7 +35,7 @@ import {
   verbose,
 } from "../lib/output";
 import { readToolConfig } from "../lib/config";
-import { resolveToolProfile } from "../lib/tool-prompt";
+import { resolveToolProfile, prepareToolForWrite } from "../lib/tool-prompt";
 import { contentToolId, type ToolProfile } from "../lib/tool-profile";
 import {
   applyBundle,
@@ -44,9 +46,8 @@ import {
   type WriteResult,
 } from "../lib/writer";
 import { resolveCourseRulesFlag } from "./get";
+import { isLessonFresh } from "../lib/sync-freshness";
 
-/** Default course slug. Hardcoded for v1 per plan; configurable later. */
-const DEFAULT_COURSE = "10xdevs3";
 const SUPPORTED_LANGS = ["en", "pl"];
 
 interface SyncFlags extends GlobalFlags {
@@ -61,7 +62,7 @@ interface SyncFlags extends GlobalFlags {
 }
 
 type ArtifactKind = "skills" | "prompts" | "rules" | "configs";
-type Bucket = "created" | "upstream-updated" | "unchanged" | "skipped-conflict" | "removed";
+type Bucket = "created" | "upstream-updated" | "unchanged" | "skipped-conflict" | "removed" | "preserved-local";
 
 interface ResourceOutcome {
   type: ArtifactKind;
@@ -71,6 +72,7 @@ interface ResourceOutcome {
   bucket: Bucket;
   /** A copy-pasteable command to take this update, for skipped-conflict. */
   remediation?: string;
+  reason?: string;
 }
 
 type LessonStatus = "updated" | "unchanged" | "conflicts" | "errored";
@@ -96,7 +98,7 @@ export function registerSyncCommand(cli: CAC): void {
     .option("--dry-run", "Show what would change without writing")
     .option("--force", "Ignore the cheap-skip digest and overwrite local edits with upstream")
     .option("--module <module>", "Limit to one module (e.g. 'm2' or '2')")
-    .option("--course <course>", "Override the course slug (default: 10xdevs3)")
+    .option("--course <course>", "Select course ID or slug (default: project edition or API recommendation)")
     .option(
       "--tool <tool>",
       "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, gemini, generic)",
@@ -138,8 +140,8 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
     moduleFilter = parsed;
   }
 
-  const auth = await requireAuth(ctx);
-  const course = options.course ?? DEFAULT_COURSE;
+  const selection = await resolveCourseSelection(ctx, { explicit: options.course, writing: !options.dryRun });
+  const { auth, course } = selection;
   const profile = await resolveToolProfile(options.tool, process.cwd());
   const dryRun = options.dryRun === true;
   const force = options.force === true;
@@ -154,6 +156,7 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
     handleCatalogError(ctx, catalogResult.status, catalogResult.code, catalogResult.error);
   }
   const catalog = catalogResult.data;
+  const release = catalogRelease(catalog);
 
   // Module effective state drives which lessons are reachable. The catalog only
   // returns unlocked lessons, but we filter defensively + record any locked one.
@@ -170,7 +173,7 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
   });
 
   const manifest = readManifest(join(process.cwd(), profile.manifestDir));
-  const manifestLessonIds = new Set(manifest?.lessons ? Object.keys(manifest.lessons) : []);
+  const manifestLessonIds = new Set(manifest?.lessons ? Object.keys(manifest.lessons) : manifest ? [manifest.lessonId] : []);
 
   let targets = unlocked;
   if (moduleFilter !== undefined) targets = targets.filter((l) => l.module === moduleFilter);
@@ -188,12 +191,23 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
   const onSigint = () => controller.abort();
   process.once("SIGINT", onSigint);
   const outcomes: LessonOutcome[] = [];
+  let prepared = false;
+  const beforeWrite = async () => {
+    if (prepared) return;
+    await prepareToolForWrite(process.cwd(), profile, course, {
+      ...(options.lang ? { lang: options.lang } : {}),
+      ...(explicitCourseRules !== undefined ? { courseRules: explicitCourseRules } : {}),
+    }, false);
+    prepared = true;
+  };
   try {
     for (const lesson of targets) {
       if (controller.signal.aborted) break;
       outcomes.push(
         await syncLesson(ctx, lesson, {
           course,
+          beforeWrite,
+          release,
           profile,
           lang,
           dryRun,
@@ -211,6 +225,7 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
 
   renderReport(ctx, profile, {
     course,
+    selectionReason: selection.reason,
     dryRun,
     force,
     mode: options.all === true ? "all" : "downloaded",
@@ -227,6 +242,8 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
 }
 
 interface SyncLessonOpts {
+  beforeWrite: () => Promise<void>;
+  release?: ReleaseSelection;
   course: string;
   profile: ToolProfile;
   lang: string;
@@ -243,7 +260,8 @@ async function syncLesson(
   lesson: LessonSummary,
   opts: SyncLessonOpts,
 ): Promise<LessonOutcome> {
-  const stored = opts.manifest?.lessons?.[lesson.lessonId]?.catalogContentHash;
+  const currentManifest = readManifest(join(process.cwd(), opts.profile.manifestDir));
+  const stored = currentManifest?.lessons?.[lesson.lessonId]?.catalogContentHash;
 
   // Cheap-skip: digest-vs-digest. Only when NOT --force, the catalog advertises
   // a digest, AND we have one stored from last apply. Otherwise fall through to
@@ -252,7 +270,8 @@ async function syncLesson(
     !opts.force &&
     lesson.contentHash !== undefined &&
     stored !== undefined &&
-    lesson.contentHash === stored
+    lesson.contentHash === stored &&
+    isLessonFresh(process.cwd(), currentManifest, lesson.lessonId, opts.profile, opts.lang, opts.applyCourseRules)
   ) {
     verbose(ctx, `${lesson.lessonId}: upstream unchanged (digest match) — skipping fetch`);
     return {
@@ -269,6 +288,7 @@ async function syncLesson(
     lang: opts.lang,
     tool: contentToolId(opts.profile),
     signal: opts.signal,
+    ...(opts.release ? { release: opts.release } : {}),
   });
 
   if (!result.ok) {
@@ -306,16 +326,25 @@ async function syncLesson(
   // Non-interactive resolver: default skips (user work preserved), --force
   // overwrites. The cheap-skip gate was already bypassed above when --force.
   const onConflict: ConflictResolver = opts.force
-    ? async () => "overwrite"
+    ? async (info) => info.artifactType === "rules" ? "skip" : "overwrite"
     : async () => "skip";
 
-  const writeResult = await applyBundle(bundle, process.cwd(), {
-    course: opts.course,
-    profile: opts.profile,
-    onConflict,
-    applyCourseRules: opts.applyCourseRules,
-    catalogContentHash: lesson.contentHash,
-  });
+  let writeResult: WriteResult;
+  try {
+    planBundle(bundle, process.cwd(), { course: opts.course, profile: opts.profile, applyCourseRules: opts.applyCourseRules });
+    await opts.beforeWrite();
+    writeResult = await applyBundle(bundle, process.cwd(), {
+      course: opts.course,
+      profile: opts.profile,
+      onConflict,
+      applyCourseRules: opts.applyCourseRules,
+      catalogContentHash: lesson.contentHash,
+      lang: result.responseHeaders.get("X-Content-Language") ?? opts.lang,
+    });
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "write_failed";
+    return { lessonId: lesson.lessonId, title: lesson.title, fetched: true, status: "errored", resources: [], error: { code, message: error instanceof Error ? error.message : String(error), retry: `10x get ${lesson.lessonId}` } };
+  }
 
   const resources = classifyFromWriteResult(writeResult, lesson.lessonId);
   return {
@@ -339,6 +368,8 @@ function actionToBucket(action: ArtifactAction): Bucket {
     case "conflict_overwritten":
     case "conflict_saved_user":
       return "upstream-updated";
+    case "preserved_local":
+      return "preserved-local";
     case "conflict_skipped":
       return "skipped-conflict";
     case "removed":
@@ -384,20 +415,20 @@ function classifyFromWriteResult(result: WriteResult, lessonId: string): Resourc
     });
   }
 
-  out.push({ type: "rules", name: "course-rules", bucket: actionToBucket(result.rules.action) });
+  out.push({ type: "rules", name: "course-rules", bucket: actionToBucket(result.rules.action), remediation: `10x get ${lessonId} --type rules` });
 
   for (const config of result.configs) {
     out.push({ type: "configs", name: config.name, bucket: actionToBucket(config.action) });
   }
 
   for (const entry of result.removals.skills) {
-    out.push({ type: "skills", name: entry.name, bucket: "removed" });
+    out.push({ type: "skills", name: entry.name, bucket: actionToBucket(entry.action), reason: entry.reason });
   }
   for (const entry of result.removals.prompts) {
-    out.push({ type: "prompts", name: entry.name, bucket: "removed" });
+    out.push({ type: "prompts", name: entry.name, bucket: actionToBucket(entry.action), reason: entry.reason });
   }
   for (const entry of result.removals.configs) {
-    out.push({ type: "configs", name: entry.name, bucket: "removed" });
+    out.push({ type: "configs", name: entry.name, bucket: actionToBucket(entry.action), reason: entry.reason });
   }
 
   return out;
@@ -437,20 +468,20 @@ function classifyFromPlan(plan: WritePlan, lessonId: string, force: boolean): Re
     });
   }
 
-  out.push({ type: "rules", name: "course-rules", bucket: actionToBucket(plan.rules.action) });
+  out.push({ type: "rules", name: "course-rules", bucket: plan.rules.isConflict ? "skipped-conflict" : actionToBucket(plan.rules.action), remediation: `10x get ${lessonId} --type rules` });
 
   for (const config of plan.configs) {
     out.push({ type: "configs", name: config.name, bucket: actionToBucket(config.action) });
   }
 
   for (const entry of plan.removals.skills) {
-    out.push({ type: "skills", name: entry.name, bucket: "removed" });
+    out.push({ type: "skills", name: entry.name, bucket: actionToBucket(entry.action), reason: entry.reason });
   }
   for (const entry of plan.removals.prompts) {
-    out.push({ type: "prompts", name: entry.name, bucket: "removed" });
+    out.push({ type: "prompts", name: entry.name, bucket: actionToBucket(entry.action), reason: entry.reason });
   }
   for (const entry of plan.removals.configs) {
-    out.push({ type: "configs", name: entry.name, bucket: "removed" });
+    out.push({ type: "configs", name: entry.name, bucket: actionToBucket(entry.action), reason: entry.reason });
   }
 
   return out;
@@ -469,6 +500,7 @@ function lessonStatus(resources: ResourceOutcome[]): LessonStatus {
 // ---------------------------------------------------------------------------
 
 interface ReportInput {
+  selectionReason: SelectionReason;
   course: string;
   dryRun: boolean;
   force: boolean;
@@ -485,6 +517,7 @@ function countBuckets(outcomes: LessonOutcome[]): Record<Bucket, number> {
     unchanged: 0,
     "skipped-conflict": 0,
     removed: 0,
+    "preserved-local": 0,
   };
   for (const o of outcomes) {
     for (const r of o.resources) totals[r.bucket]++;
@@ -501,6 +534,7 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
   if (ctx.json) {
     output(ctx, "", {
       course: input.course,
+      selectionReason: input.selectionReason,
       tool: profile.toolId,
       dryRun: input.dryRun,
       force: input.force,
@@ -521,6 +555,7 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
           unchanged: buckets.unchanged,
           skippedConflict: buckets["skipped-conflict"],
           removed: buckets.removed,
+          preservedLocal: buckets["preserved-local"],
         },
       },
     });
@@ -531,7 +566,7 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
   const verb = input.dryRun ? "Would sync" : "Synced";
   const scope = input.mode === "all" ? "all unlocked lessons" : "downloaded lessons";
   const moduleNote = input.module !== undefined ? ` in module ${input.module}` : "";
-  lines.push(`${verb} ${input.course} — ${scope}${moduleNote}:`);
+  lines.push(`${verb} ${input.course} (${input.selectionReason}) — ${scope}${moduleNote}:`);
 
   if (outcomes.length === 0) {
     lines.push("  (nothing to sync)");
@@ -546,6 +581,7 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
     const summary = summarizeLesson(o);
     lines.push(`  ${o.lessonId} — ${o.status}${summary ? ` (${summary})` : ""}`);
     for (const r of o.resources) {
+      if (r.bucket === "preserved-local") { lines.push(`      preserved ${r.type}/${r.name} — ${r.reason ?? "local file"}`); continue; }
       if (r.bucket !== "skipped-conflict") continue;
       const label = r.file ? `${r.type}/${r.name} (${r.file})` : `${r.type}/${r.name}`;
       lines.push(`      skipped ${label} — you edited it → ${r.remediation}`);
@@ -562,10 +598,10 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
   lines.push(
     `Totals: ${buckets["upstream-updated"]} updated, ${buckets.created} new, ` +
       `${buckets.unchanged} unchanged, ${buckets["skipped-conflict"]} skipped (conflicts), ` +
-      `${buckets.removed} removed.`,
+      `${buckets.removed} removed, ${buckets["preserved-local"]} preserved locally.`,
   );
   if (lessonsConflicts > 0 && !input.force) {
-    lines.push("To take all upstream updates over your local edits: 10x sync --force");
+    lines.push("To replace edited skills and prompts: 10x sync --force. Resolve rule conflicts with 10x get <lesson> --type rules.");
   }
 
   output(ctx, lines.join("\n"), undefined);
@@ -578,6 +614,7 @@ function summarizeLesson(o: LessonOutcome): string {
     unchanged: 0,
     "skipped-conflict": 0,
     removed: 0,
+    "preserved-local": 0,
   };
   for (const r of o.resources) counts[r.bucket]++;
   const parts: string[] = [];
@@ -600,6 +637,8 @@ function handleCatalogError(
   code: string,
   error: string,
 ): never {
+  if (["course_access_denied", "module_locked", "course_unavailable"].includes(code)) outputError(ctx, code, error, status === 403 ? ExitCodes.FORBIDDEN : ExitCodes.ERROR);
+  if (code === "release_mismatch") outputError(ctx, code, error, ExitCodes.ERROR);
   if (status === 401) {
     outputError(
       ctx,
@@ -638,7 +677,9 @@ function handleCatalogError(
 
 /** Per-lesson error message — NO process.exit (the sweep continues). */
 function lessonErrorMessage(status: number, code: string, error: string): string {
-  if (status === 403) return "Module is locked.";
+  if (code === "release_mismatch") return error;
+  if (code === "course_access_denied" || code === "course_unavailable") return error;
+  if (status === 403 && code === "module_locked") return "Module is locked.";
   if (status === 404) return "Lesson not found.";
   if (status === 401) return "Session expired.";
   if (status === 0) return "Network error reaching the API.";

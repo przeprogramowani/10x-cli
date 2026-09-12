@@ -17,9 +17,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
-  rmdirSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -30,14 +27,17 @@ import {
   type LessonFilesEntry,
   MANIFEST_FILENAME,
   MANIFEST_VERSION,
-  buildUnionFiles,
+  seedLessons,
+  rebuildManifestFiles,
   contentHash,
   readManifest,
   writeManifest,
 } from "./manifest";
-import { applyRulesBlockWithMarkers, removeRulesBlockWithMarkers } from "./sentinel-migration";
+import { planManagedRules } from "./managed-rules";
+import { executeManagedRemoval, planManagedRemoval, type ManagedRemoval } from "./managed-removal";
 import { LEGACY_PROFILES, PROFILES, DEFAULT_TOOL, type ToolProfile } from "./tool-profile";
 import pkgJson from "../../package.json";
+import { assertProjectCourse, assertProjectFilePath, establishProjectCourse } from "./project-course";
 
 const CLI_VERSION = pkgJson.version;
 
@@ -49,6 +49,7 @@ export type ArtifactAction =
   | "updated"
   | "unchanged"
   | "skipped"
+  | "preserved_local"
   | "removed"
   | "conflict_overwritten"
   | "conflict_saved_user"
@@ -58,6 +59,7 @@ export interface ArtifactWrite {
   name: string;
   path: string;
   action: ArtifactAction;
+  reason?: string;
   userBackupPath?: string;
 }
 
@@ -76,7 +78,7 @@ export interface SkillWrite {
 export interface WriteResult {
   skills: SkillWrite[];
   prompts: ArtifactWrite[];
-  rules: { action: ArtifactAction };
+  rules: { action: ArtifactAction; reason?: string; userBackupPath?: string };
   configs: ArtifactWrite[];
   removals: {
     skills: ArtifactWrite[];
@@ -128,13 +130,12 @@ export interface ConfigPlan {
 
 export interface RulesPlan {
   action: ArtifactAction;
+  isConflict: boolean;
+  reason?: string;
   upstreamChanged: boolean;
 }
 
-export interface RemovalPlanEntry {
-  name: string;
-  path: string;
-}
+export type RemovalPlanEntry = ManagedRemoval;
 
 export interface WritePlan {
   skills: SkillPlan[];
@@ -155,7 +156,7 @@ export interface PlanOptions {
 }
 
 export interface ConflictInfo {
-  artifactType: "skill" | "prompt";
+  artifactType: "skill" | "prompt" | "rules";
   artifactName: string;
   filePath: string;
   relativePath: string;
@@ -165,6 +166,7 @@ export type ConflictResolution = "overwrite" | "save_user" | "skip";
 export type ConflictResolver = (info: ConflictInfo) => Promise<ConflictResolution>;
 
 export interface ApplyOptions {
+  lang?: string;
   /**
    * When true, compute and return the `WriteResult` without mutating the
    * filesystem. Callers pass this through from the `--dry-run` CLI flag.
@@ -182,7 +184,8 @@ export interface ApplyOptions {
   profile?: ToolProfile;
   /**
    * When true, write only the artifacts present in the bundle without
-   * cleaning up stale artifacts or updating the manifest. Used by
+   * cleaning up stale artifacts. Successful writes still update their own
+   * hashes and ownership, while unrelated lesson entries are retained. Used by
    * `--type`/`--name` filters to write a subset without clobbering
    * previously written artifacts.
    */
@@ -206,7 +209,7 @@ export interface ApplyOptions {
    * manifest so the next `10x sync` can skip the lesson when upstream is
    * unchanged (digest-vs-digest). When omitted, any previously stored digest
    * for this lesson is preserved (so a plain `get` neither refreshes nor erases
-   * it). Ignored under `dryRun`/`partial` (no manifest write).
+   * it). A partial update invalidates the shortcut; dry-run never writes state.
    */
   catalogContentHash?: string;
 }
@@ -214,280 +217,172 @@ export interface ApplyOptions {
 /**
  * Apply a lesson bundle to a project. See module docstring for semantics.
  */
-export async function applyBundle(
-  bundle: LessonBundle,
-  projectRoot: string,
-  options: ApplyOptions = {},
-): Promise<WriteResult> {
+export async function applyBundle(bundle: LessonBundle, projectRoot: string, options: ApplyOptions = {}): Promise<WriteResult> {
   const dryRun = options.dryRun === true;
   const partial = options.partial === true;
   const course = options.course ?? DEFAULT_COURSE;
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
-  const onConflict = options.onConflict;
   const applyCourseRules = options.applyCourseRules !== false;
-
+  const plan = planBundle(bundle, projectRoot, { course, profile, applyCourseRules });
   const manifestDir = join(projectRoot, profile.manifestDir);
-  const prevManifest = readManifest(manifestDir);
+  const previous = readManifest(manifestDir);
+  const ledger: CliManifest = previous ? structuredClone(previous) : {
+    package: CLI_PACKAGE_NAME, version: CLI_VERSION, manifestVersion: MANIFEST_VERSION,
+    lastApplied: new Date().toISOString(), lessonId: bundle.lessonId, course, tool: profile.toolId,
+    files: { skills: {}, prompts: [], configs: [] }, lessons: {},
+  };
+  ledger.lessons = previous ? seedLessons(previous) : {};
+  ledger.manifestVersion = MANIFEST_VERSION;
+  ledger.course = course;
+  ledger.tool = profile.toolId;
+  const lesson: LessonFilesEntry = ledger.lessons[bundle.lessonId] ?? { appliedAt: new Date().toISOString(), skills: {}, prompts: [], configs: [] };
+  ledger.lessons[bundle.lessonId] = lesson;
+  const oldRepresentation = lesson.representation;
+  const oldDigest = oldRepresentation?.lang === (options.lang ?? "en") && oldRepresentation.tool === profile.toolId ? lesson.catalogContentHash : undefined;
+  // Until the whole requested representation completes, a digest cannot prove freshness.
+  delete lesson.representation;
+  delete lesson.catalogContentHash;
+  delete lesson.installedReleaseId;
+  delete lesson.installedManifestHash;
+  const invalidateOtherOwners = (kind: "skills" | "prompts" | "rules", name?: string, file?: string) => {
+    for (const [id, owner] of Object.entries(ledger.lessons!)) {
+      if (id === bundle.lessonId) continue;
+      if (kind === "rules" || (kind === "skills" ? owner.skills[name!]?.files.includes(file!) : owner.prompts.includes(name!))) {
+        delete owner.representation;
+        delete owner.catalogContentHash;
+      }
+    }
+  };
+  const persist = () => { if (!dryRun) { rebuildManifestFiles(ledger); writeManifest(manifestDir, ledger); } };
+  if (!dryRun) { assertProjectCourse(projectRoot, course); establishProjectCourse(projectRoot, course); }
+  const result: WriteResult = { skills: [], prompts: [], configs: [], rules: { action: "unchanged" }, removals: { skills: [], prompts: [], configs: [] } };
 
-  // Classify every file up front (read-only, no prompting). applyBundle then
-  // executes this plan; `sync` previews off the same planner, so the two can
-  // never diverge. planBundle also performs the safe-name validation that used
-  // to live here — it runs before any filesystem mutation below.
-  const plan = planBundle(bundle, projectRoot, { profile, applyCourseRules });
+  const deliver = async (file: PlanFileEntry, content: string, info: ConflictInfo): Promise<{ action: ArtifactAction; userBackupPath?: string; delivered: boolean }> => {
+    let action = file.action;
+    let userBackupPath: string | undefined;
+    if (file.isConflict) {
+      const resolution = dryRun ? "skip" : await options.onConflict?.(info) ?? "skip";
+      if (resolution === "skip") return { action: "conflict_skipped", delivered: false };
+      action = resolution === "save_user" ? "conflict_saved_user" : "conflict_overwritten";
+      if (resolution === "save_user") {
+        userBackupPath = buildUserBackupPath(file.path);
+        assertProjectFilePath(projectRoot, userBackupPath);
+        assertProjectFilePath(projectRoot, file.path);
+        copyFileSync(file.path, userBackupPath);
+      }
+    }
+    if (!dryRun && action !== "unchanged") {
+      assertProjectFilePath(projectRoot, file.path);
+      writeFileAt(file.path, content);
+    }
+    return { action, userBackupPath, delivered: true };
+  };
 
-  // Track per-file hashes for the next manifest. Keys that get conflict-skipped
-  // carry forward the old hash so the conflict re-triggers on next apply.
-  const nextSkillHashes: Record<string, Record<string, string>> = {};
-  const nextPromptHashes: Record<string, string> = {};
-
-  // --- skills -----------------------------------------------------------
-  const skills: SkillWrite[] = [];
   for (let si = 0; si < bundle.skills.length; si++) {
     const skill = bundle.skills[si]!;
-    const planSkill = plan.skills[si]!;
-    const prevEntry = prevManifest?.files.skills[skill.name];
-    const fileWrites: SkillFileWrite[] = [];
-    const skillHashes: Record<string, string> = {};
-
+    const writes: SkillFileWrite[] = [];
+    result.skills.push({ name: skill.name, files: writes });
     for (let fi = 0; fi < skill.files.length; fi++) {
       const file = skill.files[fi]!;
-      const planFile = planSkill.files[fi]!;
-      const target = planFile.path;
-      const storedHash = prevEntry?.contentHashes?.[file.path];
-      const { action, isConflict } = planFile;
-
-      let finalAction = action;
-      let userBackupPath: string | undefined;
-
-      if (isConflict) {
-        const resolution = onConflict
-          ? await onConflict({
-              artifactType: "skill",
-              artifactName: `${skill.name}/${file.path}`,
-              filePath: target,
-              relativePath: file.path,
-            })
-          : "skip";
-
-        if (resolution === "overwrite") {
-          finalAction = "conflict_overwritten";
-          if (!dryRun) writeFileAt(target, file.content);
-          skillHashes[file.path] = contentHash(file.content);
-        } else if (resolution === "save_user") {
-          finalAction = "conflict_saved_user";
-          if (!dryRun) {
-            userBackupPath = buildUserBackupPath(target);
-            copyFileSync(target, userBackupPath);
-            writeFileAt(target, file.content);
-          }
-          skillHashes[file.path] = contentHash(file.content);
-        } else {
-          finalAction = "conflict_skipped";
-          if (storedHash) skillHashes[file.path] = storedHash;
-        }
-      } else {
-        if (!dryRun && action !== "unchanged") {
-          writeFileAt(target, file.content);
-        }
-        if (!dryRun && file.executable === true && action !== "unchanged") {
-          chmodSync(target, 0o755);
-        }
-        skillHashes[file.path] = contentHash(file.content);
+      const planned = plan.skills[si]!.files[fi]!;
+      const outcome = await deliver(planned, file.content, { artifactType: "skill", artifactName: `${skill.name}/${file.path}`, filePath: planned.path, relativePath: file.path });
+      writes.push({ path: file.path, absolutePath: planned.path, action: outcome.action, userBackupPath: outcome.userBackupPath });
+      if (outcome.delivered) {
+        if (!dryRun && file.executable && outcome.action !== "unchanged") { assertProjectFilePath(projectRoot, planned.path); chmodSync(planned.path, 0o755); }
+        const entry = lesson.skills[skill.name] ??= { files: [] };
+        if (!entry.files.includes(file.path)) entry.files.push(file.path);
+        const global = ledger.files.skills[skill.name] ??= { files: [] };
+        if (global.contentHashes?.[file.path] !== contentHash(file.content)) invalidateOtherOwners("skills", skill.name, file.path);
+        (global.contentHashes ??= {})[file.path] = contentHash(file.content);
+        persist();
       }
-
-      fileWrites.push({ path: file.path, absolutePath: target, action: finalAction, userBackupPath });
     }
-
-    nextSkillHashes[skill.name] = skillHashes;
-    skills.push({ name: skill.name, files: fileWrites });
   }
-
-  // --- prompts ----------------------------------------------------------
-  const prompts: ArtifactWrite[] = [];
   for (let pi = 0; pi < bundle.prompts.length; pi++) {
     const prompt = bundle.prompts[pi]!;
-    const planPrompt = plan.prompts[pi]!;
-    const target = planPrompt.path;
-    const promptFilename = `${prompt.name}.md`;
-    const storedHash = prevManifest?.files.promptHashes?.[promptFilename];
-    const { action, isConflict } = planPrompt;
+    const file = plan.prompts[pi]!;
+    const name = `${prompt.name}.md`;
+    const outcome = await deliver(file, prompt.content, { artifactType: "prompt", artifactName: prompt.name, filePath: file.path, relativePath: name });
+    result.prompts.push({ name: prompt.name, path: file.path, action: outcome.action, userBackupPath: outcome.userBackupPath });
+    if (outcome.delivered) {
+      if (!lesson.prompts.includes(name)) lesson.prompts.push(name);
+      if (ledger.files.promptHashes?.[name] !== contentHash(prompt.content)) invalidateOtherOwners("prompts", name);
+      (ledger.files.promptHashes ??= {})[name] = contentHash(prompt.content);
+      persist();
+    }
+  }
 
-    let finalAction = action;
-    let userBackupPath: string | undefined;
-
-    if (isConflict) {
-      const resolution = onConflict
-        ? await onConflict({
-            artifactType: "prompt",
-            artifactName: prompt.name,
-            filePath: target,
-            relativePath: promptFilename,
-          })
-        : "skip";
-
-      if (resolution === "overwrite") {
-        finalAction = "conflict_overwritten";
-        if (!dryRun) writeFileAt(target, prompt.content);
-        nextPromptHashes[promptFilename] = contentHash(prompt.content);
-      } else if (resolution === "save_user") {
-        finalAction = "conflict_saved_user";
-        if (!dryRun) {
-          userBackupPath = buildUserBackupPath(target);
-          copyFileSync(target, userBackupPath);
-          writeFileAt(target, prompt.content);
-        }
-        nextPromptHashes[promptFilename] = contentHash(prompt.content);
-      } else {
-        finalAction = "conflict_skipped";
-        if (storedHash) nextPromptHashes[promptFilename] = storedHash;
+  const rules = planManagedRules(projectRoot, profile, bundle.rules.length ? bundle.rules.map((r) => r.content.trim()).join("\n\n") : undefined, applyCourseRules, previous?.managedRules);
+  let rulesAction: ArtifactAction = rules.action;
+  let rulesDelivered = !rules.isConflict;
+  let rulesBackup: string | undefined;
+  if (rules.isConflict && !rules.blocked && !dryRun) {
+    const resolution = await options.onConflict?.({ artifactType: "rules", artifactName: "course-rules", filePath: join(projectRoot, profile.rulesFile), relativePath: profile.rulesFile }) ?? "skip";
+    if (resolution !== "skip") {
+      rulesDelivered = true;
+      rulesAction = resolution === "save_user" ? "conflict_saved_user" : "conflict_overwritten";
+      if (resolution === "save_user") {
+        rulesBackup = buildUserBackupPath(join(projectRoot, profile.rulesFile));
+        assertProjectFilePath(projectRoot, rulesBackup);
+        assertProjectFilePath(projectRoot, join(projectRoot, profile.rulesFile));
+        copyFileSync(join(projectRoot, profile.rulesFile), rulesBackup);
       }
-    } else {
-      if (!dryRun && action !== "unchanged") {
-        writeFileAt(target, prompt.content);
+    }
+  }
+  if (rulesDelivered) {
+    if (!dryRun && rulesAction !== "unchanged") {
+      assertProjectFilePath(projectRoot, join(projectRoot, profile.rulesFile));
+      const path = join(projectRoot, profile.rulesFile);
+      if (!existsSync(path) || readFileSync(path, "utf8") !== rules.content) writeFileAt(path, rules.content);
+    }
+    if (ledger.managedRules?.upstreamHash !== rules.next?.upstreamHash) invalidateOtherOwners("rules");
+    ledger.managedRules = rules.next;
+    persist();
+  }
+  result.rules = { action: rulesAction, reason: rules.reason, userBackupPath: rulesBackup };
+
+  for (let ci = 0; ci < bundle.configs.length; ci++) {
+    const config = bundle.configs[ci]!;
+    const planned = plan.configs[ci]!;
+    if (planned.action === "created") {
+      if (!dryRun) { assertProjectFilePath(projectRoot, planned.path); writeFileAt(planned.path, config.content); }
+      if (!lesson.configs.includes(config.name)) lesson.configs.push(config.name);
+      (ledger.files.configHashes ??= {})[config.name] = contentHash(config.content);
+      persist();
+    }
+    if (planned.action === "skipped" && previous?.files.configs.includes(config.name) && !lesson.configs.includes(config.name)) { lesson.configs.push(config.name); persist(); }
+    // Existing templates are never adopted, even when bytes happen to match.
+    result.configs.push({ name: config.name, path: planned.path, action: planned.action });
+  }
+
+  if (!partial) {
+    for (const kind of ["skills", "prompts", "configs"] as const) {
+      for (const candidate of plan.removals[kind]) {
+        const removed = dryRun ? candidate : executeManagedRemoval(projectRoot, candidate);
+        result.removals[kind].push({ name: removed.name, path: removed.path, action: removed.action, reason: removed.reason });
+        // Preserved local orphans deliberately become unmanaged after retirement.
+        if (kind === "skills") {
+          const slash = candidate.name.indexOf("/");
+          const name = candidate.name.slice(0, slash);
+          const file = candidate.name.slice(slash + 1);
+          const entry = lesson.skills[name];
+          if (entry) { entry.files = entry.files.filter((value) => value !== file); if (!entry.files.length) delete lesson.skills[name]; }
+        } else lesson[kind] = lesson[kind].filter((value) => value !== candidate.name);
+        persist();
       }
-      nextPromptHashes[promptFilename] = contentHash(prompt.content);
-    }
-
-    prompts.push({ name: prompt.name, path: target, action: finalAction, userBackupPath });
-  }
-
-  // --- rules (sentinel block in rules file) -----------------------------
-  // Same decision the planner reports (plan.rules.action) — applyBundle calls
-  // the shared `planRules` directly because it also needs the content to write.
-  const rulesFilePath = join(projectRoot, profile.rulesFile);
-  const existingRules = readFileOrEmpty(rulesFilePath);
-  const { action: rulesAction, content: newRulesContent } = planRules(
-    existingRules,
-    bundle,
-    profile,
-    applyCourseRules,
-  );
-  if (!dryRun && rulesAction !== "unchanged") {
-    writeFileAt(rulesFilePath, newRulesContent);
-  }
-
-  // --- configs (skip-on-exists) -----------------------------------------
-  const configs: ArtifactWrite[] = bundle.configs.map((config, ci) => {
-    const planConfig = plan.configs[ci]!;
-    if (!dryRun && planConfig.action === "created") {
-      writeFileAt(planConfig.path, config.content);
-    }
-    return { name: config.name, path: planConfig.path, action: planConfig.action };
-  });
-
-  // --- cleanup of stale artifacts from the previous lesson --------------
-  const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
-  const removalResult: WriteResult["removals"] = {
-    skills: [],
-    prompts: [],
-    configs: [],
-  };
-
-  for (const entry of removed.skillDirs) {
-    removalResult.skills.push({ name: entry.name, path: entry.path, action: "removed" });
-    if (!dryRun && !partial) rmSync(entry.path, { recursive: true, force: true });
-  }
-  for (const entry of removed.skillFiles) {
-    removalResult.skills.push({ name: entry.name, path: entry.path, action: "removed" });
-    if (!dryRun && !partial) {
-      rmSync(entry.path, { force: true });
-      removeEmptyParentDirs(entry.path, entry.skillDirAbs);
     }
   }
-  for (const entry of removed.prompts) {
-    removalResult.prompts.push({ name: entry.name, path: entry.path, action: "removed" });
-    if (!dryRun && !partial) rmSync(entry.path, { force: true });
+  ledger.lessonId = bundle.lessonId;
+  ledger.lastApplied = lesson.appliedAt = new Date().toISOString();
+  const conflicts = result.skills.some((s) => s.files.some((f) => f.action === "conflict_skipped")) || result.prompts.some((p) => p.action === "conflict_skipped") || rulesAction === "conflict_skipped";
+  if (!partial && !conflicts) {
+    lesson.catalogContentHash = options.catalogContentHash ?? oldDigest;
+    lesson.representation = { lang: options.lang ?? "en", tool: profile.toolId, courseRules: applyCourseRules, rules: applyCourseRules && bundle.rules.length > 0 };
+    lesson.installedReleaseId = bundle.releaseId;
+    lesson.installedManifestHash = bundle.releaseManifestHash;
   }
-  for (const entry of removed.configs) {
-    removalResult.configs.push({ name: entry.name, path: entry.path, action: "removed" });
-    if (!dryRun && !partial) rmSync(entry.path, { force: true });
-  }
-
-  // --- manifest ---------------------------------------------------------
-  if (!dryRun && !partial) {
-    // Preserve a previously stored catalog digest when this apply didn't supply
-    // one (e.g. a plain `get`), so it neither refreshes nor erases what `sync`
-    // recorded — at worst one redundant fetch never happens.
-    const catalogContentHash =
-      options.catalogContentHash ?? prevManifest?.lessons?.[bundle.lessonId]?.catalogContentHash;
-
-    const newLessonEntry: LessonFilesEntry = {
-      appliedAt: new Date().toISOString(),
-      skills: Object.fromEntries(
-        bundle.skills.map((s) => [s.name, { files: s.files.map((f) => f.path) }]),
-      ),
-      prompts: bundle.prompts.map((p) => `${p.name}.md`),
-      configs: bundle.configs.map((c) => c.name),
-      ...(catalogContentHash !== undefined ? { catalogContentHash } : {}),
-    };
-
-    // Seed lessons from previous manifest if it lacks per-lesson tracking
-    let baseLessons: Record<string, LessonFilesEntry> = {};
-    if (prevManifest && !prevManifest.lessons) {
-      baseLessons[prevManifest.lessonId] = {
-        appliedAt: prevManifest.lastApplied,
-        skills: Object.fromEntries(
-          Object.entries(prevManifest.files.skills).map(([name, entry]) => [
-            name,
-            { files: [...entry.files] },
-          ]),
-        ),
-        prompts: [...prevManifest.files.prompts],
-        configs: [...prevManifest.files.configs],
-      };
-    } else if (prevManifest?.lessons) {
-      baseLessons = { ...prevManifest.lessons };
-    }
-
-    const lessons: Record<string, LessonFilesEntry> = {
-      ...baseLessons,
-      [bundle.lessonId]: newLessonEntry,
-    };
-
-    const union = buildUnionFiles(lessons);
-
-    // Apply content hashes: current bundle wins, preserve others from prev
-    const unionSkills: Record<string, { files: string[]; contentHashes?: Record<string, string> }> = {};
-    for (const [name, skill] of Object.entries(union.skills)) {
-      const prevHash = prevManifest?.files.skills[name]?.contentHashes;
-      const currentHash = nextSkillHashes[name];
-      unionSkills[name] = {
-        files: skill.files,
-        contentHashes: { ...prevHash, ...currentHash },
-      };
-    }
-
-    const unionPromptHashes: Record<string, string> = {
-      ...prevManifest?.files.promptHashes,
-      ...nextPromptHashes,
-    };
-
-    const nextManifest: CliManifest = {
-      package: CLI_PACKAGE_NAME,
-      version: CLI_VERSION,
-      manifestVersion: MANIFEST_VERSION,
-      lastApplied: new Date().toISOString(),
-      lessonId: bundle.lessonId,
-      course,
-      tool: profile.toolId,
-      files: {
-        skills: unionSkills,
-        prompts: union.prompts,
-        configs: union.configs,
-        promptHashes: unionPromptHashes,
-      },
-      lessons,
-    };
-    writeManifest(manifestDir, nextManifest);
-  }
-
-  return {
-    skills,
-    prompts,
-    rules: { action: rulesAction },
-    configs,
-    removals: removalResult,
-  };
+  persist();
+  return result;
 }
 
 /**
@@ -505,6 +400,8 @@ export function planBundle(
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
   const applyCourseRules = options.applyCourseRules !== false;
 
+  validateBundlePayload(bundle);
+  if (options.course && bundle.course !== undefined && bundle.course !== options.course) throw new Error("Bundle course differs from selected project course");
   // Validate up front — the same guard applyBundle relied on, centralized here
   // so a tampered bundle is rejected before any read or (downstream) write.
   for (const skill of bundle.skills) {
@@ -515,6 +412,7 @@ export function planBundle(
   for (const config of bundle.configs) assertSafeName(config.name, "config");
 
   const manifestDir = join(projectRoot, profile.manifestDir);
+  assertProjectFilePath(projectRoot, join(manifestDir, MANIFEST_FILENAME));
   const prevManifest = readManifest(manifestDir);
 
   const skills: SkillPlan[] = bundle.skills.map((skill) => {
@@ -522,6 +420,7 @@ export function planBundle(
     const prevEntry = prevManifest?.files.skills[skill.name];
     const files: SkillFilePlan[] = skill.files.map((file) => {
       const target = join(skillDir, file.path);
+      assertProjectFilePath(projectRoot, target);
       const storedHash = prevEntry?.contentHashes?.[file.path];
       const { action, isConflict } = computeFileAction(target, file.content, storedHash);
       return {
@@ -537,6 +436,7 @@ export function planBundle(
 
   const prompts: PromptPlan[] = bundle.prompts.map((prompt) => {
     const target = join(projectRoot, profile.promptPath(prompt.name));
+    assertProjectFilePath(projectRoot, target);
     const storedHash = prevManifest?.files.promptHashes?.[`${prompt.name}.md`];
     const { action, isConflict } = computeFileAction(target, prompt.content, storedHash);
     return {
@@ -549,11 +449,11 @@ export function planBundle(
   });
 
   const rulesFilePath = join(projectRoot, profile.rulesFile);
-  const existingRules = readFileOrEmpty(rulesFilePath);
-  const { action: rulesAction } = planRules(existingRules, bundle, profile, applyCourseRules);
+  const rulesPlan = planManagedRules(projectRoot, profile, bundle.rules.length ? bundle.rules.map((r) => r.content.trim()).join("\n\n") : undefined, applyCourseRules, prevManifest?.managedRules);
 
   const configs: ConfigPlan[] = bundle.configs.map((config) => {
     const target = join(projectRoot, profile.configPath(config.name));
+    assertProjectFilePath(projectRoot, target);
     const action: "created" | "skipped" = existsSync(target) ? "skipped" : "created";
     return {
       name: config.name,
@@ -565,19 +465,19 @@ export function planBundle(
   });
 
   const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
-  const removals: WritePlan["removals"] = {
-    skills: [
-      ...removed.skillDirs.map((e) => ({ name: e.name, path: e.path })),
-      ...removed.skillFiles.map((e) => ({ name: e.name, path: e.path })),
-    ],
-    prompts: removed.prompts.map((e) => ({ name: e.name, path: e.path })),
-    configs: removed.configs.map((e) => ({ name: e.name, path: e.path })),
-  };
+  const targets = [
+    join(manifestDir, MANIFEST_FILENAME), join(manifestDir, `${MANIFEST_FILENAME}.tmp`), rulesFilePath, buildUserBackupPath(rulesFilePath),
+    ...skills.flatMap((skill) => skill.files.flatMap((file) => [file.path, buildUserBackupPath(file.path)])),
+    ...prompts.flatMap((prompt) => [prompt.path, buildUserBackupPath(prompt.path)]),
+    ...configs.map((config) => config.path),
+  ];
+  for (const target of targets) assertProjectFilePath(projectRoot, target);
+  const removals = removed;
 
   return {
     skills,
     prompts,
-    rules: { action: rulesAction, upstreamChanged: rulesAction !== "unchanged" },
+    rules: { action: rulesPlan.action, isConflict: rulesPlan.isConflict, reason: rulesPlan.reason, upstreamChanged: rulesPlan.action !== "unchanged" },
     configs,
     removals,
   };
@@ -593,6 +493,15 @@ export function planBundle(
  * edit alone never reads as an upstream change. With no stored hash, fall back
  * to "changed unless byte-identical on disk".
  */
+function validateBundlePayload(bundle: LessonBundle): void {
+  if (!bundle || typeof bundle.lessonId !== "string" || !Array.isArray(bundle.skills) || !Array.isArray(bundle.prompts) || !Array.isArray(bundle.rules) || !Array.isArray(bundle.configs)) throw new Error("Invalid lesson bundle payload");
+  for (const skill of bundle.skills) {
+    if (!skill || typeof skill.name !== "string" || !Array.isArray(skill.files)) throw new Error("Invalid skill payload");
+    for (const file of skill.files) if (!file || typeof file.path !== "string" || typeof file.content !== "string" || (file.executable !== undefined && typeof file.executable !== "boolean")) throw new Error("Invalid skill file payload");
+  }
+  for (const artifact of [...bundle.prompts, ...bundle.rules, ...bundle.configs]) if (!artifact || typeof artifact.name !== "string" || typeof artifact.content !== "string") throw new Error("Invalid artifact payload");
+}
+
 function computeUpstreamChanged(
   newContent: string,
   storedHash: string | undefined,
@@ -602,56 +511,13 @@ function computeUpstreamChanged(
   return contentHash(newContent) !== storedHash;
 }
 
-/**
- * Shared rules-block decision. Returns the action AND the content to write so
- * both planBundle (action only) and applyBundle (action + content) classify
- * identically.
- */
-function planRules(
-  existingRules: string,
-  bundle: LessonBundle,
-  profile: ToolProfile,
-  applyCourseRules: boolean,
-): { action: ArtifactAction; content: string } {
-  if (!applyCourseRules) {
-    // Opt-out: never write the block. Strip an existing one if present so a
-    // previously-applied block goes away (surrounding content preserved). The
-    // server still ships `bundle.rules`; the flag, not the bundle, decides.
-    const { content: stripped, removed } = removeRulesBlockWithMarkers(
-      existingRules,
-      profile.sentinelBegin,
-      profile.sentinelEnd,
-    );
-    if (removed && stripped !== existingRules) return { action: "removed", content: stripped };
-    return { action: "unchanged", content: existingRules };
-  }
-  if (bundle.rules.length === 0) return { action: "unchanged", content: existingRules };
-  const rulesBody = bundle.rules.map((r) => r.content.trim()).join("\n\n");
-  const { content: newRules } = applyRulesBlockWithMarkers(
-    existingRules,
-    rulesBody,
-    profile.sentinelBegin,
-    profile.sentinelEnd,
-  );
-  let action: ArtifactAction;
-  if (newRules === existingRules) action = "unchanged";
-  else if (existingRules.length === 0) action = "created";
-  else action = "updated";
-  return { action, content: newRules };
-}
-
 function computeFileAction(
   filePath: string,
   newContent: string,
   storedHash?: string,
 ): { action: ArtifactAction; isConflict: boolean } {
   if (!existsSync(filePath)) return { action: "created", isConflict: false };
-  let current: string;
-  try {
-    current = readFileSync(filePath, "utf8");
-  } catch {
-    return { action: "updated", isConflict: false };
-  }
+  const current = readFileSync(filePath, "utf8");
   if (current === newContent) return { action: "unchanged", isConflict: false };
   if (storedHash !== undefined) {
     const localHash = contentHash(current);
@@ -663,8 +529,12 @@ function computeFileAction(
 
 function buildUserBackupPath(filePath: string): string {
   const lastDot = filePath.lastIndexOf(".");
-  if (lastDot === -1) return `${filePath}.user`;
-  return `${filePath.slice(0, lastDot)}.user${filePath.slice(lastDot)}`;
+  const stem = lastDot === -1 ? filePath : filePath.slice(0, lastDot);
+  const extension = lastDot === -1 ? "" : filePath.slice(lastDot);
+  let candidate = `${stem}.user${extension}`;
+  let suffix = 1;
+  while (existsSync(candidate)) candidate = `${stem}.user.${suffix++}${extension}`;
+  return candidate;
 }
 
 function copyFileSync(src: string, dest: string): void {
@@ -672,148 +542,33 @@ function copyFileSync(src: string, dest: string): void {
   writeFileSync(dest, readFileSync(src));
 }
 
-function readFileOrEmpty(filePath: string): string {
-  if (!existsSync(filePath)) return "";
-  try {
-    return readFileSync(filePath, "utf8");
-  } catch {
-    return "";
-  }
-}
-
 function writeFileAt(filePath: string, content: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, content);
 }
 
-interface RemovalPlan {
-  skillDirs: { name: string; path: string }[];
-  skillFiles: { name: string; path: string; skillDirAbs: string }[];
-  prompts: { name: string; path: string }[];
-  configs: { name: string; path: string }[];
-}
-
-function computeRemovals(
-  prevManifest: CliManifest | null,
-  bundle: LessonBundle,
-  profile: ToolProfile,
-  projectRoot: string,
-): RemovalPlan {
-  const empty: RemovalPlan = {
-    skillDirs: [],
-    skillFiles: [],
-    prompts: [],
-    configs: [],
-  };
-  if (!prevManifest?.lessons) return empty;
-
-  const prevLessonEntry = prevManifest.lessons[bundle.lessonId];
-  if (!prevLessonEntry) return empty;
-
-  // Protected set: files claimed by any OTHER lesson
-  const protectedSkills = new Map<string, Set<string>>();
-  const protectedPrompts = new Set<string>();
-  const protectedConfigs = new Set<string>();
-  for (const [lessonId, entry] of Object.entries(prevManifest.lessons)) {
-    if (lessonId === bundle.lessonId) continue;
-    for (const [name, skill] of Object.entries(entry.skills)) {
-      if (!protectedSkills.has(name)) protectedSkills.set(name, new Set());
-      for (const f of skill.files) protectedSkills.get(name)!.add(f);
-    }
-    for (const p of entry.prompts) protectedPrompts.add(p);
-    for (const c of entry.configs) protectedConfigs.add(c);
-  }
-
-  const currentSkills = new Map(
-    bundle.skills.map((s) => [s.name, new Set(s.files.map((f) => f.path))]),
-  );
-  const currentPrompts = new Set(bundle.prompts.map((p) => `${p.name}.md`));
-  const currentConfigs = new Set(bundle.configs.map((c) => c.name));
-
-  const removed: RemovalPlan = {
-    skillDirs: [],
-    skillFiles: [],
-    prompts: [],
-    configs: [],
-  };
-
-  for (const [skillName, skill] of Object.entries(prevLessonEntry.skills)) {
-    if (!isSafeName(skillName)) continue;
-    const skillDirAbs = join(projectRoot, profile.skillDir(skillName));
-
-    if (!currentSkills.has(skillName)) {
-      if (protectedSkills.has(skillName)) {
-        // Another lesson claims this skill — remove only unprotected files
-        const prot = protectedSkills.get(skillName)!;
-        for (const relPath of skill.files) {
-          if (prot.has(relPath)) continue;
-          if (!isSafeSkillFilePath(relPath)) continue;
-          removed.skillFiles.push({
-            name: `${skillName}/${relPath}`,
-            path: join(skillDirAbs, relPath),
-            skillDirAbs,
-          });
-        }
-      } else {
-        removed.skillDirs.push({ name: skillName, path: skillDirAbs });
-      }
-      continue;
-    }
-
-    const currentFiles = currentSkills.get(skillName)!;
-    for (const relPath of skill.files) {
-      if (currentFiles.has(relPath)) continue;
-      if (protectedSkills.get(skillName)?.has(relPath)) continue;
-      if (!isSafeSkillFilePath(relPath)) continue;
-      removed.skillFiles.push({
-        name: `${skillName}/${relPath}`,
-        path: join(skillDirAbs, relPath),
-        skillDirAbs,
-      });
+function computeRemovals(previous: CliManifest | null, bundle: LessonBundle, profile: ToolProfile, root: string): WritePlan["removals"] {
+  const out: WritePlan["removals"] = { skills: [], prompts: [], configs: [] };
+  if (!previous) return out;
+  const lessons = seedLessons(previous);
+  const before = lessons[bundle.lessonId];
+  if (!before) return out;
+  const others = Object.entries(lessons).filter(([id]) => id !== bundle.lessonId).map(([, entry]) => entry);
+  for (const [name, skill] of Object.entries(before.skills)) {
+    if (!isSafeName(name)) throw new Error("Unsafe skill name in manifest");
+    for (const file of skill.files) {
+      if (!isSafeSkillFilePath(file)) throw new Error("Unsafe skill path in manifest");
+      if (bundle.skills.some((entry) => entry.name === name && entry.files.some((entry) => entry.path === file))) continue;
+      out.skills.push(planManagedRemoval(root, { name: `${name}/${file}`, path: join(root, profile.skillDir(name), file), storedHash: previous.files.skills[name]?.contentHashes?.[file], protected: others.some((entry) => entry.skills[name]?.files.includes(file)), pruneRoot: join(root, profile.skillDir(name)) }));
     }
   }
-
-  for (const promptFile of prevLessonEntry.prompts) {
-    if (currentPrompts.has(promptFile)) continue;
-    if (protectedPrompts.has(promptFile)) continue;
-    if (!isSafeName(promptFile)) continue;
-    const promptName = promptFile.replace(/\.md$/, "");
-    removed.prompts.push({
-      name: promptFile,
-      path: join(projectRoot, profile.promptPath(promptName)),
-    });
+  for (const kind of ["prompts", "configs"] as const) for (const name of before[kind]) {
+    if (!isSafeName(name)) throw new Error("Unsafe file name in manifest");
+    if ((kind === "prompts" ? bundle.prompts.map((p) => `${p.name}.md`) : bundle.configs.map((c) => c.name)).includes(name)) continue;
+    const path = join(root, kind === "prompts" ? profile.promptPath(name.replace(/\.md$/, "")) : profile.configPath(name));
+    out[kind].push(planManagedRemoval(root, { name, path, storedHash: kind === "prompts" ? previous.files.promptHashes?.[name] : previous.files.configHashes?.[name], protected: others.some((entry) => entry[kind].includes(name)), config: kind === "configs" }));
   }
-
-  for (const configFile of prevLessonEntry.configs) {
-    if (currentConfigs.has(configFile)) continue;
-    if (protectedConfigs.has(configFile)) continue;
-    if (!isSafeName(configFile)) continue;
-    removed.configs.push({
-      name: configFile,
-      path: join(projectRoot, profile.configPath(configFile)),
-    });
-  }
-
-  return removed;
-}
-
-/**
- * After deleting a single file inside a retained skill directory, walk back
- * up the parent chain and prune any directory that is now empty — but stop
- * the moment we hit `skillDirAbs`. The skill directory itself is preserved
- * even when empty, since the next apply may write fresh files into it.
- */
-function removeEmptyParentDirs(filePath: string, skillDirAbs: string): void {
-  let dir = dirname(filePath);
-  while (dir.startsWith(skillDirAbs) && dir !== skillDirAbs) {
-    try {
-      if (readdirSync(dir).length > 0) return;
-      rmdirSync(dir);
-    } catch {
-      return;
-    }
-    dir = dirname(dir);
-  }
+  return out;
 }
 
 export interface OrphanInfo {

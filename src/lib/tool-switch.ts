@@ -1,318 +1,271 @@
-/**
- * Tool-switch migration — when a student switches tool profiles and the
- * previous tool's manifest directory still holds applied artifacts, this
- * module moves or removes them so they don't become orphaned.
- *
- * `migrateArtifacts` moves every file listed in the old manifest to the
- * corresponding path under the new profile, skipping destinations that
- * already hold different content. `deleteArtifacts` wipes the old
- * `manifestDir` wholesale. Both strip the 10x sentinel block from the old
- * rules file.
- *
- * Nothing here hits the API — migration operates purely on bytes already
- * on disk. Running a migration twice in a row is a no-op the second time
- * because the old manifest is gone.
- */
-
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+/** Profile changes retain a ledger on each side until its ownership is resolved. */
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, statSync, chmodSync, openSync, closeSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { readFileOrNull } from "./fs-utils";
-import { removeRulesBlockWithMarkers } from "./sentinel-migration";
+import { randomUUID } from "node:crypto";
+import { contentHash, MANIFEST_FILENAME, readManifest, rebuildManifestFiles, seedLessons, writeManifest, type CliManifest, type LessonFilesEntry } from "./manifest";
+import { executeManagedRemoval, planManagedRemoval, pruneEmptyParents } from "./managed-removal";
+import { otherRulesOwners, planManagedRules } from "./managed-rules";
+import { assertProjectCourse, assertProjectFilePath, assertProjectPath, establishProjectCourse, normalizeProjectCourse } from "./project-course";
+import { inspectRulesBlock, removeRulesBlockWithMarkers } from "./sentinel-migration";
 import type { ToolProfile } from "./tool-profile";
 import { isSafeName, isSafeSkillFilePath, type OrphanInfo } from "./writer";
 
 export interface MigrationSummary {
   action: "migrated" | "deleted" | "kept";
   oldToolId: string;
-  /**
-   * Files that were moved (for "migrated") or removed (for "deleted").
-   * The arrays hold the manifest entry names (skill dir names, prompt
-   * filenames incl. `.md`, config filenames).
-   */
   movedOrRemoved: { skills: string[]; prompts: string[]; configs: string[] };
-  /** True when a 10x sentinel block was stripped from the old rules file. */
   sentinelStripped: boolean;
-  /** Files the operation refused to touch (e.g. destination already existed with different content). */
   skipped: { path: string; reason: string }[];
 }
-
-/**
- * Move artifacts listed in the old manifest to the new profile's paths
- * and strip the sentinel block from the old rules file. Destinations
- * that already exist with *different* content are left alone on both
- * sides (source and destination) and reported under `skipped`.
- */
-export function migrateArtifacts(
-  projectRoot: string,
-  orphan: OrphanInfo,
-  newProfile: ToolProfile,
-): MigrationSummary {
-  const summary: MigrationSummary = {
-    action: "migrated",
-    oldToolId: orphan.profile.toolId,
-    movedOrRemoved: { skills: [], prompts: [], configs: [] },
-    sentinelStripped: false,
-    skipped: [],
-  };
-  const oldProfile = orphan.profile;
-
-  for (const [skillName, entry] of Object.entries(orphan.manifest.files.skills)) {
-    if (!isSafeName(skillName)) {
-      summary.skipped.push({ path: skillName, reason: "unsafe name in manifest" });
-      continue;
-    }
-    const fromSkillDir = join(projectRoot, oldProfile.skillDir(skillName));
-    const toSkillDir = join(projectRoot, newProfile.skillDir(skillName));
-    let anyMoved = false;
-    for (const relPath of entry.files) {
-      if (!isSafeSkillFilePath(relPath)) {
-        summary.skipped.push({
-          path: `${skillName}/${relPath}`,
-          reason: "unsafe path in manifest",
-        });
-        continue;
-      }
-      const from = join(fromSkillDir, relPath);
-      const to = join(toSkillDir, relPath);
-      if (moveIfSafe(from, to, summary.skipped)) anyMoved = true;
-    }
-    tryRemoveEmptyDir(fromSkillDir);
-    if (anyMoved) summary.movedOrRemoved.skills.push(skillName);
+interface Entry { kind: "skills" | "prompts" | "configs"; name: string; file?: string; hash?: string }
+function entries(manifest: CliManifest): Entry[] {
+  return [
+    ...Object.entries(manifest.files.skills).flatMap(([name, entry]) => entry.files.map((file) => ({ kind: "skills" as const, name, file, hash: entry.contentHashes?.[file] }))),
+    ...manifest.files.prompts.map((name) => ({ kind: "prompts" as const, name, hash: manifest.files.promptHashes?.[name] })),
+    ...manifest.files.configs.map((name) => ({ kind: "configs" as const, name, hash: manifest.files.configHashes?.[name] })),
+  ];
+}
+function entryPath(root: string, profile: ToolProfile, entry: Entry): string {
+  if (!isSafeName(entry.name) || (entry.file !== undefined && !isSafeSkillFilePath(entry.file))) throw new Error("unsafe name or path in manifest");
+  return join(root, entry.kind === "skills" ? join(profile.skillDir(entry.name), entry.file!) : entry.kind === "prompts" ? profile.promptPath(entry.name.replace(/\.md$/, "")) : profile.configPath(entry.name));
+}
+function owns(lesson: LessonFilesEntry, entry: Entry): boolean {
+  return entry.kind === "skills" ? !!lesson.skills[entry.name]?.files.includes(entry.file!) : lesson[entry.kind].includes(entry.name);
+}
+function retire(manifest: CliManifest, entry: Entry): void {
+  for (const lesson of Object.values(manifest.lessons!)) {
+    if (!owns(lesson, entry)) continue;
+    if (entry.kind === "skills") {
+      const skill = lesson.skills[entry.name]!;
+      skill.files = skill.files.filter((file) => file !== entry.file);
+      if (!skill.files.length) delete lesson.skills[entry.name];
+    } else lesson[entry.kind] = lesson[entry.kind].filter((name) => name !== entry.name);
+    delete lesson.representation;
+    delete lesson.catalogContentHash;
   }
-  for (const promptFile of orphan.manifest.files.prompts) {
-    if (!isSafeName(promptFile)) {
-      summary.skipped.push({ path: promptFile, reason: "unsafe name in manifest" });
-      continue;
-    }
-    const promptName = promptFile.replace(/\.md$/, "");
-    const from = join(projectRoot, oldProfile.promptPath(promptName));
-    const to = join(projectRoot, newProfile.promptPath(promptName));
-    if (moveIfSafe(from, to, summary.skipped)) {
-      summary.movedOrRemoved.prompts.push(promptFile);
-    }
+  rebuildManifestFiles(manifest);
+}
+function acquire(destination: CliManifest, source: CliManifest, entry: Entry): void {
+  for (const [id, prior] of Object.entries(source.lessons!)) {
+    if (!owns(prior, entry)) continue;
+    const lesson = destination.lessons![id] ??= { appliedAt: prior.appliedAt, skills: {}, prompts: [], configs: [] };
+    delete lesson.representation;
+    delete lesson.catalogContentHash;
+    if (entry.kind === "skills") {
+      const skill = lesson.skills[entry.name] ??= { files: [] };
+      if (!skill.files.includes(entry.file!)) skill.files.push(entry.file!);
+    } else if (!lesson[entry.kind].includes(entry.name)) lesson[entry.kind].push(entry.name);
   }
-  for (const configFile of orphan.manifest.files.configs) {
-    if (!isSafeName(configFile)) {
-      summary.skipped.push({ path: configFile, reason: "unsafe name in manifest" });
-      continue;
-    }
-    const from = join(projectRoot, oldProfile.configPath(configFile));
-    const to = join(projectRoot, newProfile.configPath(configFile));
-    if (moveIfSafe(from, to, summary.skipped)) {
-      summary.movedOrRemoved.configs.push(configFile);
-    }
-  }
-
-  summary.sentinelStripped = stripSentinelFromRulesFile(projectRoot, oldProfile);
-
-  // Remove the old manifest; best-effort rmdir on the old manifestDir
-  // (silently leaves it when the student has other files in there).
-  rmSync(orphan.manifestPath, { force: true });
-  tryRemoveEmptyDir(join(projectRoot, oldProfile.manifestDir));
-
-  return summary;
+  if (entry.kind === "skills") {
+    const skill = destination.files.skills[entry.name] ??= { files: [] };
+    if (entry.hash) (skill.contentHashes ??= {})[entry.file!] = entry.hash;
+  } else if (entry.hash) (entry.kind === "prompts" ? destination.files.promptHashes ??= {} : destination.files.configHashes ??= {})[entry.name] = entry.hash;
+  rebuildManifestFiles(destination);
+}
+function summaryFor(orphan: OrphanInfo, action: MigrationSummary["action"]): MigrationSummary {
+  return { action, oldToolId: orphan.profile.toolId, movedOrRemoved: { skills: [], prompts: [], configs: [] }, sentinelStripped: false, skipped: [] };
+}
+function record(summary: MigrationSummary, entry: Entry): void {
+  if (!summary.movedOrRemoved[entry.kind].includes(entry.name)) summary.movedOrRemoved[entry.kind].push(entry.name);
+}
+function persistSource(root: string, profile: ToolProfile, source: CliManifest): void {
+  rebuildManifestFiles(source);
+  const dir = join(root, profile.manifestDir);
+  if (entries(source).length || source.managedRules) { writeManifest(dir, source); return; }
+  const path = join(dir, MANIFEST_FILENAME);
+  assertProjectFilePath(root, path);
+  rmSync(path, { force: true });
+  pruneEmptyParents(root, path, dir);
 }
 
-/**
- * Remove only the files listed in the old manifest (plus the manifest
- * itself) and strip the sentinel block from the old rules file. Leaves
- * unrelated student files under `manifestDir` alone — for `copilot` that
- * means `.github/workflows/`, CODEOWNERS etc. survive, and the same
- * principle applies across every profile (`.claude/`, `.cursor/`, etc.).
- *
- * **Partial-failure semantics**: if an `rmSync` inside the per-entry
- * loops throws (e.g. EACCES on a file the student chmod-locked), the
- * error propagates out and the manifest file is NOT removed. A
- * subsequent call retries the remaining entries against whatever is
- * still on disk. This is safe but not truly idempotent under I/O errors
- * — callers that need guaranteed cleanup should inspect the returned
- * `summary.skipped` and/or surface the error to the user.
- */
-export function deleteArtifacts(
-  projectRoot: string,
-  orphan: OrphanInfo,
-): MigrationSummary {
-  const summary: MigrationSummary = {
-    action: "deleted",
-    oldToolId: orphan.profile.toolId,
-    movedOrRemoved: { skills: [], prompts: [], configs: [] },
-    sentinelStripped: false,
-    skipped: [],
-  };
-  const oldProfile = orphan.profile;
-
-  for (const [skillName, entry] of Object.entries(orphan.manifest.files.skills)) {
-    if (!isSafeName(skillName)) {
-      summary.skipped.push({ path: skillName, reason: "unsafe name in manifest" });
-      continue;
-    }
-    const skillDir = join(projectRoot, oldProfile.skillDir(skillName));
-    for (const relPath of entry.files) {
-      if (!isSafeSkillFilePath(relPath)) {
-        summary.skipped.push({
-          path: `${skillName}/${relPath}`,
-          reason: "unsafe path in manifest",
-        });
-        continue;
+/** Keep source rule bytes and their ledger together if the retirement commit fails. */
+function commitSourceRules(root: string, profile: ToolProfile, source: CliManifest, update: () => void): void {
+  const rulesPath = join(root, profile.rulesFile);
+  const manifestPath = join(root, profile.manifestDir, MANIFEST_FILENAME);
+  assertProjectFilePath(root, rulesPath);
+  assertProjectFilePath(root, manifestPath);
+  const rulesBefore = existsSync(rulesPath) ? readFileSync(rulesPath) : undefined;
+  const manifestBefore = existsSync(manifestPath) ? readFileSync(manifestPath) : undefined;
+  const metadataBefore = source.managedRules;
+  try {
+    update();
+    persistSource(root, profile, source);
+  } catch (error) {
+    source.managedRules = metadataBefore;
+    // Avoid rewriting unchanged snapshots: the failing operation may be a
+    // denied manifest deletion, while its original bytes remain intact.
+    for (const [path, bytes] of [[rulesPath, rulesBefore], [manifestPath, manifestBefore]] as const) {
+      if (bytes === undefined) continue;
+      assertProjectFilePath(root, path);
+      if (!existsSync(path) || !readFileSync(path).equals(bytes)) {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, bytes);
       }
-      rmSync(join(skillDir, relPath), { force: true });
     }
-    rmSync(skillDir, { recursive: true, force: true });
-    summary.movedOrRemoved.skills.push(skillName);
+    throw error;
   }
-  for (const promptFile of orphan.manifest.files.prompts) {
-    if (!isSafeName(promptFile)) {
-      summary.skipped.push({ path: promptFile, reason: "unsafe name in manifest" });
-      continue;
-    }
-    const promptName = promptFile.replace(/\.md$/, "");
-    rmSync(join(projectRoot, oldProfile.promptPath(promptName)), { force: true });
-    summary.movedOrRemoved.prompts.push(promptFile);
-  }
-  for (const configFile of orphan.manifest.files.configs) {
-    if (!isSafeName(configFile)) {
-      summary.skipped.push({ path: configFile, reason: "unsafe name in manifest" });
-      continue;
-    }
-    rmSync(join(projectRoot, oldProfile.configPath(configFile)), { force: true });
-    summary.movedOrRemoved.configs.push(configFile);
-  }
-
-  summary.sentinelStripped = stripSentinelFromRulesFile(projectRoot, oldProfile);
-
-  // Remove the manifest file itself and best-effort clean up now-empty
-  // subdirs the writer created (skills/, prompts/, config-templates/,
-  // then manifestDir). Do NOT recursively wipe manifestDir — it may hold
-  // unrelated files (workflows under .github/, user skills under .claude/).
-  rmSync(orphan.manifestPath, { force: true });
-  const manifestDirAbs = join(projectRoot, oldProfile.manifestDir);
-  tryRemoveEmptyDir(join(manifestDirAbs, "skills"));
-  tryRemoveEmptyDir(join(manifestDirAbs, "prompts"));
-  tryRemoveEmptyDir(join(manifestDirAbs, "config-templates"));
-  tryRemoveEmptyDir(manifestDirAbs);
-
-  return summary;
 }
 
-/**
- * Move `from` → `to` if the destination doesn't already exist with
- * different content. Returns true when the move happened. Appends a
- * `skipped` entry (with both source and destination untouched) otherwise.
- */
-function moveIfSafe(
-  from: string,
-  to: string,
-  skipped: { path: string; reason: string }[],
-): boolean {
-  if (!existsSync(from)) {
-    // Manifest lists it but the file is already gone (student deleted it).
-    // Nothing to do.
-    return false;
-  }
-  if (lstatSync(from).isSymbolicLink()) {
-    // Refuse to follow symlinks — same-device rename would move the link
-    // itself, but the copy+unlink fallback would dereference and clobber
-    // whatever the link points to. Stay consistent across branches.
-    skipped.push({ path: from, reason: "source is a symlink" });
-    return false;
-  }
-  if (existsSync(to)) {
-    if (!filesAreIdentical(from, to)) {
-      // Compare as raw bytes (not UTF-8 strings) — two distinct binary
-      // payloads can collapse to the same replacement-char string under
-      // UTF-8 decode and would otherwise be wrongly treated as equal.
-      skipped.push({
-        path: to,
-        reason: "destination already exists with different content",
-      });
-      return false;
-    }
-    rmSync(from, { force: true });
-    return true;
-  }
+/** Each invocation owns its temporary before writes that can fail partway. */
+function copyForTransfer(root: string, from: string, to: string, bytes: Buffer): void {
+  assertProjectFilePath(root, to);
   mkdirSync(dirname(to), { recursive: true });
+  const temporary = `${to}.${randomUUID()}.tmp`;
+  assertProjectFilePath(root, temporary);
+  let owned = false;
   try {
-    renameSync(from, to);
-  } catch (err) {
-    // Only fall back to copy+unlink for cross-device renames. Every other
-    // errno (EPERM, EACCES, ENOSPC, etc.) is a real failure — rethrow so
-    // the caller sees it instead of silently swallowing data-loss risk.
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code !== "EXDEV") throw err;
-    // Cross-device: write to a sibling tmp first, then rename into place
-    // so a mid-write failure (ENOSPC, I/O) can't leave a truncated `to`.
-    // tmp and to live on the same device now, so the rename won't EXDEV.
-    const bytes = readFileSync(from);
-    const tmp = `${to}.tmp`;
-    writeFileSync(tmp, bytes);
-    renameSync(tmp, to);
-    try {
-      rmSync(from, { force: true });
-    } catch {
-      // Destination was written successfully but we couldn't delete the
-      // source. Report it so the student can clean up by hand; still
-      // return true because the new location is valid.
-      skipped.push({
-        path: from,
-        reason: "copied to destination but could not remove source",
-      });
-      return true;
+    const fd = openSync(temporary, "wx");
+    owned = true;
+    closeSync(fd);
+    writeFileSync(temporary, bytes);
+    chmodSync(temporary, statSync(from).mode & 0o777);
+    renameSync(temporary, to);
+  } finally {
+    // Never remove a pre-existing temporary, including the old fixed .tmp path.
+    if (owned) { assertProjectFilePath(root, temporary); rmSync(temporary, { force: true }); }
+  }
+}
+
+export function preflightProfilePaths(root: string, orphan: OrphanInfo, destination?: ToolProfile): void {
+  assertProjectFilePath(root, orphan.manifestPath);
+  for (const profile of destination ? [orphan.profile, destination] : [orphan.profile]) {
+    assertProjectPath(root, join(root, profile.manifestDir));
+    for (const file of [MANIFEST_FILENAME, `${MANIFEST_FILENAME}.tmp`]) assertProjectFilePath(root, join(root, profile.manifestDir, file));
+    assertProjectFilePath(root, join(root, profile.rulesFile));
+    for (const entry of entries(orphan.manifest)) {
+      const path = entryPath(root, profile, entry);
+      assertProjectFilePath(root, path);
+      assertProjectFilePath(root, `${path}.tmp`);
     }
-  }
-  return true;
-}
-
-/**
- * Strip the 10x sentinel block from the old rules file. Returns true when
- * a block was removed. Deletes the rules file if it becomes empty (pure
- * whitespace) so we don't leave an orphan `AGENTS.md` / `CLAUDE.md` around.
- */
-function stripSentinelFromRulesFile(projectRoot: string, oldProfile: ToolProfile): boolean {
-  const rulesPath = join(projectRoot, oldProfile.rulesFile);
-  if (!existsSync(rulesPath)) return false;
-  const existing = readFileOrNull(rulesPath);
-  if (existing === null) return false;
-  const { content, removed } = removeRulesBlockWithMarkers(
-    existing,
-    oldProfile.sentinelBegin,
-    oldProfile.sentinelEnd,
-  );
-  if (!removed) return false;
-  if (content.trim().length === 0) {
-    rmSync(rulesPath, { force: true });
-  } else {
-    writeFileSync(rulesPath, content);
-  }
-  return true;
-}
-
-function filesAreIdentical(a: string, b: string): boolean {
-  try {
-    const aStat = statSync(a);
-    const bStat = statSync(b);
-    if (aStat.size !== bStat.size) return false;
-    return readFileSync(a).equals(readFileSync(b));
-  } catch {
-    return false;
+    const rulesPath = join(root, profile.rulesFile);
+    if (existsSync(rulesPath)) inspectRulesBlock(readFileSync(rulesPath, "utf8"), profile.sentinelBegin, profile.sentinelEnd);
   }
 }
-
-function tryRemoveEmptyDir(dir: string): void {
-  if (!existsSync(dir)) return;
-  try {
-    rmdirSync(dir);
-  } catch {
-    // Non-empty (or not a dir) — leave it. The student may have their own
-    // files under .claude/ / .cursor/ that we don't manage.
+function begin(root: string, orphan: OrphanInfo, destination?: ToolProfile): CliManifest {
+  const course = normalizeProjectCourse(orphan.manifest.course);
+  if (!course) throw new Error("Unsupported course in orphan manifest");
+  assertProjectCourse(root, course);
+  preflightProfilePaths(root, orphan, destination);
+  establishProjectCourse(root, course);
+  const source = structuredClone(orphan.manifest);
+  source.course = course;
+  source.lessons = seedLessons(source);
+  // This records unknown ownership, never a hash inferred from local bytes.
+  const rulesPath = join(root, orphan.profile.rulesFile);
+  if (!source.managedRules && existsSync(rulesPath) && inspectRulesBlock(readFileSync(rulesPath, "utf8"), orphan.profile.sentinelBegin, orphan.profile.sentinelEnd)) {
+    source.managedRules = { path: orphan.profile.rulesFile, begin: orphan.profile.sentinelBegin, end: orphan.profile.sentinelEnd };
   }
+  return source;
+}
+
+export function migrateArtifacts(root: string, orphan: OrphanInfo, profile: ToolProfile): MigrationSummary {
+  const summary = summaryFor(orphan, "migrated");
+  if (!existsSync(orphan.manifestPath)) return summary;
+  const source = begin(root, orphan, profile);
+  const destination: CliManifest = readManifest(join(root, profile.manifestDir)) ?? { ...structuredClone(source), tool: profile.toolId, files: { skills: {}, prompts: [], configs: [] }, lessons: {}, managedRules: undefined };
+  destination.lessons = seedLessons(destination);
+  destination.course = source.course;
+  destination.tool = profile.toolId;
+  for (const entry of entries(source)) {
+    const from = entryPath(root, orphan.profile, entry);
+    const to = entryPath(root, profile, entry);
+    if (!existsSync(from)) { retire(source, entry); persistSource(root, orphan.profile, source); continue; }
+    const bytes = readFileSync(from);
+    if (existsSync(to) && !readFileSync(to).equals(bytes)) {
+      summary.skipped.push({ path: to, reason: "destination already exists with different content" });
+      continue;
+    }
+    // Copy, commit destination ownership, then retire the source. An I/O failure
+    // before removal leaves the complete original and its ledger available.
+    if (!existsSync(to)) copyForTransfer(root, from, to, bytes);
+    acquire(destination, source, entry);
+    writeManifest(join(root, profile.manifestDir), destination);
+    record(summary, entry);
+    try {
+      assertProjectFilePath(root, from);
+      if (!readFileSync(from).equals(bytes)) throw new Error("source changed during transfer");
+      rmSync(from);
+    } catch (error) {
+      summary.skipped.push({ path: from, reason: `copied to destination but could not remove source: ${error instanceof Error ? error.message : String(error)}` });
+      persistSource(root, orphan.profile, source);
+      continue;
+    }
+    retire(source, entry);
+    try { persistSource(root, orphan.profile, source); }
+    catch (error) {
+      // A failed ledger commit keeps the previous claim valid by restoring its bytes.
+      assertProjectFilePath(root, from);
+      if (!existsSync(from)) { mkdirSync(dirname(from), { recursive: true }); writeFileSync(from, bytes); }
+      throw error;
+    }
+    pruneEmptyParents(root, from, join(root, orphan.profile.manifestDir));
+  }
+  commitSourceRules(root, orphan.profile, source, () => {
+    transferRules(root, orphan.profile, profile, source, destination, summary);
+  });
+  return summary;
+}
+
+function transferRules(root: string, old: ToolProfile, profile: ToolProfile, source: CliManifest, destination: CliManifest, summary: MigrationSummary): void {
+  const metadata = source.managedRules;
+  if (!metadata) return;
+  const from = join(root, old.rulesFile);
+  if (!existsSync(from)) { delete source.managedRules; return; }
+  const existing = readFileSync(from, "utf8");
+  const block = inspectRulesBlock(existing, old.sentinelBegin, old.sentinelEnd);
+  if (!block) { delete source.managedRules; return; }
+  if (metadata.path !== old.rulesFile || metadata.begin !== old.sentinelBegin || metadata.end !== old.sentinelEnd || !metadata.upstreamHash || contentHash(block.text) !== metadata.upstreamHash) {
+    summary.skipped.push({ path: from, reason: "managed rules require explicit resolution: missing baseline or local edits" });
+    return;
+  }
+  if (old.rulesFile === profile.rulesFile) {
+    if (destination.managedRules && destination.managedRules.upstreamHash !== metadata.upstreamHash) {
+      summary.skipped.push({ path: from, reason: "incompatible shared rules ownership" }); return;
+    }
+    destination.managedRules = { ...metadata };
+    writeManifest(join(root, profile.manifestDir), destination);
+    if (!entries(source).length) delete source.managedRules;
+    return;
+  }
+  const plan = planManagedRules(root, profile, block.body, true, destination.managedRules);
+  if (plan.isConflict) { summary.skipped.push({ path: join(root, profile.rulesFile), reason: plan.reason ?? "rules conflict" }); return; }
+  const to = join(root, profile.rulesFile);
+  if (plan.action !== "unchanged") { assertProjectFilePath(root, to); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, plan.content); }
+  destination.managedRules = plan.next;
+  writeManifest(join(root, profile.manifestDir), destination);
+  if (entries(source).length) return;
+  if (!otherRulesOwners(root, old).length) {
+    const stripped = removeRulesBlockWithMarkers(existing, old.sentinelBegin, old.sentinelEnd);
+    assertProjectFilePath(root, from);
+    writeFileSync(from, stripped.content);
+    summary.sentinelStripped = stripped.removed;
+  }
+  delete source.managedRules;
+}
+
+export function deleteArtifacts(root: string, orphan: OrphanInfo): MigrationSummary {
+  const summary = summaryFor(orphan, "deleted");
+  if (!existsSync(orphan.manifestPath)) return summary;
+  const source = begin(root, orphan);
+  for (const entry of entries(source)) {
+    const path = entryPath(root, orphan.profile, entry);
+    const plan = planManagedRemoval(root, { name: entry.name, path, storedHash: entry.hash, config: entry.kind === "configs", pruneRoot: join(root, orphan.profile.manifestDir) });
+    const result = executeManagedRemoval(root, plan);
+    if (result.action === "removed") record(summary, entry);
+    else if (result.action === "preserved_local") summary.skipped.push({ path, reason: `preserved_local: ${result.reason}` });
+    retire(source, entry);
+    persistSource(root, orphan.profile, source);
+  }
+  commitSourceRules(root, orphan.profile, source, () => {
+    if (source.managedRules) {
+      const path = join(root, orphan.profile.rulesFile);
+      const plan = planManagedRules(root, orphan.profile, undefined, false, source.managedRules);
+      if (plan.isConflict) summary.skipped.push({ path, reason: "managed rules require explicit resolution: missing baseline or local edits" });
+      else {
+        if (plan.action === "removed") { assertProjectFilePath(root, path); writeFileSync(path, plan.content); summary.sentinelStripped = true; }
+        delete source.managedRules;
+      }
+    }
+  });
+  return summary;
 }

@@ -84,9 +84,9 @@ The primary daily command. Fetches a lesson bundle from the API and writes skill
 | Devin Desktop | `.devin/skills/<name>/SKILL.md` | `.devin/prompts/<name>.md` | `AGENTS.md` | `.devin/config-templates/<name>` |
 | Generic | `.ai/skills/<name>/SKILL.md` | `.ai/prompts/<name>.md` | `AGENTS.md` | `.ai/config-templates/<name>` |
 
-**Re-applying a lesson** overwrites skills and prompts if content changed, updates the rules sentinel block, but never overwrites config templates (they may contain user edits).
+**Re-applying a lesson** updates clean managed files and preserves local edits unless explicitly resolved. Config templates are create-only. Course rules with local edits or an unknown baseline require explicit resolution, even with `--force` or when opting out. Text outside the managed markers stays intact.
 
-**Switching lessons** cleans up artifacts from the previous lesson that are not in the new one, keeps shared artifacts, and adds new ones.
+**Switching lessons** accumulates downloaded artifacts. Cleanup is scoped to the lesson being updated and removes only unchanged files with known hashes and no remaining owner. User files, modified files and files without a baseline are preserved.
 
 ### `10x list [module]` — Browse available content
 
@@ -144,10 +144,13 @@ To change your AI tool (e.g., from Claude Code to Cursor):
 10x get m1l1 --tool cursor
 ```
 
-The CLI will detect that artifacts from the old tool exist and offer two options:
+The CLI will detect that artifacts from the old tool exist and offer three options:
 
-1. **Migrate** (default) — move all artifacts to the new tool's directories, remove the sentinel block from the old rules file.
-2. **Delete** — remove only 10x-managed artifacts from the old tool's directories. Your own files (e.g., `.github/workflows/`) are never touched.
+1. **Migrate** (default) — transfer eligible managed files to the new profile, preserving modified or conflicting source files and their ownership.
+2. **Delete** — remove only unchanged managed files with known hashes and no other owner; preserve user files and edits.
+3. **Keep both** — retain the existing profile and dismiss its repeated orphan prompt.
+
+Tool switching cannot change a project's course edition. If profiles disagree about the course or a manifest is corrupt, preserve the files and resolve that conflict before writing.
 
 The tool choice is saved in the config file (`~/.config/10x-cli/config.json` on macOS/Linux, `%APPDATA%/10x-cli/config.json` on Windows). Future `get` commands will use the new tool without needing `--tool` again.
 
@@ -235,3 +238,28 @@ This clears auth and tool preference. The next `10x auth` recreates everything.
 - **Run `10x doctor` before speculating.** It catches 80% of issues.
 - **Don't guess command syntax from memory.** If unsure about a flag or behavior, fetch the latest README: `https://raw.githubusercontent.com/przeprogramowani/10x-cli/refs/heads/master/README.md`
 - **Distinguish tool profile issues from CLI issues.** If artifacts land in the wrong directory, it is a tool profile question. If the command itself fails, it is a CLI/auth/network question.
+
+## Course selection and project edition
+
+`get`, `list`, and `sync` select the explicit `--course` first, then the project's edition, then the live API recommendation. A new project with only v3 access selects v3, with only v4 selects v4, and with both selects published, available v4. An unpublished v4 can leave v3 as the recommendation; network or backend failures are reported instead of falling back. Output includes the course and selection reason.
+
+The first validated write records `{ "version": 1, "course": "10xdevs4" }` (or `10xdevs3`) in the root `.10x-cli.json`, shared across AI tool profiles. Existing supported v2/v3 manifests preserve their recorded edition. All profiles, including legacy Windsurf, must agree. Corrupt, unknown-version, or conflicting manifests block writes and must be preserved for repair. Artifact names never infer an edition.
+
+Ordinary `get` and `sync` cannot change a bound project's edition. Start v4 in a separate directory while retaining the v3 project. Read-only inspection of another entitled edition is allowed with `--course`. Do not delete the binding or manifests to bypass an edition conflict. Course edition and manifest schema version are separate concepts.
+
+`list`, `get --print`, `get --dry-run`, `sync --dry-run`, and `doctor` preserve project files and tool/language preferences, including interactive tool choices. Auth token rotation may update only the credential store. Failed download, signature, course, or path validation leaves a new project unbound. Once writing starts, its binding remains even if an I/O operation fails, so retry stays on the same edition. `auth --status` and `doctor` distinguish token expiry from live course access.
+
+
+## v3 compatibility and v4 rollout
+
+Upgrade the CLI to use v4 capabilities. Existing v3 users can continue `auth`,
+`list`, `get` and `sync` without compulsory course flags or project migration.
+A new v4 purchase does not switch a bound v3 project; create a separate directory
+for v4. Complete skill directories are installed, including references and scripts;
+`--print` in human mode shows only `SKILL.md` and explains how to download the rest.
+
+The first v4 delivery release does not include a course-edition migration command.
+Do not recommend deleting a binding or manifest to force another edition. Warnings
+about using old binaries on edition-migrated projects belong to the later migration
+release. If v4 is unavailable, distinguish its publication/unlock state from course
+membership; do not claim that reinstalling or changing a tool grants access.

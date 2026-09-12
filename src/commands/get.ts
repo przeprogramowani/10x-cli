@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { CAC } from "cac";
-import { fetchArtifact, fetchLesson, type LessonBundle } from "../lib/api-content";
-import { requireAuth } from "../lib/auth-guard";
+import { fetchArtifact, fetchLesson, fetchCatalog, catalogRelease, type ReleaseSelection, type LessonBundle } from "../lib/api-content";
+import { resolveCourseSelection, reportCourseError, type SelectionReason } from "../lib/course-selection";
 import { createConflictResolver, showUpgradeNotice } from "../lib/conflict-prompt";
 import { formatReleaseAt } from "../lib/format";
 import { parseLessonRef } from "../lib/lesson-ref";
@@ -15,10 +15,10 @@ import {
   resolveContext,
   verbose,
 } from "../lib/output";
-import { readToolConfig, updateToolConfig } from "../lib/config";
-import { resolveToolProfile } from "../lib/tool-prompt";
+import { readToolConfig } from "../lib/config";
+import { resolveToolProfile, prepareToolForWrite } from "../lib/tool-prompt";
 import { contentToolId, type ToolProfile } from "../lib/tool-profile";
-import { applyBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
+import { applyBundle, planBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
 
 const ARTIFACT_TYPES = ["skills", "prompts", "rules", "configs"] as const;
 type ArtifactType = (typeof ARTIFACT_TYPES)[number];
@@ -54,14 +54,12 @@ export function resolveCourseRulesFlag(argv: string[]): boolean | undefined {
   return undefined;
 }
 
-/** Default course slug. Hardcoded for v1 per plan; configurable later. */
-const DEFAULT_COURSE = "10xdevs3";
 
 export function registerGetCommand(cli: CAC): void {
   cli
     .command("get <ref>", "Fetch and apply a lesson pack")
     .option("--dry-run", "Show what would be written without touching the filesystem")
-    .option("--course <course>", "Override the course slug (default: 10xdevs3)")
+    .option("--course <course>", "Select course ID or slug (default: project edition or API recommendation)")
     .option(
       "--tool <tool>",
       "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, gemini, generic)",
@@ -127,8 +125,14 @@ export async function runGet(
     );
   }
 
-  const auth = await requireAuth(ctx);
-  const course = options.course ?? DEFAULT_COURSE;
+  const selection = await resolveCourseSelection(ctx, { explicit: options.course, writing: !options.dryRun && !options.print });
+  const { auth, course } = selection;
+  let release: ReleaseSelection | undefined;
+  if (course === "10xdevs4" || course === "10xdevs-4") {
+    const catalog = await fetchCatalog(course, auth.access_token);
+    if (!catalog.ok) handleLessonError(ctx, catalog.status, catalog.code, catalog.error, catalog.payload);
+    release = catalogRelease(catalog.data);
+  }
   const profile = await resolveToolProfile(options.tool, process.cwd());
 
   const dryRun = options.dryRun === true;
@@ -142,25 +146,15 @@ export async function runGet(
   const explicitCourseRules = resolveCourseRulesFlag(process.argv);
   const resolvedCourseRules = explicitCourseRules ?? readToolConfig()?.courseRules ?? true;
 
-  // Persist explicit choices via a merge-safe write so neither clobbers the
-  // other config fields. Skip under --dry-run (touch nothing). `tool` is
-  // seeded so the persisted object stays valid when no prior config exists.
-  if (!dryRun && (options.lang || explicitCourseRules !== undefined)) {
-    const tool = readToolConfig()?.tool ?? profile.toolId;
-    const patch: { tool: string; lang?: string; courseRules?: boolean } = { tool };
-    if (options.lang) patch.lang = options.lang;
-    if (explicitCourseRules !== undefined) patch.courseRules = explicitCourseRules;
-    updateToolConfig(patch);
-  }
-
   if (options.print) {
-    await runPrintMode(ctx, parsed.lessonId, course, profile, auth.access_token, lang, options);
+    await runPrintMode(ctx, parsed.lessonId, course, profile, auth.access_token, lang, options, selection.reason, release);
     return;
   }
 
   verbose(ctx, `fetching lesson ${course}/${parsed.lessonId}`);
   const result = await fetchLesson(course, parsed.lessonId, auth.access_token, {
     lang,
+    ...(release ? { release } : {}),
     tool: contentToolId(profile),
   });
 
@@ -178,9 +172,8 @@ export async function runGet(
     );
   }
 
-  // Non-TTY orphan surface for CI/logs. The interactive migration prompt
-  // inside resolveToolProfile handles TTY flows; here we only keep the
-  // legacy verbose line so CI output still flags the situation.
+  // Read-only orphan surface for CI/logs. A writing command may offer a
+  // profile migration after the payload and all planned paths pass validation.
   if (!process.stdout.isTTY) {
     const orphanWarning = detectOrphanedArtifacts(process.cwd(), profile);
     if (orphanWarning) verbose(ctx, orphanWarning);
@@ -201,15 +194,27 @@ export async function runGet(
   // A full apply (no filter) respects the resolved setting (and strips when off).
   const applyCourseRules = isFiltered ? true : resolvedCourseRules;
 
-  const writeResult = await applyBundle(bundle, process.cwd(), {
-    dryRun,
-    profile,
-    partial: isFiltered,
-    onConflict: createConflictResolver(isTTY),
-    applyCourseRules,
-  });
+  let writeResult: WriteResult;
+  try {
+    planBundle(bundle, process.cwd(), { course, profile, applyCourseRules });
+    if (!dryRun) await prepareToolForWrite(process.cwd(), profile, course, {
+      ...(options.lang ? { lang: options.lang } : {}),
+      ...(explicitCourseRules !== undefined ? { courseRules: explicitCourseRules } : {}),
+    });
+    writeResult = await applyBundle(bundle, process.cwd(), {
+      course,
+      dryRun,
+      profile,
+      partial: isFiltered,
+      lang: contentLang ?? lang,
+      onConflict: createConflictResolver(isTTY && !dryRun),
+      applyCourseRules,
+    });
+  } catch (error) { reportCourseError(ctx, error); }
 
   renderGetResult(ctx, bundle, writeResult, dryRun, profile, {
+    course,
+    selectionReason: selection.reason,
     language: contentLang ?? lang,
     languageFallback: isFallback,
     applyCourseRules,
@@ -282,7 +287,10 @@ async function runPrintMode(
   token: string,
   lang: string,
   options: GetFlags,
+  selectionReason: SelectionReason,
+  release?: ReleaseSelection,
 ): Promise<void> {
+  if (!ctx.json) process.stderr.write(`Course: ${course} (${selectionReason})\n`);
   if (!options.type) {
     outputError(
       ctx,
@@ -313,7 +321,7 @@ async function runPrintMode(
       options.name,
       contentToolId(profile),
       token,
-      { lang },
+      { lang, ...(release ? { release } : {}) },
     );
 
     if (!result.ok) {
@@ -321,7 +329,7 @@ async function runPrintMode(
     }
 
     if (ctx.json) {
-      output(ctx, "", result.data);
+      output(ctx, "", { ...result.data, course, selectionReason });
     } else {
       const data = result.data;
       if (data.type === "skills") {
@@ -335,7 +343,7 @@ async function runPrintMode(
   } else {
     // Fetch full bundle, filter by type, concatenate
     verbose(ctx, `fetching lesson ${course}/${lessonId} (filtering by ${options.type})`);
-    const result = await fetchLesson(course, lessonId, token, { lang, tool: contentToolId(profile) });
+    const result = await fetchLesson(course, lessonId, token, { lang, tool: contentToolId(profile), ...(release ? { release } : {}) });
 
     if (!result.ok) {
       handleLessonError(ctx, result.status, result.code, result.error, result.payload);
@@ -345,7 +353,7 @@ async function runPrintMode(
     if (type === "skills") {
       const skills = result.data.skills;
       if (ctx.json) {
-        output(ctx, "", skills);
+        output(ctx, "", { course, selectionReason, artifacts: skills });
       } else {
         const contents = skills.map(
           (s) => s.files.find((f) => f.path === "SKILL.md")?.content ?? "",
@@ -356,7 +364,7 @@ async function runPrintMode(
     } else {
       const artifacts = result.data[type];
       if (ctx.json) {
-        output(ctx, "", artifacts);
+        output(ctx, "", { course, selectionReason, artifacts });
       } else {
         const contents = artifacts.map((a) => a.content);
         process.stdout.write(contents.join("\n---\n"));
@@ -391,7 +399,8 @@ function handleLessonError(
 ): never {
   verbose(ctx, `lesson fetch failed: status=${status} code=${code}`);
 
-  if (status === 403) {
+  if (code === "course_access_denied" || code === "course_unavailable") outputError(ctx, code, error, code === "course_access_denied" ? ExitCodes.FORBIDDEN : ExitCodes.ERROR);
+  if (status === 403 && code === "module_locked") {
     const moduleNum = payload?.["module"];
     const releaseAt = payload?.["releaseAt"];
     const hasModule = typeof moduleNum === "number";
@@ -439,7 +448,7 @@ function handleLessonError(
     );
   }
 
-  if (code === "signature_error" || code === "signature_missing" || code === "signature_internal_error") {
+  if (code === "release_mismatch" || code === "signature_error" || code === "signature_missing" || code === "signature_internal_error") {
     outputError(
       ctx,
       code,
@@ -482,7 +491,9 @@ function renderGetResult(
   writeResult: WriteResult,
   dryRun: boolean,
   profile: ToolProfile,
-  langMeta: { language: string; languageFallback: boolean; applyCourseRules: boolean } = {
+  langMeta: { course: string; selectionReason: SelectionReason; language: string; languageFallback: boolean; applyCourseRules: boolean } = {
+    course: "10xdevs3",
+    selectionReason: "backend_recommendation",
     language: "en",
     languageFallback: false,
     applyCourseRules: true,
@@ -490,12 +501,12 @@ function renderGetResult(
 ): void {
   const applyCourseRules = langMeta.applyCourseRules;
   const totalRemovals =
-    writeResult.removals.skills.length +
-    writeResult.removals.prompts.length +
-    writeResult.removals.configs.length;
+    [...writeResult.removals.skills, ...writeResult.removals.prompts, ...writeResult.removals.configs].filter((entry) => entry.action === "removed").length;
 
   if (ctx.json) {
     output(ctx, "", {
+      course: langMeta.course,
+      selectionReason: langMeta.selectionReason,
       lessonId: bundle.lessonId,
       title: bundle.title,
       summary: bundle.summary,
@@ -524,6 +535,7 @@ function renderGetResult(
 
   const targetDir = profile.manifestDir;
   const lines: string[] = [];
+  lines.push(`Course: ${langMeta.course} (${langMeta.selectionReason})`);
   lines.push(`${bundle.lessonId} — ${bundle.title}`);
   if (bundle.summary) lines.push(bundle.summary);
   lines.push("");
@@ -545,7 +557,9 @@ function renderGetResult(
   if (!applyCourseRules) {
     // Course rules disabled: a stripped block surfaces as a [removed] line;
     // when nothing was present the rules line is suppressed (verbose-only).
-    if (writeResult.rules.action === "removed") {
+    if (writeResult.rules.action === "conflict_skipped") {
+      lines.push(`  [conflict: skipped] rules ${profile.rulesFile} (${writeResult.rules.reason ?? "explicit resolution required"})`);
+    } else if (writeResult.rules.action === "removed") {
       lines.push(`  [removed] rules  ${profile.rulesFile}`);
     } else {
       verbose(ctx, `course rules disabled — ${profile.rulesFile} left untouched`);
@@ -559,13 +573,13 @@ function renderGetResult(
     lines.push(`  [${config.action}] config ${config.path}`);
   }
   for (const entry of writeResult.removals.skills) {
-    lines.push(`  [removed] skill  ${entry.path}`);
+    lines.push(`  [${entry.action}] skill  ${entry.path}${entry.reason ? ` (${entry.reason})` : ""}`);
   }
   for (const entry of writeResult.removals.prompts) {
-    lines.push(`  [removed] prompt ${entry.path}`);
+    lines.push(`  [${entry.action}] prompt ${entry.path}${entry.reason ? ` (${entry.reason})` : ""}`);
   }
   for (const entry of writeResult.removals.configs) {
-    lines.push(`  [removed] config ${entry.path}`);
+    lines.push(`  [${entry.action}] config ${entry.path}${entry.reason ? ` (${entry.reason})` : ""}`);
   }
   output(ctx, lines.join("\n"), undefined);
 }

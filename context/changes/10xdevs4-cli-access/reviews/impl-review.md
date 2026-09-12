@@ -1,86 +1,72 @@
 <!-- IMPL-REVIEW-REPORT -->
 # Implementation Review: 10xDevs 4 access and delivery
 
-- **Plan**: [canonical plan](../plan.md)
-- **Scope**: Completed phases 1–2 of 7; Toolkit implementation and CLI canonical context. Phases 3–6 are not certified by this review.
+- **Plan**: [Canonical plan](../plan.md)
+- **Scope**: Full implemented phases 1–6 across CLI and Toolkit; phase 7 excluded.
 - **Date**: 2026-09-12
-- **Verdict**: APPROVED for reviewed phases after corrections; the complete change is not release-ready.
-- **Findings**: 0 unresolved critical, 0 unresolved warnings, 1 inherited-baseline observation. Initial review found 1 critical, 1 warning and 1 additional observation, all corrected below.
-- **Authority**: Accepted decisions D01–D16 unchanged. Scope and safety reviews ran independently via two review agents; main executed gates and deliberate-break checks.
+- **Verdict**: NEEDS ATTENTION — no unresolved code findings; source/full-clean and actual Windows CI evidence remain open.
+- **Findings**: 0 critical, 2 warnings, 0 observations.
+- **Reviewed range**: complete scoped worktrees (committed, staged and scoped untracked changes) relative to CLI `f89f19506cab8c9bbeb112242e4485fce4f1b77b` and Toolkit `da989a6f7d4963c275a98943e85d225baf426228`.
 
 ## Verdicts
 
 | Dimension | Verdict |
-|-----------|---------|
+|---|---|
 | Plan Adherence | PASS |
 | Scope Discipline | PASS |
 | Safety & Quality | PASS |
 | Architecture | PASS |
 | Pattern Consistency | PASS |
-| Success Criteria | PASS for phase 1 and 2 Automated criteria |
+| Success Criteria | WARNING — incomplete source/full-clean and remote Windows evidence |
 
 ## Findings
 
-### F1 — Pending email migration could prevent revocation after roster removal
-
-- **Severity**: CRITICAL
-- **Impact**: MEDIUM — narrow lifecycle correction with identity-safety implications.
-- **Dimension**: Safety & Quality
-- **Location**: Toolkit `packages/api/src/services/circle-sync.ts`, `reconcileCourseMembers`; `services/email-drift.ts`, `recoverMigrationForRemoval`.
-- **Detail**: At initial phase-1 commit `7f0ce09`, failure after new primary/reverse writes but before old-email deactivation left a marker. Recovery visited current roster IDs only; removals skipped the marker indefinitely if the person left Circle before retry.
-- **Fix**: Recover removal candidates before revocation from fresh, hash-addressed records. Complete a verified destination transition; cancel only demonstrably unapplied intent with identical active old/reverse records and no destination. Retain conflicting markers and protect affected identities before any revokes.
-- **Decision**: FIXED. Ten failure/restart/removal cases, five conflict/corruption cases, and deliberate omission of recovery (13 failures) verify the fix. Unrelated/manual grants survive.
-
-### F2 — Backfill exceeded the observed cohort's request budget
+### F1 — Final v3 maintenance source and clean gate remain deferred
 
 - **Severity**: WARNING
-- **Impact**: LOW — bounded-read and unchanged-write optimization within the existing KV model.
-- **Dimension**: Safety & Quality
-- **Location**: Toolkit `packages/api/src/services/circle-sync.ts`, `backfillMemberIdIndex`.
-- **Detail**: Initial implementation used over 16,280 KV operations for 4,070 healthy records in one invocation. Cron's separate 265-operation regression did not cover this path.
-- **Fix**: Batch primary/index/marker snapshots, skip byte-identical healthy indexes, and re-read identity before actual mutations.
-- **Decision**: FIXED. A paginated 4,070-record fixture verifies 128 KV operations and zero writes. Replacing bulk reads with single-key reads makes the test fail. No remote backfill was executed.
-
-### F3 — Backfill needed exact primary-key/email correspondence
-
-- **Severity**: OBSERVATION
-- **Impact**: LOW — one identity guard and regression.
-- **Dimension**: Safety & Quality
-- **Location**: Toolkit `packages/api/src/services/circle-sync.ts`, backfill mutation guard.
-- **Detail**: Matching fresh and snapshot email values alone did not prove the primary key actually encoded that email's hash.
-- **Fix**: Require the candidate key to equal the normalized email's membership key before mutation.
-- **Decision**: FIXED. Mismatched-key regression rejects the write; existing placeholder-key fixtures now use real hashes without relaxing assertions.
-
-### F4 — Standalone API typecheck has inherited baseline errors
-
-- **Severity**: OBSERVATION
-- **Impact**: MEDIUM — a separate baseline cleanup is required before claiming a clean API typecheck.
+- **Impact**: LOW — the source policy and ancestry regression are implemented; final source identity requires the deferred prerequisite.
 - **Dimension**: Success Criteria
-- **Location**: Toolkit API tsconfig and existing tests/routes.
-- **Detail**: Additional `pnpm --filter @przeprogramowani/api exec tsc --noEmit` fails with 61 diagnostics. An independently extracted `da989a6` baseline with the same dependencies fails with 62. New fixture diagnostics were corrected; the final candidate adds no file/error-code diagnostic, and removes the retired event route's diagnostic. Existing Response/handler types, Worker scheduled types, webhook Pick fields and fake typing account for the remaining baseline. The repository's prescribed `ci:local` does not run this standalone API command.
-- **Fix**: Address the inherited API typecheck baseline separately; do not call this command green or weaken its configuration.
-- **Decision**: RECORDED as an inherited limitation; no full API typecheck success claimed.
+- **Location**: Toolkit `packages/course-content/src/courses/10xdevs3/sources.ts:5`; canonical Progress 6.2.
+- **Detail**: Approved v3 cutoff remains `da989a6f7d4963c275a98943e85d225baf426228`. The historical tree lacks complete supporting documents. The full clean run stopped at `10x-implement/SKILL.md -> references/progress-format.md`; this file is also absent from the current PR #30 candidate. PR #30 contains the stack-assess repair, so its merge alone is insufficient; its current head is a candidate, not a permanent master pin. The user explicitly deferred checking/merging that PR. Candidate v4 validation, real R2 and compatibility tests do not substitute for the final clean source gate.
+- **Fix**: Local exact document copies and parity protection are now prepared for the five additional affected packages, with both reviewers approving them. Once all required source repairs are handled separately on master, verify the actual resulting master commit, add only the required maintenance exceptions, and rerun the full clean gate. Preserve the approved course cutoff and fail-closed ancestry validation.
+- **Decision**: DEFERRED BY USER — keep criterion open; do not request or perform an immediate merge.
 
-## Verification evidence
+### F2 — Actual exact-commit Windows CI evidence remains outstanding
 
-- Phase 1 initial commit: API 350 tests and full Toolkit `pnpm ci:local` passed. CLI context bootstrap: 490 unit tests, typecheck, lint, build and binary passed.
-- Final phase-1 corrections plus phase 2: course-content runtime build passed; API 490 tests in 29 files passed, including 36 membership/identity tests and 96 course-route matrix tests.
-- Deliberate breaks: access bypass produced 26 failing tests; a new unclassified endpoint failed the inventory; omitted removal recovery produced 13 failures; non-bulk backfill failed the scale regression. All source edits were unconditionally restored from the staged candidate.
-- Source reviews checked registry/light runtime boundaries, all six route guards and aliases, callback/normal/smoke refresh, legacy versus malformed claims, one-read live discovery, explicit KV/R2/schema errors, admin state-key normalization and retired event access with normal v3 m0l2 preserved.
-- No new infrastructure, event enrollment, project migration, publishing, real emails or production writes. KV guarantees remain sequential/retry preservation, not cross-isolate serialization.
-- Final repo-wide gate results and commit revisions are recorded in [evidence](../evidence.md) and canonical Progress.
+- **Severity**: WARNING
+- **Impact**: MEDIUM — remote candidate/fixture setup and execution are required to obtain evidence.
+- **Dimension**: Success Criteria
+- **Location**: Both `.github/workflows/ci.yml`; canonical Progress 6.3.
+- **Detail**: Workflows pin both candidate SHAs, verify fixture identity and every v3 object, run Linux/Windows E2E, compare candidate OpenAPI, and retain exactly the tested release using both OS receipts. Local macOS verification does not prove Windows execution; candidate commits and remote CI have not been published/executed. The private v3 fixture producer and its archive are prepared locally, with no GitHub upload or dispatch.
+- **Fix**: After source closure and ordered local commits, use separately authorized remote setup/run to record exact candidate SHAs, successful Linux/Windows jobs and verified fixture producer identity.
+- **Decision**: PENDING EXTERNAL VERIFICATION — implementation is prepared, remote actions remain outside current authorization.
 
-## Scope adaptations
+## Independent review evidence
 
-Existing admin module-state writes use the same registry slug as readers. Token generators in local JS/Python/E2E tools were updated; the smoke-token seed writes refresh records only, so its JWT change belongs in the refresh service. Present invalid/empty membership maps no longer fabricate legacy v3 access; only absence triggers legacy inference. Discovery represents withdrawal through absent catalog until the separate release envelope is implemented. The shared-skill-reference lesson is unaffected.
+Two independent read-only reviewers completed the full sweep, including the final Phase 6 receipt and fixture-producer changes. Both report no new substantive code findings and confirm prior fixes remain present. Their review did not run gates or mutate files.
 
-## Remaining work
+Plan drift review found MATCH for all planned changes: membership identity/recovery, strict authorization and live discovery, event retirement, independent curriculum, source/package precedence and ancestry, immutable publisher/recovery, project selection/binding, read-only preflight, per-file ownership/removal, managed rules and sync freshness, real-auth compatibility matrix, deterministic schemas and exact candidate CI. Added fixture preparation and portable package-auth setup support the planned verification requirements. No edition-migration implementation or other unplanned product scope was found.
 
-Phase 3 requires W04's approved independent v4 curriculum and effective schedule/KV evidence, W05's approved full v3 cutoff with maintenance exceptions, and W08's isolated remote environment and real conditional-publisher trials. Current previews share live bindings and are unsuitable for write trials. Resolve these inputs through the targeted research and, where the plan needs changing, `10x-plan` followed by `10x-plan-review`; do not infer program or cutoff from v3 or substitute mocks for W08.
+Safety/pattern review confirmed sequential grant preservation with explicit KV limits; centralized authorization and release verification; immutable byte checks and conditional publication; protected local ownership and truthful retry state; exact cross-repository candidates and tested-output reuse. Pattern comparisons used existing manifest/auth persistence, publisher authorization boundaries and skill source closure.
 
-Phases 3–6 and their full implementation review remain pending. Phase 7 is not authorized for execution. This report does not mark the whole change implemented or archived.
+Earlier bounded reports remain supporting evidence: [Phase 3](impl-review-phase-3.md) and [Phase 4/5](impl-review-phase-5.md). Universal reference closure, backup destination guards, artifact-independent recovery, source-rules rollback and temporary-file cleanup findings are fixed and independently rechecked.
 
-Pending Manual rows (unchanged in canonical Progress):
+## Automated verification
 
-- 7.4 Confirm intended v4 first-week materials, preview fixture rehearsal and secured-production real-account login/list/get/sync for v3-only, v4-only and dual-course users.
-- 7.5 Review and execute the two-stage toolkit rollout followed by CLI publication; record successful account rehearsal and rollback-floor revision.
+- Real coordinated E2E: **29/29 PASS**, including 18 course/language/tool combinations, actual released npm CLI 1.20.0, existing v2/v3 projects, stale-grant purchase and access denial. Exact byte/hash comparisons and real intercepted-mail login/callback/poll/refresh; `/tmp/10x-v4-p6-real-e2e-fixed.log`.
+- CLI: **611 unit tests PASS**, typecheck/lint/ESM/native builds PASS; **10 smoke tests PASS**. Final Phase 6 typecheck/lint/smoke rerun also passed.
+- Phase 6 CI helper regressions: **10/10 PASS**; `/tmp/10x-v4-p6-final-input-tests.log`.
+- Deliberate breaks: candidate SHA mismatch, rerendered release identity, substituted archive hash and real cross-course authorization each made the relevant tests fail. All production mutations restored exactly from staged bytes. Candidate OpenAPI drift check also failed as required without modifying generated types.
+- Actual published-v3 archive prepared and verified locally: **57 complete objects PASS**; `/tmp/10x-v4-p6-actual-fixture-artifact.json`.
+- Actual isolated remote R2 publisher: **11/11 PASS**, plus actual CLI read-only verify under Node 22.14.0. No production writes.
+- Full Toolkit `pnpm ci:local`: **FAIL after all 807 tests passed**, at frozen-v3 support closure (`10x-implement/references/progress-format.md` missing); log `/tmp/10x-v4-p6-full-ci-local.log`. This report does not claim that gate passed.
+
+## Final selected-source follow-up
+
+The clean gate exposed a source gap beyond current PR #30. Read-only audit of 30 selected packages across 28 v3 lessons found five additional missing `progress-format.md` copies. Exact copies from the authoritative 10x-plan file were prepared locally in 10x-implement, 10x-impl-review, 10x-plan-review, 10x-tdd and 10x-goal-implement. All copies are 4,882 bytes and retain source SHA-256 `acd3841cb4b2baa3066f5ec4997d0c21b8791fcd432a66777fd8bcb38119e218`.
+
+Both independent reviewers rechecked this bounded follow-up and approved it without findings. Parent verification: **25 shared-reference tests PASS**, actual parity validator PASS, all **30 local selected skill packages pass production support-closure validation**, formatting/lint PASS. Bypassing parity made its regressions fail and was restored exactly. Existing selector/assess full-tree parity and independent consumer documents remain supported. No SKILL.md, source configuration, Git ref or PR was changed. This closes the local code preparation gap, not F1's required historical master-source evidence.
+
+## Remaining boundaries
+
+Canonical Progress is the only execution tracker. Phase 6.1 is checked; 6.2/6.3 remain open. Ordered phase 3–6 commits are pending; preserved index snapshots retain separate phase boundaries. Phase 7 and both Manual rows remain untouched. No deployment, npm publication, production R2/KV writes, new push/merge, fixture upload or workflow dispatch was performed in this continuation. This review is not release approval or whole-goal completion.

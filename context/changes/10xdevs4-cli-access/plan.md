@@ -4,7 +4,7 @@
 
 First of two independently releasable changes: v4-only login and first-week get/list/sync for new projects, transparent support for existing v3 users, safe updates, and independently published v4 content. Existing v3 projects keep v3 even after buying v4. Explicit project migration ships separately in [10xdevs4-project-migration](../10xdevs4-project-migration/plan.md).
 
-**Status (2026-09-12)**: accepted decisions incorporated; dedicated [plan review](reviews/plan-review.md) is SOUND after corrections; implementation has not started. This plan owns the cross-repository Progress for change `10xdevs4-cli-access`. Toolkit companion links here. Each change can need PRs in both repositories; the security preparation deployment within this first change is a rollout stage, not a third product change.
+**Status (2026-09-12)**: phases 1–6 implementation is prepared for draft PR review; final master-source/full-clean and exact-commit Windows CI gates remain open. The [manual rehearsal](manual-test-results-2026-09-12.md) passed functional criteria with a repeated-sync update-count observation. Phase 7 remains pending. See [merge order](merge-order.md). This plan owns the cross-repository Progress for change `10xdevs4-cli-access`. Toolkit companion links here. Each change can need PRs in both repositories; the security preparation deployment within this first change is a rollout stage, not a third product change.
 
 ## Current State Analysis
 
@@ -439,40 +439,40 @@ The second plan consumes release schema, signed map envelope, guarded release ro
 
 #### Automated
 
-- [ ] 3.1 Scoped build succeeds: `pnpm --filter @przeprogramowani/course-content build && pnpm --filter @przeprogramowani/course-content build:lessons --course 10xdevs4`.
-- [ ] 3.2 Selected-bundle validation passes: `node packages/course-content/scripts/validate-bundles.mjs --course 10xdevs4`.
-- [ ] 3.3 Pipeline regression tests prove stray/modified v3 and unknown dist directories never enter transforms or production PUTs; incomplete uploads do not publish a catalog.
-- [ ] 3.4 Inventory tests cover pagination, full key/hash comparison and download failure; course-content tests pass: `pnpm --filter @przeprogramowani/course-content test`.
-- [ ] 3.5 Source-resolution tests prove latest is resolved once, per-file pins take precedence, unpinned sibling files follow the course default, missing pinned inputs fail, and provenance/cache identity reflect the assembled sources.
-- [ ] 3.6 Release tests prove incomplete uploads never become current, competing promotions do not overwrite each other, retained releases are immutable, and get/sync/migration read one selected release across every content route.
+- [x] 3.1 Scoped build succeeds: `pnpm --filter @przeprogramowani/course-content build && pnpm --filter @przeprogramowani/course-content build:lessons --course 10xdevs4`.
+- [x] 3.2 Selected-bundle validation passes: `node packages/course-content/scripts/validate-bundles.mjs --course 10xdevs4`.
+- [x] 3.3 Pipeline regression tests prove stray/modified v3 and unknown dist directories never enter transforms or production PUTs; incomplete uploads do not publish a catalog.
+- [x] 3.4 Inventory tests cover pagination, full key/hash comparison and download failure; course-content tests pass: `pnpm --filter @przeprogramowani/course-content test`.
+- [x] 3.5 Source-resolution tests prove latest is resolved once, per-file pins take precedence, unpinned sibling files follow the course default, missing pinned inputs fail, and provenance/cache identity reflect the assembled sources.
+- [x] 3.6 Release tests prove incomplete uploads never become current, competing promotions do not overwrite each other, retained releases are immutable, and get/sync/migration read one selected release across every content route.
 
-- [ ] 3.7 Curriculum coverage validation rejects missing/extra/cumulative/language/rules mismatches and passes for the reviewed v4 first-week specification.
-- [ ] 3.8 Package-source tests verify file SHA over package SHA over course default, pinned tree membership, executable modes and cache invalidation.
-- [ ] 3.9 Promotion gate proves manual selection of exact verified outputs, conditional create/update failure and competing-writer/rollback behavior through the actual production publisher path.
+- [x] 3.7 Curriculum coverage validation rejects missing/extra/cumulative/language/rules mismatches and passes for the reviewed v4 first-week specification.
+- [x] 3.8 Package-source tests verify file SHA over package SHA over course default, pinned tree membership, executable modes and cache invalidation.
+- [x] 3.9 Promotion gate proves manual selection of exact verified outputs, conditional create/update failure and competing-writer/rollback behavior through the actual production publisher path.
 
 ### Phase 4: Resolve the best available course and bind project writes safely
 
 #### Automated
 
-- [ ] 4.1 Selection, legacy/corrupt/future/conflicting manifest and stale-token upgrade matrix passes in new course-selection/project-course tests.
-- [ ] 4.2 Snapshot tests prove read-only modes preserve project/preferences with TTY orphan migration, --tool and --lang; failed preflight creates no binding.
-- [ ] 4.3 Partial-write failure retains correct binding; get passes actual course to writer; CLI typecheck/tests pass: `bun run typecheck && bun test tests/*.test.ts`.
+- [x] 4.1 Selection, legacy/corrupt/future/conflicting manifest and stale-token upgrade matrix passes in new course-selection/project-course tests.
+- [x] 4.2 Snapshot tests prove read-only modes preserve project/preferences with TTY orphan migration, --tool and --lang; failed preflight creates no binding.
+- [x] 4.3 Partial-write failure retains correct binding; get passes actual course to writer; CLI typecheck/tests pass: `bun run typecheck && bun test tests/*.test.ts`.
 
 ### Phase 5: Protect local edits during updates and profile migration
 
 #### Automated
 
-- [ ] 5.1 Deletion regressions preserve modified/untracked/shared/legacy-no-hash files and adopted configs, including --force; symlink/traversal tests pass.
-- [ ] 5.2 Profile-migration conflict and injected I/O failure tests preserve source/destination ownership, course and shared rules.
-- [ ] 5.3 Sync repairs missing files and handles language/tool changes despite unchanged upstream digest; targeted CLI tests, lint and builds pass: `bun test tests/*.test.ts && bun run typecheck && bun run lint && bun run build && bun run build:binary`.
+- [x] 5.1 Deletion regressions preserve modified/untracked/shared/legacy-no-hash files and adopted configs, including --force; symlink/traversal tests pass.
+- [x] 5.2 Profile-migration conflict and injected I/O failure tests preserve source/destination ownership, course and shared rules.
+- [x] 5.3 Sync repairs missing files and handles language/tool changes despite unchanged upstream digest; targeted CLI tests, lint and builds pass: `bun test tests/*.test.ts && bun run typecheck && bun run lint && bun run build && bun run build:binary`.
 
-- [ ] 5.9 Ordinary rules preview/apply/opt-out preserve local or unknown-baseline blocks, shared owners and surrounding text; explicit resolutions and partial failures keep upstream hashes truthful.
+- [x] 5.9 Ordinary rules preview/apply/opt-out preserve local or unknown-baseline blocks, shared owners and surrounding text; explicit resolutions and partial failures keep upstream hashes truthful.
 
 ### Phase 6: Verify candidate CLI and API together before release
 
 #### Automated
 
-- [ ] 6.1 Coordinated real-auth matrix passes: `E2E_CLI_PATH=/Users/admin/code/10x-cli-v4-delivery/dist/10x pnpm test:e2e:cli` from toolkit (CI uses its own exact checkout path).
+- [x] 6.1 Coordinated real-auth matrix passes: `E2E_CLI_PATH=/Users/admin/code/10x-cli-v4-delivery/dist/10x pnpm test:e2e:cli` from toolkit (CI uses its own exact checkout path).
 - [ ] 6.2 Full clean toolkit gate passes: `pnpm ci:local`; CLI unit/type/lint/build/binary and `bun test tests/smoke/` pass.
 - [ ] 6.3 CI records exact candidate SHAs and passes Windows checks; implementation review has no unresolved critical findings.
 

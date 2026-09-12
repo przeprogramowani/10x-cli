@@ -68,26 +68,9 @@ describe("applyRulesBlock — migration from internal-pkg", () => {
     expect(warnings).toHaveLength(0);
   });
 
-  it("warns and truncates when only OLD_BEGIN is present", () => {
-    const existing = `# Project\n\n${OLD_BEGIN}\n\nbroken tail\n`;
-    const { content, warnings } = applyRulesBlock(existing, "new rules");
-    expect(content).not.toContain(OLD_BEGIN);
-    expect(content).not.toContain("broken tail");
-    expect(content).toContain("# Project");
-    expect(content).toContain(NEW_BEGIN);
-    expect(warnings.length).toBeGreaterThan(0);
-  });
-
-  it("warns and truncates when only OLD_END is present", () => {
-    const existing = `# Project\n\nkept text\n\n${OLD_END}\n\nstripped tail\n`;
-    const { content, warnings } = applyRulesBlock(existing, "new rules");
-    expect(content).not.toContain(OLD_END);
-    expect(content).not.toContain("stripped tail");
-    // Content BEFORE the orphan END marker is preserved (mirrors
-    // internal-pkg behavior: slice(0, idx)).
-    expect(content).toContain("kept text");
-    expect(content).toContain(NEW_BEGIN);
-    expect(warnings.length).toBeGreaterThan(0);
+  for (const marker of [OLD_BEGIN, OLD_END]) it(`rejects orphan ${marker} without truncation`, () => {
+    const existing = `# Project\n${marker}\nvaluable tail\n`;
+    expect(() => applyRulesBlock(existing, "new rules")).toThrow(/need repair/);
   });
 
   it("handles both old and new markers coexisting by removing both", () => {
@@ -119,7 +102,7 @@ describe("removeRulesBlockWithMarkers", () => {
   it("content that is only the block → empty result, removed=true", () => {
     const input = `${NEW_BEGIN}\n\nrules body\n\n${NEW_END}\n`;
     const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
-    expect(result.content).toBe("");
+    expect(result.content).toBe("\n");
     expect(result.removed).toBe(true);
   });
 
@@ -127,28 +110,26 @@ describe("removeRulesBlockWithMarkers", () => {
     const input = `${NEW_BEGIN}\n\nrules\n\n${NEW_END}\n\n# My Project\n\nnotes\n`;
     const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
     expect(result.removed).toBe(true);
-    expect(result.content).toBe("# My Project\n\nnotes\n");
+    expect(result.content).toBe("\n\n# My Project\n\nnotes\n");
   });
 
   it("block at end + user content before → user content preserved with single trailing newline", () => {
     const input = `# My Project\n\nnotes\n\n${NEW_BEGIN}\n\nrules\n\n${NEW_END}\n`;
     const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
     expect(result.removed).toBe(true);
-    expect(result.content).toBe("# My Project\n\nnotes\n");
+    expect(result.content).toBe("# My Project\n\nnotes\n\n\n");
   });
 
   it("block in middle → single blank line separator between preceding and following content", () => {
     const input = `# Project\n\n${NEW_BEGIN}\n\nrules\n\n${NEW_END}\n\nafter block\n`;
     const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
     expect(result.removed).toBe(true);
-    expect(result.content).toBe("# Project\n\nafter block\n");
+    expect(result.content).toBe("# Project\n\n\n\nafter block\n");
   });
 
   it("reversed markers (end before begin) → no-op", () => {
     const input = `${NEW_END}\nsome content\n${NEW_BEGIN}\n`;
-    const result = removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END);
-    expect(result.content).toBe(input);
-    expect(result.removed).toBe(false);
+    expect(() => removeRulesBlockWithMarkers(input, NEW_BEGIN, NEW_END)).toThrow(/need repair/);
   });
 
   it("CRLF line endings around the block → splice is clean (no stray \\r)", () => {
@@ -170,7 +151,7 @@ describe("removeRulesBlockWithMarkers", () => {
     const { content: applied } = applyRulesBlock(original, "some rule");
     const { content: stripped, removed } = removeRulesBlockWithMarkers(applied, NEW_BEGIN, NEW_END);
     expect(removed).toBe(true);
-    expect(stripped).toBe(original);
+    expect(stripped).toBe(`${original}\n`);
   });
 });
 

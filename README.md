@@ -73,8 +73,8 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 | `--type <type>` | Filter by artifact type: `skills`, `prompts`, `rules`, `configs` |
 | `--name <name>` | Filter by artifact name (requires `--type`) |
 | `--dry-run` | Show what would be written without touching the filesystem |
-| `--course <slug>` | Override the course slug (default: `10xdevs3`) |
-| `--no-course-rules` | Skip the course rules block in your rules file (`CLAUDE.md`/`AGENTS.md`); strips an existing one. Use `--course-rules` to re-enable. |
+| `--course <slug>` | Select an entitled course ID or slug; default is the project edition or API recommendation |
+| `--no-course-rules` | Skip the course rules block in your rules file (`CLAUDE.md`/`AGENTS.md`); removes an unchanged block whose ownership and baseline are known. Use `--course-rules` to re-enable. |
 
 #### Examples
 
@@ -96,7 +96,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 10x get m1l1 --tool cursor
 
 # Skip the course rules block (use only your rules). Persisted across runs;
-# a previously-applied block is stripped. Re-enable later with --course-rules.
+# an unchanged block with a known baseline is removed. Re-enable later with --course-rules.
 10x get m1l1 --no-course-rules
 10x get m1l2 --course-rules
 
@@ -117,17 +117,17 @@ already downloaded; `--all` pulls every unlocked lesson at once.
 
 Unchanged lessons are skipped **without a download** — the catalog advertises a
 per-lesson `contentHash` that the CLI compares against what it last applied, so the
-common "nothing changed" case is a single catalog request.
+common "nothing changed" case avoids lesson downloads. Skipping also requires the same language/tool/rules representation and intact tracked local files; missing files are repaired and local edits still surface as conflicts.
 
 | Flag | Description |
 |------|-------------|
 | `--all` | Sync every unlocked lesson, not just the ones you've downloaded |
 | `--module <m>` | Limit to one module (e.g. `m2` or `2`) |
 | `--dry-run` | Preview what would change without writing anything |
-| `--force` | Ignore the cheap-skip digest and overwrite local edits with upstream |
+| `--force` | Fetch again and overwrite local skill/prompt edits; protected rules and config templates remain guarded |
 | `--tool <tool>` | AI coding tool (same set as `get`) |
 | `--lang <lang>` | Content language: `en` (default) or `pl` |
-| `--course <slug>` | Override the course slug (default: `10xdevs3`) |
+| `--course <slug>` | Select an entitled course ID or slug; default is the project edition or API recommendation |
 | `--no-course-rules` | Skip the course rules block (same semantics as `get`) |
 
 ```bash
@@ -158,9 +158,7 @@ m2l3 — conflicts (1 skipped)
 ```
 
 Run that `10x get …` to take a single update, or `10x sync --force` to take them
-all. **Change visibility covers skills and prompts** — configs are create-only
-(never overwritten) and rules are sentinel-managed, so they aren't part of the
-"what changed" report.
+all for skills and prompts. Config templates are create-only. Course rules retain a separate upstream baseline: local edits or a missing baseline require explicit resolution, including when `--force` or `--no-course-rules` is used. Text outside the managed markers is preserved.
 
 **Exit code is worst-outcome:** `0` when everything is clean/unchanged (a skipped
 conflict is reported, not a failure), `1` if any lesson failed to fetch. The full
@@ -243,7 +241,7 @@ On first run, the CLI prompts you to choose your AI coding tool. Artifacts are w
 | Gemini CLI | `.gemini/` | `GEMINI.md` |
 | Generic | `.ai/` | `AGENTS.md` |
 
-Override anytime with `--tool <name>`. Your choice is saved in `~/.config/10x-cli/config.json`.
+Override with `--tool <name>`. Validated writing commands save your choice in `~/.config/10x-cli/config.json`. Previews leave it unchanged.
 The former `windsurf` ID remains accepted as an alias and is upgraded to
 `devin-desktop`; existing `.windsurf/` artifacts can be migrated by the normal
 tool-switch prompt.
@@ -272,3 +270,46 @@ CI runs lint, typecheck, tests, and build checks on every PR. Releases are autom
 ## License
 
 MIT
+
+## Course selection and project edition
+
+`get`, `list`, and `sync` select the explicit `--course` first, then the project's edition, then the live API recommendation. A new project with only v3 access selects v3, with only v4 selects v4, and with both selects published, available v4. An unpublished v4 can leave v3 as the recommendation; network or backend failures are reported instead of falling back. Output includes the course and selection reason.
+
+The first validated write records `{ "version": 1, "course": "10xdevs4" }` (or `10xdevs3`) in the root `.10x-cli.json`, shared across AI tool profiles. Existing supported v2/v3 manifests preserve their recorded edition. All profiles, including legacy Windsurf, must agree. Corrupt, unknown-version, or conflicting manifests block writes and must be preserved for repair. Artifact names never infer an edition.
+
+Ordinary `get` and `sync` cannot change a bound project's edition. Start v4 in a separate directory while retaining the v3 project. Read-only inspection of another entitled edition is allowed with `--course`. Do not delete the binding or manifests to bypass an edition conflict. Course edition and manifest schema version are separate concepts.
+
+`list`, `get --print`, `get --dry-run`, `sync --dry-run`, and `doctor` preserve project files and tool/language preferences, including interactive tool choices. Auth token rotation may update only the credential store. Failed download, signature, course, or path validation leaves a new project unbound. Once writing starts, its binding remains even if an I/O operation fails, so retry stays on the same edition. `auth --status` and `doctor` distinguish token expiry from live course access.
+
+
+## Candidate verification and v4 release
+
+Using v4 requires a CLI version with course discovery and project edition binding.
+Existing v3 projects remain usable without a new flag or an edition migration.
+Start v4 in a separate project directory; this release includes no edition migration
+command. Support files inside each skill directory are downloaded together with
+`SKILL.md`, including selector and stack-assessment references.
+
+Before publication, CI tests the exact CLI and Toolkit candidate commits together
+on Linux and Windows using real local auth callback, polling and token refresh.
+It also exercises the actual released npm 1.20.0 CLI against the candidate API and
+this candidate against existing v2/v3-manifest projects. Automated fixtures send no
+emails. npm latest or a different branch cannot stand in for the candidate binary.
+
+The private Toolkit release runbook `docs/how-to/release-10xdevs4-cli.md` documents
+the required full candidate SHA pair, vetted v3 fixture artifact, exact v4 stage
+and secured preparation Worker/content revisions. Publication depends on the
+coordinated gate plus normal Linux/Windows tests, builds and smoke checks. The
+operator must still verify secured production access and final v4 content before
+npm publication; passing a local test does not execute that rollout.
+
+For deterministic contract checks, export `/openapi.json` from the exact local
+candidate Worker, then run:
+
+```bash
+OPENAPI_SPEC_PATH=/absolute/candidate-openapi.json bun run generate-types --check
+```
+
+Check mode reads that file and compares the generated result without changing
+`src/generated/api-types.ts`. To regenerate, omit `--check` while keeping the same
+source file. Do not regenerate candidate contracts from the production API.

@@ -9,6 +9,7 @@ import {
   pollVerifySession,
 } from "../lib/auth-flow";
 import { isExpired } from "../lib/auth-guard";
+import { fetchCourses } from "../lib/api-content";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -35,7 +36,7 @@ export function registerAuthCommand(cli: CAC): void {
       const ctx = resolveContext(options);
 
       if (options.status) {
-        runStatus(ctx);
+        await runStatus(ctx);
         return;
       }
       if (options.logout) {
@@ -50,7 +51,7 @@ export function registerAuthCommand(cli: CAC): void {
 // 10x auth --status
 // ---------------------------------------------------------------------------
 
-function runStatus(ctx: OutputContext): void {
+async function runStatus(ctx: OutputContext): Promise<void> {
   const auth = readAuth();
   if (!auth) {
     outputError(
@@ -75,13 +76,17 @@ function runStatus(ctx: OutputContext): void {
     );
   }
 
+  const access = await fetchCourses(auth.access_token);
+  const accessMessage = access.ok ? `Available courses: ${access.data.courses.filter((course) => course.available).map((course) => course.slug).join(", ") || "none"}.` : `Course access could not be checked (${access.code}).`;
   output(
     ctx,
-    `Signed in as ${auth.email} — session expires ${formatExpiry(expiresAt)}.`,
+    `Signed in as ${auth.email} — session expires ${formatExpiry(expiresAt)}. ${accessMessage}`,
     {
       email: auth.email,
       expires_at: auth.expires_at,
       is_valid: true,
+      access_checked: access.ok,
+      ...(access.ok ? { courses: access.data.courses, defaultCourse: access.data.defaultCourse } : { access_error: { code: access.code, message: access.error } }),
     },
   );
 }

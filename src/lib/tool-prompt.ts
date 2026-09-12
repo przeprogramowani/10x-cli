@@ -8,16 +8,16 @@
  *      auto-detection when the project has tool-native markers
  *   4. Default (claude-code) when non-interactive
  *
- * After resolving the profile, `handleToolSwitch` prompts the student to
- * migrate, delete, or keep artifacts left behind by a prior tool (TTY only;
- * non-TTY falls back to the verbose orphan warning in `commands/get.ts`).
+ * Resolution never writes preferences or project files. A validated writing
+ * command calls `prepareToolForWrite` to persist choices and optionally offer
+ * migration of artifacts left by a prior profile.
  */
 
 import * as p from "@clack/prompts";
-import { readToolConfig, saveToolConfig } from "./config";
+import { readToolConfig, saveToolConfig, updateToolConfig, type ToolConfig } from "./config";
+import { assertProjectCourse, establishProjectCourse } from "./project-course";
 import { detectTools, topDetectedProfile } from "./tool-detect";
 import {
-  canonicalToolId,
   getToolProfile,
   PROFILES,
   DEFAULT_TOOL,
@@ -26,6 +26,7 @@ import {
 import {
   deleteArtifacts,
   migrateArtifacts,
+  preflightProfilePaths,
   type MigrationSummary,
 } from "./tool-switch";
 import { findOrphanedManifests } from "./writer";
@@ -34,9 +35,7 @@ export async function resolveToolProfile(
   flagOverride?: string,
   projectRoot: string = process.cwd(),
 ): Promise<ToolProfile> {
-  const profile = await resolveProfileOnly(flagOverride, projectRoot);
-  await handleToolSwitch(projectRoot, profile);
-  return profile;
+  return resolveProfileOnly(flagOverride, projectRoot);
 }
 
 async function resolveProfileOnly(
@@ -45,19 +44,11 @@ async function resolveProfileOnly(
 ): Promise<ToolProfile> {
   // 1. Explicit --tool flag
   if (flagOverride) {
-    const canonicalId = canonicalToolId(flagOverride);
     const profile = getToolProfile(flagOverride);
     if (!profile) {
       throw new Error(
         `Unknown tool '${flagOverride}'. Supported: ${Object.keys(PROFILES).join(", ")}`,
       );
-    }
-    const existing = readToolConfig();
-    if (existing?.tool !== canonicalId) {
-      saveToolConfig({ ...(existing ?? {}), tool: canonicalId });
-      if (process.stdout.isTTY) {
-        process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
-      }
     }
     return profile;
   }
@@ -67,10 +58,6 @@ async function resolveProfileOnly(
   if (config?.tool) {
     const profile = getToolProfile(config.tool);
     if (profile) {
-      const canonicalId = canonicalToolId(config.tool);
-      if (canonicalId !== config.tool) {
-        saveToolConfig({ ...config, tool: canonicalId });
-      }
       return profile;
     }
   }
@@ -100,7 +87,6 @@ async function resolveProfileOnly(
       return PROFILES[DEFAULT_TOOL]!;
     }
 
-    saveToolConfig({ ...(config ?? {}), tool: choice as string });
     return PROFILES[choice as string]!;
   }
 
@@ -115,6 +101,18 @@ async function resolveProfileOnly(
  * in non-TTY environments — `commands/get.ts` keeps the legacy verbose
  * warning for CI/Docker logs.
  */
+export async function prepareToolForWrite(projectRoot: string, profile: ToolProfile, course: string, patch: Partial<ToolConfig> = {}, interactive = true): Promise<void> {
+  assertProjectCourse(projectRoot, course);
+  if (interactive && process.stdout.isTTY) {
+    for (const orphan of findOrphanedManifests(projectRoot, profile)) preflightProfilePaths(projectRoot, orphan, profile);
+  }
+  establishProjectCourse(projectRoot, course);
+  if (interactive) await handleToolSwitch(projectRoot, profile);
+  const previous = readToolConfig();
+  updateToolConfig({ ...patch, tool: profile.toolId });
+  if (previous?.tool !== profile.toolId && process.stdout.isTTY) process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
+}
+
 async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile): Promise<void> {
   if (!process.stdout.isTTY) return;
   const cfg = readToolConfig();
