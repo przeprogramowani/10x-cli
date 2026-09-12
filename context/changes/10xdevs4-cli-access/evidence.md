@@ -80,3 +80,16 @@ Brak treści lub niepotwierdzony cutoff nie blokują niezależnych prac auth, al
 W04/W05/W08 remain unattainable from current evidence/access: no approved independent v4 lesson/artifact/language/rules/cumulative schedule specification, no accepted final v3 cutoff and maintenance list, and no established isolated remote R2 target/credentials for real conditional publisher trials. Existing preview bindings share production. These are structural prerequisites, not tests that can honestly be marked passed from mocks or v3 copies.
 
 Resume requires the approved W04 specification and effective module-1 schedule/KV evidence, an explicit W05 full SHA with maintenance exceptions (including an explicitly empty list if intended), and an isolated W08 target/credential path for the final publisher mechanism. Use targeted research and, if these inputs require a substantive plan change, `10x-plan` then `10x-plan-review`; preserve the existing acceptance documents. Continue with `/10x-goal-implement 10xdevs4-cli-access phase 3` only after the prerequisites are resolved. Phases 3–6 and all phase-7/Manual criteria remain open. Goal not achieved.
+
+## Final reviewed revisions before the documentation epilogue
+
+| Repository / scope | Revision |
+|---|---|
+| Toolkit reviewed implementation, phases 1–2 | `e4757ab9ac621aab1869d5204ae71073fe0fa2b1` |
+| Toolkit phase-1 review correction | `5b5d1a51ce4b935ab13af5f9d6bba274982d62ce` |
+| Toolkit initial phase 1 | `7f0ce09bb82cb1da2b620adc44c49c01f9eb23e0` |
+| CLI canonical phase-2 evidence/review commit | `db8fc7268a66a4f47cd7a2d02e8388b2d616ff81` |
+| CLI canonical context bootstrap | `4787130abb9453c292fdce9173f5c6fb7e483a9a` |
+| CLI implementation remains unchanged at base | `f89f19506cab8c9bbeb112242e4485fce4f1b77b` |
+
+The documentation epilogue only persists phase-2 CLI attribution and this revision ledger; its resulting SHA is reported in the conversation. Execution reached the phase-3 prerequisite boundary with five Automated rows complete. All other Automated and both Manual rows remain pending. Scoped status is `impl_reviewed`; the complete change is neither implemented nor archived, and the goal is not achieved. No phase-3 code was started because the required evidence cannot be established from the available sources/access.

@@ -431,9 +431,9 @@ The second plan consumes release schema, signed map envelope, guarded release ro
 
 #### Automated
 
-- [x] 2.1 Auth and route matrix passes: `pnpm --filter @przeprogramowani/api test --run`. — Toolkit e4757ab
-- [x] 2.2 A populated unknown-course R2 fixture is denied for empty/v3/v4 claims across every content endpoint; retired event path never returns bytes. — Toolkit e4757ab
-- [x] 2.3 Legacy-token, malformed-claim, callback revocation, refresh and discovery outage tests pass. — Toolkit e4757ab
+- [x] 2.1 Auth and route matrix passes: `pnpm --filter @przeprogramowani/api test --run`. — Toolkit e4757ab; CLI db8fc72
+- [x] 2.2 A populated unknown-course R2 fixture is denied for empty/v3/v4 claims across every content endpoint; retired event path never returns bytes. — Toolkit e4757ab; CLI db8fc72
+- [x] 2.3 Legacy-token, malformed-claim, callback revocation, refresh and discovery outage tests pass. — Toolkit e4757ab; CLI db8fc72
 
 ### Phase 3: Publish v4 week one independently and freeze the live v3 publication
 
