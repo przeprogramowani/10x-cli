@@ -7,7 +7,13 @@ updated: 2026-09-12
 archived_at: null
 ---
 
-## Current scope — 2026-09-12
+## Current PR readiness — 2026-09-12
+
+PR review found and fixed a public-CI confidentiality defect: all paid-content/private-source coordinated work now runs only in private Toolkit; public CLI verifies a strict receipt for the exact source pair and both platforms. The notification failure check and shell interpolation were also repaired. Repeated cumulative sync is fixed with ten regressions and actual E2E coverage. Independent final review found no remaining actionable code issue in these fixes.
+
+Updated local checks: 647 CLI unit/integration + 10 smoke, 24 private evidence-helper tests, 29 real CLI/Worker E2E, candidate OpenAPI check, typecheck/build/lint PASS. The source/bootstrap prerequisite #30 is extended at `01232887c36fdffbea5251172c47bbb1f44b9616` and has green GitHub CI plus full isolated local CI. The operator added the Actions-read secret. Actual master merge/pins, full clean dependent gate and private exact-commit Linux/Windows evidence remain pending; the operator explicitly chose to perform the prerequisite merge themselves; workflow suspension and merge were not executed. Main PRs remain drafts; phase 7 is not complete.
+
+## Previous preparation scope — 2026-09-12
 
 First release only: v4 access and first-week delivery with transparent v3 compatibility. Canonical CLI plan.md owns the only Progress tracker; accepted decisions-record.md remains unchanged. The separate 10xdevs4-project-migration change is excluded.
 

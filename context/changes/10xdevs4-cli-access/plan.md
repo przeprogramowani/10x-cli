@@ -321,6 +321,8 @@ The current CLI allows only the canonical production hostname or loopback, and t
 
 **Contract**: Toolkit E2E uses `E2E_CLI_PATH` or an equivalent exact candidate binary path; it must not silently fall back to npm latest. CLI release requires the coordinated gate, Linux/Windows tests and normal smoke/build checks. A backend PR cannot certify a CLI feature by checking another branch's code. Regenerate/check OpenAPI types deterministically from candidate source. After automated gates, run CSC implementation review and address critical findings before the deployment phase.
 
+**PR review clarification (2026-09-12)**: All coordinated jobs that read private Toolkit source or paid v3/v4 content execute only in the private Toolkit repository, including content preparation, both OS matrices and OpenAPI comparison. The public CLI workflow verifies a strictly bounded receipt from the canonical successful private run, binding both exact candidate SHAs, both OS results and the tested release identity. It must never copy paid fixtures, bundles, private source or content-bearing failure logs into public artifacts/logs. The manual-only v3 fixture producer must first be installed on master by the source/bootstrap prerequisite, then dispatched and verified; candidate CI cannot assume an unregistered workflow already has a producing run. These checks preserve exact candidate coverage without changing source-pin ancestry requirements.
+
 ### Success Criteria:
 
 #### Automated Verification:

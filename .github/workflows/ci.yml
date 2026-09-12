@@ -76,184 +76,29 @@ jobs:
       - name: Smoke tests (binary + package)
         run: bun test tests/smoke/
 
-  prepare-coordinated-content:
+  coordinated:
+    name: Verified private CLI/API evidence
     needs: [check, check-windows]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     permissions:
       contents: read
-      actions: read
-    env:
-      E2E_TOOLKIT_SHA: ${{ vars.TOOLKIT_CANDIDATE_SHA }}
-      E2E_CLI_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      E2E_V3_FIXTURE_RUN_ID: ${{ vars.V3_E2E_FIXTURE_RUN_ID }}
-      E2E_V3_FIXTURE_HEAD_SHA: ${{ vars.V3_E2E_FIXTURE_HEAD_SHA }}
-      E2E_V3_INVENTORY_SHA256: ${{ vars.V3_E2E_INVENTORY_SHA256 }}
     steps:
-      - name: Require exact candidate and vetted fixture identities
-        run: |
-          node -e 'for (const k of ["E2E_TOOLKIT_SHA", "E2E_CLI_SHA", "E2E_V3_FIXTURE_HEAD_SHA"]) if (!/^[a-f0-9]{40}$/.test(process.env[k] || "")) throw new Error(k + " must be a full commit SHA"); if (!/^[a-f0-9]{64}$/.test(process.env.E2E_V3_INVENTORY_SHA256 || "")) throw new Error("V3 fixture inventory SHA-256 required"); if (!/^\d+$/.test(process.env.E2E_V3_FIXTURE_RUN_ID || "")) throw new Error("V3 fixture producing run ID required")'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          repository: przeprogramowani/10x-toolkit
-          ref: ${{ env.E2E_TOOLKIT_SHA }}
-          path: toolkit
-          fetch-depth: 0
           persist-credentials: false
-          token: ${{ secrets.TOOLKIT_READ_TOKEN }}
-      - uses: actions/checkout@v4
-        with:
-          repository: przeprogramowani/10x-cli
-          ref: ${{ env.E2E_CLI_SHA }}
-          path: cli
-          persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: toolkit/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Verify vetted v3 snapshot producing run
-        run: node toolkit/packages/api/scripts/verify-fixture-run.mjs
+      # Paid content, private source and content-bearing failure logs stay in
+      # Toolkit. This public workflow downloads only a strict hash-only receipt.
+      - name: Require green private run for this exact candidate pair
+        run: node scripts/verify-coordinated-receipt.mjs
         env:
           GH_TOKEN: ${{ secrets.TOOLKIT_READ_TOKEN }}
-      - uses: actions/download-artifact@v4
-        with:
-          repository: przeprogramowani/10x-toolkit
-          github-token: ${{ secrets.TOOLKIT_READ_TOKEN }}
-          run-id: ${{ env.E2E_V3_FIXTURE_RUN_ID }}
-          name: published-v3-e2e-fixture
-          path: ${{ runner.temp }}/coordinated/v3
-      - name: Verify exact source pair and complete published v3 bytes
-        run: node toolkit/packages/api/scripts/verify-coordinated-inputs.mjs
-        env:
-          E2E_TOOLKIT_DIR: ${{ github.workspace }}/toolkit
-          E2E_CLI_DIR: ${{ github.workspace }}/cli
-          E2E_V3_FIXTURE_DIR: ${{ runner.temp }}/coordinated/v3
-      - run: pnpm install --frozen-lockfile
-        working-directory: toolkit
-      - run: pnpm --filter @przeprogramowani/course-content build
-        working-directory: toolkit
-      - name: Build v4 from the exact candidate (permanent pins still require master ancestry)
-        run: pnpm --filter @przeprogramowani/course-content build:lessons --course 10xdevs4
-        working-directory: toolkit
-        env:
-          CONTENT_SOURCE_REVISION: ${{ env.E2E_TOOLKIT_SHA }}
-      - name: Produce real EN/PL variants
-        run: node packages/course-content/scripts/transform-content.mjs --course 10xdevs4
-        working-directory: toolkit
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      - name: Validate and stage exact final v4 bytes (no R2 connection)
-        run: node packages/api/scripts/r2-sync.mjs --mode stage --remote --course 10xdevs4 --stage-dir "$RUNNER_TEMP/coordinated/v4"
-        working-directory: toolkit
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coordinated-content
-          path: ${{ runner.temp }}/coordinated
-          if-no-files-found: error
-          retention-days: 30
-
-  coordinated:
-    name: Coordinated CLI/API (${{ matrix.os }})
-    needs: prepare-coordinated-content
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-    env:
-      E2E_TOOLKIT_SHA: ${{ vars.TOOLKIT_CANDIDATE_SHA }}
-      E2E_CLI_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      E2E_V3_FIXTURE_RUN_ID: ${{ vars.V3_E2E_FIXTURE_RUN_ID }}
-      E2E_V3_FIXTURE_HEAD_SHA: ${{ vars.V3_E2E_FIXTURE_HEAD_SHA }}
-      E2E_V3_INVENTORY_SHA256: ${{ vars.V3_E2E_INVENTORY_SHA256 }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: przeprogramowani/10x-toolkit
-          ref: ${{ env.E2E_TOOLKIT_SHA }}
-          path: toolkit
-          fetch-depth: 0
-          persist-credentials: false
-          token: ${{ secrets.TOOLKIT_READ_TOKEN }}
-      - uses: actions/checkout@v4
-        with:
-          repository: przeprogramowani/10x-cli
-          ref: ${{ env.E2E_CLI_SHA }}
-          path: cli
-          persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: toolkit/package.json
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.8"
-      - uses: actions/download-artifact@v4
-        with:
-          name: coordinated-content
-          path: ${{ runner.temp }}/coordinated
-      - name: Verify candidate pair and immutable v3 fixture
-        run: node toolkit/packages/api/scripts/verify-coordinated-inputs.mjs
-        env:
-          E2E_TOOLKIT_DIR: ${{ github.workspace }}/toolkit
-          E2E_CLI_DIR: ${{ github.workspace }}/cli
-          E2E_V3_FIXTURE_DIR: ${{ runner.temp }}/coordinated/v3
-      - run: pnpm install --frozen-lockfile
-        working-directory: toolkit
-      - run: pnpm --filter @przeprogramowani/course-content build
-        working-directory: toolkit
-      - run: bun install --frozen-lockfile
-        working-directory: cli
-      - run: bun run build:binary
-        working-directory: cli
-      - name: Fetch the actual released CLI 1.20.0 and verify its pinned tarball hash
-        run: node toolkit/packages/api/scripts/prepare-released-cli.mjs "${{ runner.temp }}/released-cli"
-      - name: Real callback, polling, refresh and byte-level CLI/API matrix
-        run: pnpm test:e2e:cli
-        working-directory: toolkit
-        env:
-          E2E_CLI_PATH: ${{ github.workspace }}/cli/dist/${{ runner.os == 'Windows' && '10x.exe' || '10x' }}
-          E2E_RELEASED_CLI_PATH: ${{ runner.temp }}/released-cli/package/dist/index.mjs
-          E2E_V3_CONTENT_DIR: ${{ runner.temp }}/coordinated/v3/objects/10xdevs3
-          E2E_V4_STAGE_DIR: ${{ runner.temp }}/coordinated/v4
-          E2E_OPENAPI_OUTPUT: ${{ runner.temp }}/candidate-openapi.json
-      - name: Check deterministic generated types against this candidate backend
-        run: bun run generate-types --check
-        working-directory: cli
-        env:
-          OPENAPI_SPEC_PATH: ${{ runner.temp }}/candidate-openapi.json
-      - name: Record the exact stage that passed this OS's E2E and type check
-        run: node toolkit/packages/api/scripts/tested-release-stage.mjs record "${{ runner.temp }}/coordinated/v4" "${{ runner.temp }}/tested-v4-${{ runner.os }}.json"
-        env:
-          E2E_PLATFORM: ${{ runner.os }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tested-v4-${{ runner.os }}
-          path: ${{ runner.temp }}/tested-v4-${{ runner.os }}.json
-          if-no-files-found: error
-          retention-days: 30
-      - name: Record exact source and content identities
-        shell: bash
-        run: |
-          printf 'Toolkit: `%s`\n\nCLI: `%s`\n\nV3 fixture run: `%s`, producer: `%s`, inventory: `%s`\n' "$E2E_TOOLKIT_SHA" "$E2E_CLI_SHA" "$E2E_V3_FIXTURE_RUN_ID" "$E2E_V3_FIXTURE_HEAD_SHA" "$E2E_V3_INVENTORY_SHA256" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coordinated-evidence-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/candidate-openapi.json
-            ${{ runner.temp }}/released-cli/evidence.json
-            ${{ runner.temp }}/coordinated/v4/manifest.json
-            ${{ runner.temp }}/coordinated/v3/inventory.json
-          if-no-files-found: warn
+          TOOLKIT_COORDINATED_RUN_ID: ${{ vars.TOOLKIT_COORDINATED_RUN_ID }}
+          E2E_TOOLKIT_SHA: ${{ vars.TOOLKIT_CANDIDATE_SHA }}
+          E2E_CLI_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
   # ── Release jobs (master push only) ──────────────────────────────
 
@@ -397,10 +242,12 @@ jobs:
     steps:
       - name: Build notification payload
         id: payload
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          MSG=$(echo "${{ github.event.head_commit.message }}" | head -1 | cut -c1-80)
+          MSG=$(printf '%s\n' "$COMMIT_MESSAGE" | head -1 | cut -c1-80)
           echo "commit_msg=${MSG}" >> "$GITHUB_OUTPUT"
-          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.coordinated.result }}" == "failure" || "${{ needs.publish-npm.result }}" == "failure" || "${{ needs.version.result }}" == "failure" || "${{ needs.github-release.result }}" == "failure" ]]; then
+          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.check-windows.result }}" != "success" || "${{ needs.coordinated.result }}" != "success" || "${{ needs.publish-npm.result }}" == "failure" || "${{ needs.version.result }}" == "failure" || "${{ needs.github-release.result }}" == "failure" ]]; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
           else
             echo "failed=false" >> "$GITHUB_OUTPUT"
@@ -426,7 +273,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "${{ needs.check.result == 'success' && '✅' || needs.check.result == 'skipped' && '⏭️' || '❌' }} Tests    ${{ needs.coordinated.result == 'success' && '✅' || needs.coordinated.result == 'skipped' && '⏭️' || '❌' }} E2E    ${{ needs.publish-npm.result == 'success' && '✅' || needs.publish-npm.result == 'skipped' && '⏭️' || '❌' }} npm    ${{ needs.github-release.result == 'success' && '✅' || needs.github-release.result == 'skipped' && '⏭️' || '❌' }} Release"
+                    "text": "${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅' || '❌' }} Tests (Linux/Windows)    ${{ needs.coordinated.result == 'success' && '✅' || needs.coordinated.result == 'skipped' && '⏭️' || '❌' }} E2E    ${{ needs.publish-npm.result == 'success' && '✅' || needs.publish-npm.result == 'skipped' && '⏭️' || '❌' }} npm    ${{ needs.github-release.result == 'success' && '✅' || needs.github-release.result == 'skipped' && '⏭️' || '❌' }} Release"
                   }
                 },
                 {
@@ -461,7 +308,7 @@ jobs:
                 {
                   "type": "section",
                   "fields": [
-                    { "type": "mrkdwn", "text": "*Tests*\n${{ needs.check.result == 'success' && '✅ passed' || needs.check.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" },
+                    { "type": "mrkdwn", "text": "*Tests (Linux/Windows)*\n${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅ passed' || '❌ failed' }}" },
                     { "type": "mrkdwn", "text": "*E2E*\n${{ needs.coordinated.result == 'success' && '✅ passed' || needs.coordinated.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" },
                     { "type": "mrkdwn", "text": "*npm*\n${{ needs.publish-npm.result == 'success' && '✅ published' || needs.publish-npm.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" },
                     { "type": "mrkdwn", "text": "*Release*\n${{ needs.github-release.result == 'success' && '✅ created' || needs.github-release.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" }

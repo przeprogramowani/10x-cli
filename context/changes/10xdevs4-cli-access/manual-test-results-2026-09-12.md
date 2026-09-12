@@ -85,3 +85,9 @@ Uruchomienie zwykłych testów CLI: `bun test` w worktree CLI. E2E: `pnpm test:e
 - Blokada/odblokowanie były sterowane fixture; nie czekano na rzeczywisty termin 14.09.
 - Cofnięcie dostępu sprawdzono po wylogowaniu i przy nowym logowaniu; nie dowodzi to natychmiastowego unieważnienia wszystkich wydanych JWT.
 - Właściwe źródła na masterze, pełny `ci:local`, Windows CI i rollout pozostają osobnymi warunkami. Nie zmieniono kryteriów Manual ani statusu całego planu na podstawie tej próby.
+
+## Późniejsza poprawka po przeglądzie PR-ów — 12.09.2026
+
+Powyższy raport zachowuje wynik pierwotnej próby. Obserwacja zbędnych aktualizacji została następnie naprawiona w writerze: późniejsze lekcje zachowują poprawne metadane wcześniejszych właścicieli w tej samej reprezentacji; wcześniejsze aktualizacje nadal wymuszają przywrócenie późniejszego wariantu. Dziesięć regresji komend przeszło, w tym brak zapisów treści/manifestu i brak zmian mtime przy kolejnych sync.
+
+Pełne E2E na przebudowanym CLI przeszło **29/29**; wszystkie 18 kombinacji konta/języka/profilu potwierdziły zero aktualizacji oraz identyczny snapshot całego projektu przy ponownym sync. Binary SHA-256: `8d140980d3aacb4d4ab782fb7617e9b6588f1177837be1e7705fe37b34f2b958`. Log: `/tmp/10x-v4-pr-fixes-real-e2e.log`. To osobna późniejsza weryfikacja, nie zmiana pierwotnych wyników kroków manualnych.

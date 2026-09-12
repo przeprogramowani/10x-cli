@@ -248,6 +248,17 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
     for (const [id, owner] of Object.entries(ledger.lessons!)) {
       if (id === bundle.lessonId) continue;
       if (kind === "rules" || (kind === "skills" ? owner.skills[name!]?.files.includes(file!) : owner.prompts.includes(name!))) {
+        // Sync applies cumulative lessons in numeric course order. A later
+        // variant legitimately replaces an earlier owner's bytes in the same
+        // representation; its catalog digest remains valid against the final
+        // managed hashes. Earlier writes must still invalidate later owners so
+        // the rest of the sweep restores their precedence. Cross-language,
+        // cross-tool, rules-policy and partial writes retain invalidation.
+        const representation = owner.representation;
+        if (!partial && isEarlierLesson(id, bundle.lessonId) &&
+          representation?.lang === (options.lang ?? "en") &&
+          representation.tool === profile.toolId &&
+          representation.courseRules === applyCourseRules) continue;
         delete owner.representation;
         delete owner.catalogContentHash;
       }
@@ -486,6 +497,14 @@ export function planBundle(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function isEarlierLesson(left: string, right: string): boolean {
+  const a = /^m(\d+)l(\d+)$/.exec(left);
+  const b = /^m(\d+)l(\d+)$/.exec(right);
+  if (!a || !b) return false;
+  return Number(a[1]) < Number(b[1]) ||
+    (Number(a[1]) === Number(b[1]) && Number(a[2]) < Number(b[2]));
+}
 
 /**
  * Did upstream content change relative to what was last applied? Compared
