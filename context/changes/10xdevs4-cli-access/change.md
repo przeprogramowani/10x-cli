@@ -1,7 +1,7 @@
 ---
 change_id: 10xdevs4-cli-access
 title: Enable safe 10xDevs 4 login and first-week delivery across CLI and toolkit
-status: implementing
+status: impl_reviewed
 created: 2026-09-07
 updated: 2026-09-12
 archived_at: null
@@ -9,7 +9,7 @@ archived_at: null
 
 ## Current scope — 2026-09-12
 
-First release only: access/delivery v4 and transparent v3 support. Canonical plan.md owns both repo scopes and its Progress. Second change: [10xdevs4-project-migration](../10xdevs4-project-migration/plan.md). Authority is decisions-record.md (SHA-256 prefix 3f877a33e03b); split-map.md and evidence.md record allocation and gates. Historical combined plan/review are snapshots under history/, not active execution inputs. Implementation is in progress; the canonical plan Progress is authoritative.
+First release only: access/delivery v4 and transparent v3 support. Canonical plan.md owns both repo scopes and its Progress. Second change: [10xdevs4-project-migration](../10xdevs4-project-migration/plan.md). Authority is decisions-record.md (SHA-256 prefix 3f877a33e03b); split-map.md and evidence.md record allocation and gates. Historical combined plan/review are snapshots under history/, not active execution inputs. Phases 1–2 passed their Automated gates and scoped implementation review after corrections. Phase 3 is blocked by unavailable W04/W05/W08 evidence; phases 3–6 remain pending and phase 7 is outside execution authorization. The status denotes partial implementation review, not completion or release readiness. Canonical Progress is authoritative.
 
 ## Historical notes (superseded where the accepted record differs)
 

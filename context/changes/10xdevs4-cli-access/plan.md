@@ -424,16 +424,16 @@ The second plan consumes release schema, signed map envelope, guarded release ro
 
 #### Automated
 
-- [x] 1.1 Membership lifecycle regression matrix passes: `pnpm --filter @przeprogramowani/api test --run`. — Toolkit 7f0ce09
-- [x] 1.2 Injected write failures followed by retry preserve unrelated grants, v3 mirror and consistent current reverse identity. — Toolkit 7f0ce09
+- [x] 1.1 Membership lifecycle regression matrix passes: `pnpm --filter @przeprogramowani/api test --run`. — Toolkit 7f0ce09; CLI 4787130; Toolkit review fix 5b5d1a5
+- [x] 1.2 Injected write failures followed by retry preserve unrelated grants, v3 mirror and consistent current reverse identity. — Toolkit 7f0ce09; CLI 4787130; Toolkit review fix 5b5d1a5
 
 ### Phase 2: Authorize every content path and expose available courses
 
 #### Automated
 
-- [ ] 2.1 Auth and route matrix passes: `pnpm --filter @przeprogramowani/api test --run`.
-- [ ] 2.2 A populated unknown-course R2 fixture is denied for empty/v3/v4 claims across every content endpoint; retired event path never returns bytes.
-- [ ] 2.3 Legacy-token, malformed-claim, callback revocation, refresh and discovery outage tests pass.
+- [x] 2.1 Auth and route matrix passes: `pnpm --filter @przeprogramowani/api test --run`. — Toolkit e4757ab
+- [x] 2.2 A populated unknown-course R2 fixture is denied for empty/v3/v4 claims across every content endpoint; retired event path never returns bytes. — Toolkit e4757ab
+- [x] 2.3 Legacy-token, malformed-claim, callback revocation, refresh and discovery outage tests pass. — Toolkit e4757ab
 
 ### Phase 3: Publish v4 week one independently and freeze the live v3 publication
 
