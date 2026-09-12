@@ -93,3 +93,108 @@ Resume requires the approved W04 specification and effective module-1 schedule/K
 | CLI implementation remains unchanged at base | `f89f19506cab8c9bbeb112242e4485fce4f1b77b` |
 
 The documentation epilogue only persists phase-2 CLI attribution and this revision ledger; its resulting SHA is reported in the conversation. Execution reached the phase-3 prerequisite boundary with five Automated rows complete. All other Automated and both Manual rows remain pending. Scoped status is `impl_reviewed`; the complete change is neither implemented nor archived, and the goal is not achieved. No phase-3 code was started because the required evidence cannot be established from the available sources/access.
+
+
+## Phase 3 resumed — approved inputs and isolated R2 preflight, 2026-09-12
+
+This section supersedes the missing-input conclusions at the earlier STOP boundary; it does not mark any Phase 3 Automated criterion complete.
+
+- W04 user approval: the first-week v4 program m1l1–m1l5 is identical to v3. Author independent literal expected curriculum from the v3 definitions, then validate delivered definitions and final EN/PL/rules/cumulative coverage against it. The expected program must not be generated from delivered bundles. User selected scheduled module-1 release and specified `14.09 08:00 Europe/Warsaw`: 2026-09-14T08:00:00+02:00, or `2026-09-14T06:00:00Z`. Read-only production Wrangler lookup of `stateOverride:10xdevs4:1` returned HTTP 404 on the KV value endpoint (key absent), so no current override supersedes that configured timestamp. Recheck effective state at Phase 7 rollout.
+- W05 user selected the current master SHA as the final v3 cutoff. Fresh Toolkit `git fetch origin master` resolves it to `da989a6f7d4963c275a98943e85d225baf426228`; this supersedes historical candidate `157667a30ad52169ba489d3dccc4bfc36ad530af`. No additional maintenance exceptions were requested; initial exception set is empty. This source choice does not authorize replacing live v3 objects.
+- W08 user authorized configuring an isolated test R2 bucket via Wrangler. Created `10x-toolkit-v4-publisher-test-20260912` in WEUR, Standard storage, creation timestamp `2026-09-12T09:39:41.570Z`; public dev-URL access is disabled. Production Worker configuration/bindings remain unchanged. Installed Wrangler is 4.80.0; existing OAuth supports a `getPlatformProxy` remote R2 binding with `remote:true`, without a deployed controller or newly provisioned S3 credentials.
+- Actual binding capability preflight passed first conditional create, rejection of duplicate create, exactly one winner for competing ETag updates, rejection of a stale ETag, and conditional rollback/readback. Independent `wrangler r2 object get --remote` read the exact remote witness bytes written through that binding. Probe keys are isolated under `preflight/`; temporary pointer was deleted by the probe and the witness was deleted successfully with explicit remote Wrangler DELETE after independent readback. Local evidence: `/tmp/10x-v4-r2-preflight-20260912/{probe.mjs,result.json,witness.mjs,witness.txt}`. This is capability/access evidence only: W08 and criterion 3.9 still require tests through the final production publisher path, including exact verified outputs and promotion policy.
+- Credential discovery found the existing OpenRouter key assignment in the original Toolkit API local vars file; authenticated GET `/api/v1/key` confirmed it is valid, unexpired, has available quota and is not a management-only key. Only the required key will be loaded into the transform child process; no secret value is printed or committed. Final transformed EN/PL output and its validation remain pending.
+- Phase 3 implementation resumed in the two authorized worktrees. Phases 1–2 retain their completed gates/review; Phase 3–6 gates, Phase 7 and Manual remain pending. No push, merge, deployment, publication, production R2/KV write, backfill or message was performed.
+
+- Compatibility prerequisite prepared without running Phase 6: fetched the exact npm `@przeprogramowani/10x-cli@1.20.0` tarball, verified registry SHA-512 integrity, and executed its bundled entry point with `--version` (reports 1.20.0). Retained under `/tmp/10x-v4-released-cli-1.20.0/package/dist/index.mjs`; tarball SHA-256 `4b8cdb71a4b7d28f0ee45836705a0787e2ff11c47e4aa39b0c1eed5964fb3e2a`. This is the actual released package, not a rebuilt old source tree; old-CLI/new-backend behavioral matrix remains pending.
+
+
+## Phase 3 source-closure STOP — 2026-09-12
+
+- Phase 3 implementation is present but uncommitted: Toolkit implementation touched manifest `/tmp/10x-v4-phase3-toolkit-touched.json` (58 paths), CLI `/tmp/10x-v4-phase3-cli-touched.json` (10 paths), plus parent-owned canonical evidence/change and companion scope notes. No Phase 3 Progress row is complete; the five completed Automated rows remain phases 1–2 only.
+- GATE 3.1: course-content package compilation passed. The selected v4 lesson build failed twice. Initial `/tmp/10x-v4-p3-build.log` reported the repository-only CI tool `scripts/validate-starter-registry-sync.mjs` as a skill dependency. A narrow parser correction recognizes inline mentions of that known repository tool in four reviewed selector/bootstrapper files; explicit Markdown links and other missing dependencies still fail. Added regression tests have not yet been run.
+- Retry `/tmp/10x-v4-p3-build-retry1.log` fails on a real unresolved support reference: `10x-stack-assess/references/agent-friendly-criteria.md` points to absent `references/decision-flow.md` and `references/starter-registry.yaml`. The normative text says to read registry booleans instead of deriving them and prescribes greenfield candidate filtering, conflicting with the brownfield skill's existing-stack assessment contract.
+- Read-only source/history audit: at approved cutoff `da989a6f7d4963c275a98943e85d225baf426228`, stack-assess contains only `SKILL.md` and `references/agent-friendly-criteria.md`. The shared criteria copy matches selector's Git blob `8f7bb0f452b53f9bbd88c78376a0859d0cdba912`; available history has its creation at `5a8f4a5`, with no corrected revision available for an existing file pin. Copying just two missing files is insufficient: selector decision flow has further dependencies and retains the conflicting behavior.
+- W07 is therefore structurally blocked on actual artifact-source closure. User approvals for W04 program/schedule and W05 cutoff remain valid. W04 final EN/PL validation and W08 final publisher trial have not run. No transform requests were made; OpenRouter credential readiness is established only. No Phase 3 application test suite, deliberate-break check or full CI gate has run, and no Phase 3 commit was created.
+- The real-R2 trial is prepared at `/tmp/10x-v4-p3-publisher-trial/run.mjs` but NOT executed. It forwards calls to the actual publisher library/client and the isolated bucket, with actual competing R2 writes before conditional pointer PUTs. It expects a successfully validated real final build in `stage-a`; fabricated curriculum output is not a substitute. Earlier R2 binding capability preflight remains valid but does not close W08.
+- Bounded correction options and source-revision consequences are recorded in `follow-ups/source-closure.md`. The implementation agent returned `structural-mismatch`; the goal skill requires STOP, preserving uncommitted work. Phases 3–6, all Phase 7 and both Manual criteria remain open. Goal not achieved.
+
+
+## Packaging clarification — read-only master and published-v3 comparison, 2026-09-12
+
+- Fresh `git fetch origin master` still resolves Toolkit master to `da989a6f7d4963c275a98943e85d225baf426228`. The disputed files exist under `packages/ai-artifacts/skills/10x-tech-stack-selector/references/`, not under `10x-stack-assess/references/`. Selector has seven files; stack-assess has two. This is not a missing master checkout or SKILL.md-only packaging regression.
+- Read the actual published R2 object `10xdevs3/lessons/m1l2.json` without mutation. Its selector package contains all seven files, including decision-flow.md and starter-registry.yaml. Its stack-assess package contains only SKILL.md and references/agent-friendly-criteria.md; the latter still references both missing relative paths. The v3 publication therefore already contains this cross-package reference mismatch. Local inspection copy: `/tmp/10x-v3-m1l2-package-inspection-20260912.json`.
+- The existing `core.ts` recursive directory packer is unchanged from origin/master. The new Git resolver also enumerates the whole selected skill tree recursively. Phase 3 adds reference validation that rejects the old mismatch; no files were dropped from the selector package. This evidence does not claim a previously observed end-user execution failure in v3; it identifies the unresolved package-relative references now caught by validation.
+
+
+## User-selected package completion — 2026-09-12
+
+The user explicitly instructed: “10x-stack-assess powinien również zabierać komplet dokumentów”. This resolves the source-scope decision in favor of duplicating the complete selector reference set into stack-assess, preserving its existing brownfield SKILL.md and curriculum identity. The prior proposal to rewrite/extract the criteria reference is superseded. Shared files must remain byte-identical, with an automated validate:* check and meaningful regressions.
+
+Implementation proceeds as a bounded source prerequisite: verify the copied package/validator, then commit those exact sources separately so the immutable Git builder can read a real revision. Phase 3 integration and its remaining gates stay separate. V4 retains latest-source selection; the fixed v3 cutoff remains `da989a6f7d4963c275a98943e85d225baf426228`. The requested complete stack-assess package will be an explicit reviewed maintenance package exception for local v3 source builds, recorded at that prerequisite SHA; this does not authorize replacing production v3 objects. No Phase 3 criterion is marked complete by this approval alone.
+
+
+### Squash-safe source prerequisite and permanent pin enforcement — 2026-09-12
+
+User approved the separate source-prerequisite PR followed by a dependent delivery
+PR using the actual resulting master SHA. This supersedes the proposed local
+prerequisite SHA pin. The approved v3 default remains
+`da989a6f7d4963c275a98943e85d225baf426228`; no package exception has been assigned
+an invented or branch-only SHA.
+
+Draft prerequisite: https://github.com/przeprogramowani/10x-toolkit/pull/30
+Branch: `fix/stack-assess-reference-closure`
+Head: `e6e9f3f2e807d14019f0fe5cd087554f7dbd7864` (review candidate, NOT a valid permanent master pin).
+Only 11 source/documentation/script files are included, with no phase 1–3 delivery
+implementation commits. The original local source commit `f83ae1a2841245bfef846eb2e126ee794705194a`
+is superseded: its push was rejected because OAuth lacked workflow scope.
+The final PR uses the existing CI `pnpm test` entrypoint to run both parity tests
+and real-tree validation, leaving workflow YAML unchanged and retaining enforcement.
+No broader credential permission was requested.
+
+Parent gates:
+- Final isolated prerequisite `pnpm ci:local`: PASS, 491 tests (ai-artifacts 16,
+  internal-pkg 61, course-content 79, API 328, shared references 7), plus build,
+  lint, formatting and all source/bundle validators.
+- Actual built m1l2 bundle contains stack-assess SKILL.md and all six byte-matching
+  selector reference documents. Its assessment instructions are unchanged.
+- Deliberate removal of shared-reference byte comparison: regression failed;
+  exact staged validator restored.
+- Main delivery source resolver: all 35 focused tests PASS. Full course-content
+  suite after restoring production code: all 134 tests PASS.
+- Deliberate replacement of master ancestry with object-existence-only validation:
+  six branch/squash regressions failed; exact staged resolver restored.
+- Course-content build, repository lint (warnings only) and formatting: PASS.
+- Real-Git tests have a file-scoped 15-second limit after full-suite subprocess
+  load exceeded the default five seconds; assertions are unchanged. The first
+  broad run also overlapped a parent build that cleaned dist; sequencing was fixed.
+
+Every explicit default/package/file pin requires a full commit SHA reachable
+from one captured `refs/remotes/origin/master` revision. Missing master and shallow
+history fail closed. Tests cover all pin positions, branch-only commits, actual
+squash history where the original object is still available, accepted resulting
+master commits and latest-only PR candidates. CI fetches authoritative full master
+history without switching the candidate in the dependent delivery implementation.
+`latest` remains a once-resolved candidate selection.
+
+The recurring rule is appended to lessons.md in both repositories and documented
+in Toolkit CLAUDE.md, docs/reference/source-revision-pins.md and the delivery
+runbook. The complete delivery working state was preserved with a path-scoped
+stash, then restored with byte/mode checks and exact staged/unstaged patch equality.
+Preservation evidence: `/tmp/10x-v4-source-branch-preservation/` (safety stash retained).
+Logs: `/tmp/10x-stack-assess-pr-ci-final.log`,
+`/tmp/10x-v4-source-prerequisite-break.log`,
+`/tmp/10x-v4-master-pin-tests.log`, `/tmp/10x-v4-master-pin-break.log`,
+`/tmp/10x-v4-pin-course-tests-verified.log`.
+
+GitHub CI run `34690381690` completed successfully for PR #30: lint-check,
+validate and E2E (CLI ↔ API) all SUCCESS. Upload-content, Worker deployment,
+internal publication and Slack notifications were SKIPPED. Impl Review was
+SKIPPED because the PR is a draft; this is not a full implementation-review verdict.
+No merge, Worker deployment, production R2/KV write or notification was executed.
+Current master still auto-publishes/deploys/notifies on merge, so the draft must
+remain unmerged until the approved quiet boundary accounts for those effects.
+After merging the prerequisite, fetch and verify its actual master SHA before
+adding the narrow v3 stack-assess package exception. Do not pin the PR head above.
+All Phase 3 Progress rows remain pending; this focused prerequisite verification
+does not replace full Phase 3 gates, final real R2 publisher proof or phases 4–6.
