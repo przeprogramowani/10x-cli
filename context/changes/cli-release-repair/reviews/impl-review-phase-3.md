@@ -62,3 +62,10 @@
 First hostedCLI run34756812656/1 caught npmInvocation selecting setup-node's bundled npm instead of the global upgrade; strict11.12.1 regression correctly failed. The follow-up mirrors the official installed npm.cmd: run npm-prefix.js with its Node/cwd/env, prefer the global npm-cli.js, otherwise bundled entry, and pass literal argument arrays without shell interpretation. Version/commit/integrity checks remain unchanged.
 
 Independent drift and safety reviews both APPROVED with no findings. New executable layout regression covers global precedence, bundled fallback, literal metacharacter paths and helper failure. Root target6PASS; deliberate global-precedence break went RED and was unconditionally restored from index; fullCLI674unit+10smoke/type/lint/build/binaryPASS,3existinglintwarnings. ActualhostedWindowsretry remains pending; local approval does not close that gate.
+
+
+## Hosted Windows smoke follow-up — approved test runtime correction
+
+Independent reviewers impl_drift_review and phase1_implementation both APPROVED without findings. The harness invokes the actual checkout auto-version script using Node, matching production; Git/version writes use isolated fixture cwd. It removes copied-script/NODE_PATH indirection, adds bounded subprocess failure handling, and preserves every assertion and existing OS coverage. No production behavior changed. The exact internal Bun stall cause remains unproven; hosted Windows must confirm the correction.
+
+Root target4PASS; deliberately wrong production minor calculation caused the feature-version assertion to fail, then unconditional index restore. Initial full unit run had an existing auth-status timeout; unchanged retry674unit+10smoke/type/lint/buildsPASS,3existingwarnings. This local review does not replace final hosted source-pair proof.

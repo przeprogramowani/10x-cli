@@ -5,8 +5,8 @@
  * sensitive content, and targets the correct registry.
  */
 import { describe, it, expect } from "bun:test";
-import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, copyFileSync, appendFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { execSync, spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync, appendFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -81,7 +81,7 @@ describe("auto-version script", () => {
           'git commit -m "initial" -q',
           "git tag v1.0.0",
         ].join(" && "),
-        { cwd: tmpDir, stdio: "pipe" },
+        { cwd: tmpDir, stdio: "pipe", timeout: 30_000 },
       );
 
       // Add commits that touch src/ so the git-diff release gate fires.
@@ -91,25 +91,28 @@ describe("auto-version script", () => {
         execSync(`git add -A && git commit -m "${msg}" -q`, {
           cwd: tmpDir,
           stdio: "pipe",
+          timeout: 30_000,
         });
       }
 
-      copyFileSync(
-        join(ROOT, "scripts/auto-version.mjs"),
-        join(tmpDir, "auto-version.mjs"),
-      );
-
-      const baselineSha = execSync("git rev-parse v1.0.0", { cwd: tmpDir, encoding: "utf8" }).trim();
+      const baselineSha = execSync("git rev-parse v1.0.0", { cwd: tmpDir, encoding: "utf8", timeout: 30_000 }).trim();
       writeFileSync(join(tmpDir, "baseline.json"), JSON.stringify({ version: "1.0.0", tag: "v1.0.0", sha: baselineSha, gitHead: baselineSha }));
       const homeEnv = process.platform === "win32"
         ? { USERPROFILE: tmpDir }
         : { HOME: tmpDir };
-      const proc = Bun.spawnSync(["bun", "auto-version.mjs", "--write"], {
+      // Production preparation runs Node. Keep the real entry in its checkout
+      // so ESM imports resolve frozen dependencies without NODE_PATH or a copy.
+      const proc = spawnSync("node", [join(ROOT, "scripts/auto-version.mjs"), "--write"], {
         cwd: tmpDir,
-        stdout: "pipe",
-        stderr: "pipe",
-        env: { ...process.env, ...homeEnv, NODE_PATH: `${ROOT}/node_modules`, VERSION_BASELINE_FILE: join(tmpDir, "baseline.json"), VERSION_BASE_SHA: baselineSha },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 30_000,
+        killSignal: "SIGKILL",
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, ...homeEnv, VERSION_BASELINE_FILE: join(tmpDir, "baseline.json"), VERSION_BASE_SHA: baselineSha },
       });
+      if (proc.error) throw proc.error;
+      if (proc.status === null) throw new Error(`Auto-version Node subprocess terminated: ${proc.signal}`);
 
       const pkgContent = (() => {
         try {
@@ -122,7 +125,7 @@ describe("auto-version script", () => {
       return {
         stdout: proc.stdout.toString(),
         stderr: proc.stderr.toString(),
-        exitCode: proc.exitCode,
+        exitCode: proc.status,
         packageJson: pkgContent,
       };
     } finally {
@@ -134,12 +137,12 @@ describe("auto-version script", () => {
     const result = runAutoVersion(["chore(release): v1.0.0"]);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("No version bump needed");
-  });
+  }, 60_000);
 
   it("bumps minor for feat: commits", () => {
     const result = runAutoVersion(["feat: add new command"]);
     expect(result.exitCode).toBe(0);
     expect(result.packageJson).toContain('"version":"1.1.0"');
     expect(result.stdout).toContain("NEW_VERSION=v1.1.0");
-  });
+  }, 60_000);
 });
