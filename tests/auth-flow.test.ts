@@ -319,6 +319,14 @@ describe("checkCircleLogin", () => {
     expect(res.kind).toBe("slow_down");
   });
 
+  it("treats 5xx and 429 as transient and keeps polling", async () => {
+    for (const status of [500, 502, 503, 429]) {
+      queue.push(jsonResponse(status, { error: `http_${status}` }));
+      const res = await checkCircleLogin("dc-1");
+      expect(res.kind, `status ${status}`).toBe("pending");
+    }
+  });
+
   it("returns denied on 403", async () => {
     queue.push(jsonResponse(403, { error: "access_denied", message: "no course" }));
     const res = await checkCircleLogin("dc-1");
@@ -342,12 +350,12 @@ describe("checkCircleLogin", () => {
   });
 
   it("returns error on an unexpected status", async () => {
-    queue.push(jsonResponse(500, { error: "internal_error" }));
+    queue.push(jsonResponse(409, { error: "conflict" }));
     const res = await checkCircleLogin("dc-1");
     expect(res.kind).toBe("error");
     if (res.kind !== "error") throw new Error("expected error");
-    expect(res.status).toBe(500);
-    expect(res.code).toBe("internal_error");
+    expect(res.status).toBe(409);
+    expect(res.code).toBe("conflict");
   });
 });
 

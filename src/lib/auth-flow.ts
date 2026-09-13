@@ -247,6 +247,10 @@ export async function checkCircleLogin(
 
   if (result.status === 400 && result.code === "slow_down") return { kind: "slow_down" };
 
+  // Upstream hiccups (5xx) and a transient 429 are not verdicts on the login;
+  // the loop keeps polling until the server's `expires_in` deadline.
+  if (result.status >= 500 || result.status === 429) return { kind: "pending" };
+
   const message = result.payload?.message ?? result.error;
   if (result.status === 410) return { kind: "expired", message };
   if (result.status === 403) return { kind: "denied", message };
