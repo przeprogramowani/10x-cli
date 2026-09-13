@@ -1,0 +1,33 @@
+name: CLI 39 receipt access diagnosis
+
+on:
+  push:
+    branches: [diagnose/cli39-receipt-access]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out diagnostic code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.sha }}
+          path: diagnostic
+          persist-credentials: false
+      - name: Check out unchanged CLI candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: 638ea3477a5c8b32b76d47d66124b9b017c8b17a
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+      - name: Diagnose exact hosted receipt access
+        run: node diagnostic/context/changes/cli-release-repair/hosted-receipt-diagnosis/diagnoser.mjs
+        env:
+          GH_TOKEN: ${{ secrets.TOOLKIT_READ_TOKEN }}
