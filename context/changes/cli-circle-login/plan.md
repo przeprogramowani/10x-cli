@@ -461,10 +461,10 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 
 #### Automated
 
-- [ ] 2.1 Concurrent approve/redeem and double redemption under workerd yield exactly one successful `redeem`
-- [ ] 2.2 Budget windows deny at the configured threshold and reset per window
-- [ ] 2.3 Existing Toolkit suite and released-CLI compatibility E2E remain green with the new bindings
-- [ ] 2.4 `wrangler deploy --dry-run` accepts the DO migration
+- [x] 2.1 Concurrent approve/redeem and double redemption under workerd yield exactly one successful `redeem` — 52b6beb
+- [x] 2.2 Budget windows deny at the configured threshold and reset per window — 52b6beb
+- [x] 2.3 Existing Toolkit suite and released-CLI compatibility E2E remain green with the new bindings — 52b6beb
+- [x] 2.4 `wrangler deploy --dry-run` accepts the DO migration — 52b6beb
 
 ### Phase 3: Toolkit transport, secret and flag
 

@@ -1,7 +1,7 @@
 ---
 change_id: cli-circle-login
 title: Circle message login for 10x CLI
-status: plan_reviewed
+status: implementing
 created: 2026-09-13
 updated: 2026-09-13
 archived_at: null
