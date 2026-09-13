@@ -8,8 +8,8 @@ Written 2026-09-13. Nothing below changes release variables, pointers, leases, b
 
 | Repo | Branch | HEAD (full SHA) | State |
 | --- | --- | --- | --- |
-| 10x-cli | `plan/cli-circle-login` | `b6415c574266d63b1149c2641418a0ddbc0929ac` | pushed, draft PR https://github.com/przeprogramowani/10x-cli/pull/40 (CLI CI on PR only typechecks/lints/tests/builds; no publish) |
-| 10x-toolkit | `feat/cli-circle-login` | `38f77e8327ed307c3b9dde29d19cc0a2ddfac455` | pushed over SSH (the `gh` OAuth token lacks the `workflow` scope needed because the branch adds one CI step), **no PR yet** (see why below) |
+| 10x-cli | `plan/cli-circle-login` | see `overnight-handoff.md` (rebased onto master `b2150bae`; last logged head there) | pushed, draft PR https://github.com/przeprogramowani/10x-cli/pull/40 (CLI CI on PR only typechecks/lints/tests/builds; no publish) |
+| 10x-toolkit | `feat/cli-circle-login` | remote `38f77e8327ed307c3b9dde29d19cc0a2ddfac455`; local `757d4788b20fd227ad3d01b7ceb2ac83566128bc` rebased onto master `8bba7fd` (unpushed until the window) | pushed over SSH (the `gh` OAuth token lacks the `workflow` scope needed because the branch adds one CI step), **no PR yet** (see why below) |
 
 Local evidence (macOS only, not hosted evidence): Toolkit unit 693, workerd lanes 18/4/5/29, `/openapi.json` byte-identical to the email-only baseline plus three additive Circle routes; CLI 727 tests, build, binary. Circle E2E uses an intercepted DM; no live message was sent.
 
@@ -25,7 +25,7 @@ Pushing the branch alone triggers nothing (`push` is master-only). Deploy, packa
 ## The ask (one slot, one decision)
 
 1. **Slot**: after the Windows smoke repair and the one authorized full Toolkit rerun, one CI window in which a Toolkit PR run on `feat/cli-circle-login` does not compete with the release's OpenRouter usage.
-2. **Pair**: for that window only, `CLI_CANDIDATE_SHA = b6415c574266d63b1149c2641418a0ddbc0929ac` (or tell us the alternative you prefer; we will not touch the variable ourselves). After the run it can go back to the release candidate.
+2. **Pair**: for that window only, `CLI_CANDIDATE_SHA` = the CLI head recorded in `overnight-handoff.md` at that time (or tell us the alternative you prefer; we will not touch the variable ourselves). After the run it can go back to the release candidate.
 3. **Trigger**: once 1 and 2 are confirmed, `p0-cli-circle` opens the Toolkit draft PR (or pushes an empty commit to re-trigger) and reports the `e2e-cli` ubuntu/windows results plus the `coordinated-receipt` artifact as the Phase 6 row 6.1 evidence.
 
 If the slot cannot be given before the CLI release, rows 6.1 and 7.1 stay open and the rollout order still holds: Toolkit deploy with `AUTH_CIRCLE_LOGIN = "disabled"` first, then CLI, then the separately accepted pilot.
