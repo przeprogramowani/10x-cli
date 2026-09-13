@@ -80,18 +80,28 @@ checking named capability and content availability:
 ```bash
 10x_cli auth --status
 10x_cli list --course 10xdevs4
-10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl
-# Ask the agent to read .claude/skills/10x-plan/SKILL.md and its references,
-# then plan the task in task.md without implementing it.
+10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl
+# Follow the guide: read each installed SKILL.md and references, then
+# init → shape with the learner’s 10xCards inputs → PRD from approved notes.
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
 10x_cli doctor
 ```
 
-The guide's small reading-list exercise produces
-`context/changes/reading-list-filter/plan.md` with unchecked Progress while
-preserving `index.html`. A successful download alone is not successful skill use.
+The guide uses lesson 1's existing 10xCards example and produces
+`context/foundation/shape-notes.md`, then `context/foundation/prd.md`.
+Read all three installed skill trees; PRD requires the sibling
+`.claude/skills/10x-shape/references/prd-schema.md`. Preserve existing outputs and
+follow the skills' collision choices. `CLAUDE-m1l1` is a separate lesson rule;
+see the guide for prerequisite checks without a full-get fallback. `10x-plan`
+is not available for this launch demonstration. The source contract is a
+candidate; verify each named endpoint, complete PL references and actual release
+before the walkthrough. A download alone is not successful skill use.
 Inspect sync conflicts even on exit 0; never apply automatic `--force`. A missing
 tool directory before first get can explain that doctor check; other failures
 remain visible. Full lesson downloads and other commands remain available below.

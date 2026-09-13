@@ -120,7 +120,7 @@ already managed by CLI should be used/updated through CLI, not overwritten here.
 ### CLI channel
 
 Use this channel after setup/auth and only with verified named support and
-available v4 content. These helpers and the exercise's `10x-plan` belong to m1l1
+available v4 content. These helpers and the launch chain `10x-init`, `10x-shape`, `10x-prd` belong to m1l1
 and inherit course membership and module availability. Their source membership
 does not prove that the content has been published or unlocked.
 
@@ -159,22 +159,55 @@ place two updaters over the same files. Normal use does not require any takeover
 
 ## Download, use, update
 
-After the named capability and content checks, the first exercise is:
+The launch example is lesson 1's existing 10xCards: init → shape → PRD.
+`10x-plan` is not available for the launch demonstration. After capability and
+content checks for each name, inspect each preview before its corresponding write:
 
 ```bash
-10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Verify `.claude/skills/10x-plan/SKILL.md` and its
-`.claude/skills/10x-plan/references/progress-format.md`. Tell the actual agent to read that materialized
-SKILL.md and its reference, then follow the exercise's `task.md`. For the guided
-reading-list task, success is `context/changes/reading-list-filter/plan.md` with
-unchecked Progress, preserved `index.html` and no implemented filter. The skill
-may also create a brief or change identity. A file download alone is not proof of
-use; inspect the resulting plan and the agent's actions. Native slash/$ discovery
-requires a verified transcript for that agent; explicit file reading works as the
-instruction contract without claiming automatic activation.
+Require the complete three trees and inspect each installed entrypoint/reference.
+All checks below must succeed before use; stop on any failure:
+
+```bash
+test -s .claude/skills/10x-init/SKILL.md
+test -s .claude/skills/10x-shape/SKILL.md
+test -s .claude/skills/10x-shape/references/prd-schema.md
+test -s .claude/skills/10x-prd/SKILL.md
+test -s .claude/skills/10x-prd/../10x-shape/references/prd-schema.md
+```
+
+PRD reads `../10x-shape/references/prd-schema.md` relative to its SKILL.md;
+isolated PRD download is insufficient. These are the source minimum: preserve
+additional supporting files in the selected release. Inspect all three canonical
+direct owners in `.claude/.10x-cli-manifest.json` and the project edition binding.
+Membership in source is candidate evidence; actual named availability, full PL
+references and release identity still need verification for all three names.
+
+`CLAUDE-m1l1` is a separate lesson rule and is not included in these named gets.
+The inspected three skill sources do not require it for the chain. This is not
+proof that the entire lesson needs no rule: if the learner's lesson instructions
+require it, inspect an existing rule's provenance, or report the missing
+prerequisite and ask the lesson/release owner for a supported route before that
+step. Never invent a command, overwrite a rule or fall back to full lesson get.
+
+Have the agent explicitly read each installed SKILL.md and its references in
+order: init preserves/scaffolds context directories; shape conducts the actual
+10xCards discovery with the learner and writes
+`context/foundation/shape-notes.md`; after the learner approves those notes, PRD
+uses them and the sibling schema to produce `context/foundation/prd.md`.
+Ask for missing lesson inputs; do not manufacture a task.md, product decisions or
+a finished plan. Respect existing-file collision choices and report actual output
+paths. Inspect the notes, schema compliance, open questions and preserved local
+work. Stop at PRD, without stack selection or implementation. Download alone is
+not use; native slash/$ discovery needs separate agent evidence. Keep private
+lesson text out of public fixtures. The guide supplies the detailed agent steps.
 
 ```bash
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run

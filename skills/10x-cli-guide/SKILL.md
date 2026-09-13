@@ -52,59 +52,89 @@ precedence over saved defaults for that command.
 
 ## Download
 
-After capability and availability checks, get the full named planning skill:
+The launch exercise follows lesson 1, “Od pomysłu do PRD”, using its existing
+10xCards example. `10x-plan` is not part of this launch demonstration.
+After checking each name's capability and availability, download three separate
+full named skill trees. Inspect each dry-run before its corresponding write:
 
 ```bash
-10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Inspect the preview before writing, then inspect the resulting report and files:
+Inspect each report and the complete supporting tree, not just SKILL.md. In the
+chosen macOS/zsh exercise directory, each of these checks must succeed before use
+(stop on any failure; do not infer success from the last check alone):
 
-- `.claude/skills/10x-plan/SKILL.md` and its complete supporting tree, including
-  `.claude/skills/10x-plan/references/progress-format.md`.
-- `.claude/.10x-cli-manifest.json` with the canonical named skill's direct owner.
-- Project edition `.10x-cli.json` and actual course/language/release information.
+```bash
+test -s .claude/skills/10x-init/SKILL.md
+test -s .claude/skills/10x-shape/SKILL.md
+test -s .claude/skills/10x-shape/references/prd-schema.md
+test -s .claude/skills/10x-prd/SKILL.md
+test -s .claude/skills/10x-prd/../10x-shape/references/prd-schema.md
+```
 
-A full named download does not require the rest of m1l1 or its rules. These skills
-are introduced in v4 m1l1 and inherit its membership/module gate after content
-publication. If a name is unavailable, preserve the precise error; never silently
-substitute a whole lesson, another course or a filtered download.
+The PRD entrypoint resolves `../10x-shape/references/prd-schema.md` relative to its
+own directory. A standalone PRD tree is insufficient. Read all installed
+entrypoints and every reference they require; the paths above are the known
+source minimum, not permission to discard extra files from a published bundle.
+Also inspect `.claude/.10x-cli-manifest.json` for all three canonical direct owners
+and `.10x-cli.json` for the project edition, course and release context.
 
-For browsing use `10x_cli list m1 --course 10xdevs4`. A full lesson remains a
-separate choice: `10x_cli get m1l1 --course 10xdevs4 --tool claude-code --lang pl`
-can install several skills, prompts, rules and config templates. A filtered lesson
-get with `--type skills --name 10x-plan` is not the full named direct-owner
-contract; do not promise it establishes equivalent sync tracking. `--print` is
-inspection: TTY Markdown can contain only SKILL.md; piped/non-TTY output is a JSON
-envelope. Never redirect print output into SKILL.md as a package installation.
+Source membership puts init/shape/prd in v4 m1l1 under its access/module gate.
+This is candidate evidence, not proof of a published named endpoint or PL bundle.
+Verify all three names against the actual selected release. If any name, schema,
+owner or release is missing/mismatched, preserve the precise error and stop the
+exercise; never silently substitute a whole lesson, another course or filtered get.
 
-## Use: create a small plan
+`CLAUDE-m1l1` is a separate lesson rule, not delivered by these named skill gets.
+The inspected init/shape/prd sources do not require that rule to run this chain.
+This does not establish that every step of the full lesson works without it.
+Use the learner's existing lesson 1 inputs and instructions: if they require the
+rule, inspect the existing project rule and its provenance. If absent, report the
+missing prerequisite and obtain the supported route from the lesson/release owner
+before that step. Do not invent a rule command or download a full lesson to bypass
+it. Do not overwrite an existing project rule.
 
-Downloading a skill is the start. Have the agent read the installed entrypoint and
-its own references, then do a concrete task. Do not assume native slash/$
-discovery or automatic activation from npm installation.
+For browsing use `10x_cli list m1 --course 10xdevs4`. Filtered lesson get is a
+separate operation, not equivalent direct-owner sync. `--print` is inspection:
+TTY Markdown can contain only SKILL.md; non-TTY output is a JSON envelope. Never
+redirect print output into SKILL.md as a package installation.
 
-The exercise project contains `index.html`, a static reading list with three
-sample titles, and `task.md` with this request:
+## Use: 10xCards, from idea to PRD
 
-> Plan a case-insensitive title filter, empty-result message and reset. Preserve
-> the existing data. Use no dependencies or server and do not implement the
-> filter. Write the plan to context/changes/reading-list-filter/plan.md. Product
-> choices in this task are settled; record missing information explicitly.
+Downloading the trees is only preparation. Use the existing 10xCards example and
+the learner's actual answers from lesson 1. If those inputs are absent, ask for
+them; do not invent product requirements, a replacement task.md or a ready-made
+plan. Keep private lesson text out of public fixtures and transcripts.
+Do not assume native slash/$ discovery or automatic activation from npm install.
+Give the agent explicit local paths and work through these steps separately:
 
-If these inputs are absent, prepare this small fixture in the user's chosen empty
-exercise directory; preserve any existing project and files. Tell the agent:
+1. Read `.claude/skills/10x-init/SKILL.md` and follow it in the chosen project.
+   Inspect the create-if-absent context/changes, context/archive and
+   context/foundation directories and their READMEs. Preserve existing files.
+2. Read `.claude/skills/10x-shape/SKILL.md` and
+   `.claude/skills/10x-shape/references/prd-schema.md`. Follow the skill's discovery
+   with the learner's 10xCards inputs. Let the learner answer and approve the
+   checkpoint; do not answer for them. Inspect
+   `context/foundation/shape-notes.md` against those answers before proceeding.
+3. Read `.claude/skills/10x-prd/SKILL.md` and its sibling schema, then generate the
+   draft from the actual `context/foundation/shape-notes.md`. Inspect
+   `context/foundation/prd.md` against that input and the installed schema;
+   unresolved domain choices stay open. Respect the skill's existing-file
+   collision choice (a versioned file may be the appropriate result).
 
-> Read .claude/skills/10x-plan/SKILL.md and its bundled references, then follow
-> task.md. This is planning only; do not implement the filter.
-
-Inspect the result, not just the command transcript. Success means a concrete plan
-covering all three behaviors and verification, unchecked Progress, unchanged
-`index.html` data and no implemented filter. The skill may also create a brief and
-change identity; do not restrict it to a lone plan file against its own contract.
-If the agent read a different global/local copy, correct the path and repeat the
-read before accepting the result. Record the actual agent/profile/language used.
+Success requires the learner's notes and a schema-conformant PRD, with gaps
+explicit and original project work preserved. A transcript of downloads alone
+is insufficient. Stop after reviewing the PRD; do not chain into stack selection,
+bootstrap or implementation. If a different global/local skill copy was read,
+correct the path before accepting the result. Record the actual agent, profile,
+language, output paths and checks; use a fresh isolated exercise directory for the
+two canonical output filenames instead of forcing an overwrite.
 
 ## Update
 
