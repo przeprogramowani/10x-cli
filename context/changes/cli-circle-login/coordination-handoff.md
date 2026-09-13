@@ -8,8 +8,8 @@ Written 2026-09-13. Nothing below changes release variables, pointers, leases, b
 
 | Repo | Branch | HEAD (full SHA) | State |
 | --- | --- | --- | --- |
-| 10x-cli | `plan/cli-circle-login` | `b6415c574266d63b1149c2641418a0ddbc0929ac` | pushed, draft PR open (CLI CI on PR only typechecks/lints/tests/builds; no publish) |
-| 10x-toolkit | `feat/cli-circle-login` | `38f77e8327ed307c3b9dde29d19cc0a2ddfac455` | pushed, **no PR yet** (see why below) |
+| 10x-cli | `plan/cli-circle-login` | `b6415c574266d63b1149c2641418a0ddbc0929ac` | pushed, draft PR https://github.com/przeprogramowani/10x-cli/pull/40 (CLI CI on PR only typechecks/lints/tests/builds; no publish) |
+| 10x-toolkit | `feat/cli-circle-login` | `38f77e8327ed307c3b9dde29d19cc0a2ddfac455` | pushed over SSH (the `gh` OAuth token lacks the `workflow` scope needed because the branch adds one CI step), **no PR yet** (see why below) |
 
 Local evidence (macOS only, not hosted evidence): Toolkit unit 693, workerd lanes 18/4/5/29, `/openapi.json` byte-identical to the email-only baseline plus three additive Circle routes; CLI 727 tests, build, binary. Circle E2E uses an intercepted DM; no live message was sent.
 
