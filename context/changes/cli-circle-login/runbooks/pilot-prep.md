@@ -110,11 +110,13 @@ cat > body.json <<'EOF'
 {
   "user_email": "RECIPIENT_PLACEHOLDER",
   "rich_text_body": {
-    "type": "doc",
-    "content": [
-      { "type": "paragraph", "content": [ { "type": "text", "text": "10x CLI login test: this message checks delivery only. Link: https://example.invalid/auth/circle/approve" } ] },
-      { "type": "paragraph", "content": [ { "type": "text", "text": "Approval links expire after 15 minutes." } ] }
-    ]
+    "body": {
+      "type": "doc",
+      "content": [
+        { "type": "paragraph", "content": [ { "type": "text", "text": "10x CLI login test: this message checks delivery only. Link: https://example.invalid/auth/circle/approve" } ] },
+        { "type": "paragraph", "content": [ { "type": "text", "text": "Approval links expire after 15 minutes." } ] }
+      ]
+    }
   }
 }
 EOF

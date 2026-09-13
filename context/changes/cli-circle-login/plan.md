@@ -470,9 +470,9 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 
 #### Automated
 
-- [ ] 3.1 Transport classification, both header schemes and no-retry are proven on injected fetch
-- [ ] 3.2 Flag tri-state, pilot hashes and missing-secret behaviour are covered
-- [ ] 3.3 PII guard fails if bearer, device_code, recipient or body reach logs
+- [x] 3.1 Transport classification, both header schemes and no-retry are proven on injected fetch — 10e846c
+- [x] 3.2 Flag tri-state, pilot hashes and missing-secret behaviour are covered — 10e846c
+- [x] 3.3 PII guard fails if bearer, device_code, recipient or body reach logs — 10e846c
 
 ### Phase 4: Toolkit routes, approval page and OpenAPI
 
