@@ -485,7 +485,7 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 
 #### Manual
 
-- [x] 4.5 Approval page without a fragment sends no request; with a used bearer shows "expired or already used" — 35d93a3
+- [ ] 4.5 Approval page without a fragment sends no request; with a used bearer shows "expired or already used"
 
 ### Phase 5: CLI method, polling and credentials
 
