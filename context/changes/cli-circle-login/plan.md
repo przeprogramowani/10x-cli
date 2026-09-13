@@ -491,9 +491,9 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 
 #### Automated
 
-- [ ] 5.1 Circle start/poll handles `slow_down`, expiry, denial and abort with the documented result kinds
-- [ ] 5.2 Command-level exit codes, JSON envelopes, TTY chooser and non-TTY usage error are covered
-- [ ] 5.3 `AuthData.method` survives `readAuth` and the refresh constructor
+- [x] 5.1 Circle start/poll handles `slow_down`, expiry, denial and abort with the documented result kinds — a677271
+- [x] 5.2 Command-level exit codes, JSON envelopes, TTY chooser and non-TTY usage error are covered — a677271
+- [x] 5.3 `AuthData.method` survives `readAuth` and the refresh constructor — a677271
 - [ ] 5.4 Typecheck, lint, build, binary build and generated-types check pass
 
 #### Manual
