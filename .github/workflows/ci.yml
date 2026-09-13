@@ -1,12 +1,49 @@
 name: CI
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('release-release-{0}', inputs.operation) || github.event.head_commit.message || github.event.pull_request.title }}
 
 on:
   pull_request:
   push:
     branches: [main, master]
 
+  workflow_dispatch:
+    inputs:
+      cli_sha:
+        required: true
+        type: string
+      toolkit_sha:
+        required: true
+        type: string
+      evidence_run_id:
+        required: true
+        type: string
+      evidence_run_attempt:
+        required: true
+        type: string
+      evidence_artifact_id:
+        required: true
+        type: string
+      lease_generation:
+        required: true
+        type: string
+      operation:
+        required: true
+        type: string
+
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
+
+env:
+  RELEASE_CLI_SHA: ${{ inputs.cli_sha || github.event.pull_request.head.sha || github.sha }}
+  RELEASE_TOOLKIT_SHA: ${{ inputs.toolkit_sha }}
+  TOOLKIT_COORDINATED_RUN_ID: ${{ inputs.evidence_run_id }}
+  TOOLKIT_COORDINATED_RUN_ATTEMPT: ${{ inputs.evidence_run_attempt }}
+  TOOLKIT_COORDINATED_ARTIFACT_ID: ${{ inputs.evidence_artifact_id }}
+  RELEASE_LEASE_GENERATION: ${{ inputs.lease_generation }}
+  RELEASE_OPERATION: ${{ inputs.operation }}
+
 
 jobs:
   check:
@@ -17,7 +54,13 @@ jobs:
       # then update both the SHA and the version comment.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global npm@11.12.1 --ignore-scripts
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
         with:
@@ -52,7 +95,13 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global npm@11.12.1 --ignore-scripts
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
         with:
@@ -77,6 +126,7 @@ jobs:
         run: bun test tests/smoke/
 
   coordinated:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
     name: Verified private CLI/API evidence
     needs: [check, check-windows]
     runs-on: ubuntu-latest
@@ -86,6 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -96,66 +147,91 @@ jobs:
         run: node scripts/verify-coordinated-receipt.mjs
         env:
           GH_TOKEN: ${{ secrets.TOOLKIT_READ_TOKEN }}
-          TOOLKIT_COORDINATED_RUN_ID: ${{ vars.TOOLKIT_COORDINATED_RUN_ID }}
-          E2E_TOOLKIT_SHA: ${{ vars.TOOLKIT_CANDIDATE_SHA }}
-          E2E_CLI_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          TOOLKIT_COORDINATED_RUN_ID: ${{ inputs.evidence_run_id || vars.TOOLKIT_COORDINATED_RUN_ID }}
+          E2E_TOOLKIT_SHA: ${{ inputs.toolkit_sha || vars.TOOLKIT_CANDIDATE_SHA }}
+          E2E_CLI_SHA: ${{ inputs.cli_sha || github.event.pull_request.head.sha || github.sha }}
+          E2E_CANDIDATE_KIND: ${{ github.event_name == 'pull_request' && 'pr' || 'release' }}
+          E2E_LEASE_GENERATION: ${{ inputs.lease_generation }}
+          TOOLKIT_DISPATCH_TOKEN: ${{ github.event_name == 'workflow_dispatch' && secrets.TOOLKIT_DISPATCH_TOKEN || '' }}
 
-  # ── Release jobs (master push only) ──────────────────────────────
+  version-bootstrap:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.8'
+      - run: bun install --frozen-lockfile
+      - name: Retain bootstrap calculation (read-only, revalidated after human merge)
+        run: node scripts/prepare-version.mjs --bootstrap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_RECORD_DIR: ${{ runner.temp }}/version-records
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: version-preparation-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/version-records/${{ github.event.pull_request.number }}/version-preparation.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  wake-coordinator:
+    needs: [check, check-windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake trusted Toolkit coordinator after ordinary master checks
+        env:
+          GH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
+          CLI_RUN_ID: ${{ github.run_id }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo 'Release coordination pending scoped credential/bootstrap prerequisites.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run release-coordinator.yml --repo przeprogramowani/10x-toolkit --ref master -f cli_run_id="$CLI_RUN_ID"
 
   version:
     needs: [check, check-windows, coordinated]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.bump.outputs.version }}
-      should_release: ${{ steps.bump.outputs.should_release }}
+      new_version: ${{ steps.identity.outputs.version }}
+      should_release: ${{ steps.identity.outputs.should_release }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: "1.3.8"
-
+          bun-version: '1.3.8'
       - run: bun install --frozen-lockfile
-
-      - name: Bump version
-        id: bump
-        run: |
-          rc=0
-          output=$(node scripts/auto-version.mjs 2>&1) || rc=$?
-          if [ "$rc" -eq 1 ]; then
-            echo "No release needed — skipping."
-            echo "$output"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            echo "::error::auto-version.mjs crashed (exit $rc):"
-            echo "$output"
-            exit 1
-          fi
-          version=$(echo "$output" | grep '^NEW_VERSION=' | cut -d= -f2)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-
-      - name: Commit version bump and tag
-        if: steps.bump.outputs.should_release == 'true'
+      - name: Verify committed automatic version, merged PR provenance and lease
+        id: identity
+        run: node scripts/release-preflight.mjs
         env:
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "chore(release): ${VERSION}"
-          git tag -a "${VERSION}" -m "Release ${VERSION}"
-          git push origin master "${VERSION}"
+          GH_TOKEN: ${{ github.token }}
+          TOOLKIT_DISPATCH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
+          RELEASE_PREFLIGHT_FILE: ${{ runner.temp }}/preflight.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/preflight.json
+          if-no-files-found: error
+          retention-days: 90
 
   build-binaries:
+    name: Binary (${{ matrix.artifact }})
     needs: [version]
     if: needs.version.outputs.should_release == 'true'
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -175,69 +251,141 @@ jobs:
             artifact: 10x-windows-x64.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ needs.version.outputs.new_version }}
+          ref: ${{ github.sha }}
           persist-credentials: false
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: "1.3.8"
-
+          bun-version: '1.3.8'
       - run: bun install --frozen-lockfile
-
-      - name: Build binary
+      - name: Build binary from proven source
         run: bun build --compile --minify src/index.ts --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ matrix.artifact }}
+          name: binary-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 90
 
   publish-npm:
-    needs: [version]
-    if: needs.version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-        with:
-          ref: ${{ needs.version.outputs.new_version }}
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
-        with:
-          bun-version: "1.3.8"
-
-      - run: bun install --frozen-lockfile && bun run build
-
-      - name: Publish to npm
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
-          npm publish --access public
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  github-release:
     needs: [version, build-binaries]
     if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+      - name: Set isolated release paths
+        run: |
+          printf '%s\n' \
+            "RELEASE_OUTPUT_DIR=${RUNNER_TEMP}/release-package" \
+            "RELEASE_ASSET_DIR=${RUNNER_TEMP}/release-binaries" \
+            "RELEASE_PREFLIGHT_FILE=${RUNNER_TEMP}/release-preflight/preflight.json" \
+            "NPM_CONFIG_USERCONFIG=${RUNNER_TEMP}/release-npmrc" >> "$GITHUB_ENV"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          path: release-assets
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.8'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --global npm@11.12.1 --ignore-scripts
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Pack frozen directory outside checkout
+        run: node scripts/release-identity.mjs pack
+      - name: Smoke the retained pre-publication pack in an isolated installation
+        run: |
+          node scripts/smoke-release-pack.mjs
+      - name: Select complete exact-attempt binary artifacts
+        id: binaries
+        run: node scripts/release-assets.mjs select
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ steps.binaries.outputs.ids }}
           merge-multiple: true
-
-      - uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631  # v2
+          path: ${{ env.RELEASE_ASSET_DIR }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          tag_name: ${{ needs.version.outputs.new_version }}
-          generate_release_notes: true
-          files: release-assets/**/*
+          name: release-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-preflight
+      - name: Record bounded public release manifest before mutation
+        run: node scripts/release-assets.mjs manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-package-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RELEASE_OUTPUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish exact directory once, then verify actual registry bytes
+        run: |
+          node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=" + process.env.NPM_TOKEN + "\n", {mode: 0o600})'
+          node scripts/release-identity.mjs publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLKIT_DISPATCH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: published-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RELEASE_OUTPUT_DIR }}/published-result.json
+          if-no-files-found: error
+          retention-days: 90
+
+  github-release:
+    needs: [version, build-binaries, publish-npm]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Select original binary artifact IDs
+        id: binaries
+        run: node scripts/release-assets.mjs select
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ steps.binaries.outputs.ids }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-binaries
+      - name: Revalidate lease immediately before GitHub release mutation
+        run: node scripts/release-identity.mjs lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLKIT_DISPATCH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
+      - name: Create release with exactly the original binary assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.new_version }}
+        run: |
+          gh release create "v${VERSION}" --verify-tag --generate-notes --target "$RELEASE_CLI_SHA" \
+            "$RUNNER_TEMP/release-binaries/10x-linux-x64" \
+            "$RUNNER_TEMP/release-binaries/10x-linux-arm64" \
+            "$RUNNER_TEMP/release-binaries/10x-darwin-arm64" \
+            "$RUNNER_TEMP/release-binaries/10x-darwin-x64" \
+            "$RUNNER_TEMP/release-binaries/10x-windows-x64.exe"
 
   notify-slack:
     needs: [check, check-windows, coordinated, version, publish-npm, github-release]
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: Build notification payload
@@ -247,7 +395,7 @@ jobs:
         run: |
           MSG=$(printf '%s\n' "$COMMIT_MESSAGE" | head -1 | cut -c1-80)
           echo "commit_msg=${MSG}" >> "$GITHUB_OUTPUT"
-          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.check-windows.result }}" != "success" || "${{ needs.coordinated.result }}" != "success" || "${{ needs.publish-npm.result }}" == "failure" || "${{ needs.version.result }}" == "failure" || "${{ needs.github-release.result }}" == "failure" ]]; then
+          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.check-windows.result }}" != "success" || ( "${{ needs.coordinated.result }}" != "success" && "${{ needs.coordinated.result }}" != "skipped" ) || "${{ needs.publish-npm.result }}" == "failure" || "${{ needs.version.result }}" == "failure" || "${{ needs.github-release.result }}" == "failure" ]]; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
           else
             echo "failed=false" >> "$GITHUB_OUTPUT"
