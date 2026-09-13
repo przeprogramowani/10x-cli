@@ -7,5 +7,5 @@ export interface ReceiptArtifact { id: number; size_in_bytes: number; digest: st
 export function validateReceiptArtifact(result: unknown, identity: { runId: string; toolkitSha: string; artifactId?: string }, runAttempt: number, base?: string, maximumSize?: number): ReceiptArtifact;
 export function validateLivePullRequest(pr: unknown, toolkitSha: string): void;
 export function validateSourceRun(run: unknown, receipt: unknown): void;
-export function readReceiptArchive(zip: Buffer, artifact: ReceiptArtifact): unknown;
+export function readReceiptArchive(zip: Buffer, artifact: ReceiptArtifact, expectedName?: string): unknown;
 export function verifyCoordinatedEvidence(identity: CoordinatedIdentity, dependencies: { get: (path: string, repo?: string) => Promise<any>; download: (artifact: ReceiptArtifact) => Promise<Buffer> }): Promise<unknown>;

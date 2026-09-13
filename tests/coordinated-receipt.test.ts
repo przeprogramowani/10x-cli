@@ -115,6 +115,7 @@ function remoteFixture() {
   const get = async (path: string) => {
     requests.push(path);
     if (path === "pulls/31") return pr;
+    if (path === `commits/${identity.toolkitSha}/pulls?per_page=100`) return [{ ...pr, number: 31 }];
     if (path.endsWith("/jobs?per_page=100")) return jobs();
     if (path.endsWith("/artifacts?per_page=100")) return { total_count: 1, artifacts: [artifact] };
     return run();

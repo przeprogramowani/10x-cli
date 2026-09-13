@@ -1,7 +1,7 @@
 ---
 change_id: cli-release-repair
 title: Repair exact-commit CLI release evidence after merge
-status: implementing
+status: impl_reviewed
 created: 2026-09-13
 updated: 2026-09-13
 archived_at: null
@@ -38,3 +38,13 @@ Corrected plan SHA-256: `f46f2c7789a2a1844af076198ceb3c9d2dae877a7a465cdd4ffce5e
 ## Implementation authorization
 
 2026-09-13: Operator instructed “Działaj zgodnie z 10xWorkflow/10x-goal-implement”, approving the corrected reviewed plan with SHA-256 `f46f2c7789a2a1844af076198ceb3c9d2dae877a7a465cdd4ffce5ef4168fb59`. Session A explicitly invokes 10x-goal-implement from Phase 1. Earlier unapproved statements describe planning history and are superseded by this authorization. Human merge, coordinated login and production-promotion gates remain. Structural deviations still return to the operator.
+
+## Approved implementation amendment
+
+2026-09-13: Operator explicitly approved adding Pull requests:read to TOOLKIT_READ_TOKEN to retain strict live Toolkit PR validation. Root aligned the plan's credential contract; private Contents reads remain confined to TOOLKIT_DISPATCH_TOKEN in trusted master release jobs. No exported decision-owner fields were changed. Permission provisioning/validation remains an activation gate.
+
+2026-09-13: Operator explicitly chose no new activation-read token. Activation fences new generations only; an acquired release may finish after disabling. Root aligned plan/handoff and resumed dependent implementation; no live-flag semantics or extra credential scope is implied.
+
+## Operator priority update — migration parked
+
+2026-09-13: Operator parked migration of existing projects3→4 until reconsideration on14–15September (D15-C). Migration is no longer P0 or a prerequisite for releasing access and working new10xdevs-4 projects. Session A continues its already authorized release scope without waiting for migration implementation; v3 compatibility and existing security checks remain mandatory. This update does not change exported Decision Record owner fields or authorize merges, publication, deployment or production content promotion beyond earlier grants.

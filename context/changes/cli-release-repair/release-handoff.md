@@ -1,6 +1,6 @@
 # Session A release handoff
 
-**Status: operator approved the reviewed plan and invoked 10x-goal-implement on 2026-09-13. Phase 1 implementation passed targeted, deliberate-break and full repository gates; Phase 2 remains pending. No repaired package has been published by this session. Last production inspection showed unpublished v4. Session C stage-1 prerequisite is NOT satisfied.**
+**Status: operator approved the reviewed plan and invoked 10x-goal-implement on 2026-09-13. Phases1–2 implementation passed targeted, deliberate-break and full repository gates; independent phase review APPROVED. Phase3 runbooks/promotion-consumer repair and PR preparation remain pending. No repaired package has been published by this session. Last production inspection showed unpublished v4. Session C stage-1 prerequisite is NOT satisfied; migration is parked and does not block this release.**
 
 Canonical folder: `/Users/admin/code/10x-cli-release-repair/context/changes/cli-release-repair`. Read [plan brief](plan-brief.md), [plan](plan.md) and [research](research.md). This file is the release coordination handoff; other sessions must not change shared candidate variables/run pointers.
 
@@ -8,9 +8,13 @@ Canonical folder: `/Users/admin/code/10x-cli-release-repair/context/changes/cli-
 
 The operator exported record SHA-256 `792e4b3ba300d81e5db00f5e12dbc899eb585d6ba27639fc4411ffc871d1ddc6`. Its actual bytes and applied decisions.md were read. Coordinator reports dry-run/apply saved 8, conflict 0, rejected 0 using `/Users/admin/code/10x-decision-room/.tmp/changes/cli-release-repair-344449df/config.json`. Do not regenerate the export, edit owner fields or apply it again. Export/review is not implementation authorization.
 
-Choices: D01 C, D02 A, D03 A, D04 B, D05 A + automation comment, D06 C, D07 C, D08 A. Read [corrected plan](plan.md), [brief](plan-brief.md) and [alignment research](decision-alignment-research.md). Independent [plan review](reviews/plan-review.md): **SOUND**, all five dimensions PASS, no unresolved findings after two targeted corrections. Plan SHA-256: `f46f2c7789a2a1844af076198ceb3c9d2dae877a7a465cdd4ffce5ef4168fb59`. Operator subsequently instructed “Działaj zgodnie z 10xWorkflow/10x-goal-implement”, approving this exact plan. Session A is implementing the authorized scope; next human actions are the concrete CLI-first and Toolkit-second merges after tested PRs exist. No further numerical version approval is needed.
+Choices: D01 C, D02 A, D03 A, D04 B, D05 A + automation comment, D06 C, D07 C, D08 A. Read [corrected plan](plan.md), [brief](plan-brief.md) and [alignment research](decision-alignment-research.md). Independent [plan review](reviews/plan-review.md): **SOUND**, all five dimensions PASS, no unresolved findings after two targeted corrections. Approved starting plan SHA-256 (before execution Progress and the separately approved implementation amendments): `f46f2c7789a2a1844af076198ceb3c9d2dae877a7a465cdd4ffce5ef4168fb59`. Operator subsequently instructed “Działaj zgodnie z 10xWorkflow/10x-goal-implement”, approving this exact plan. Session A is implementing the authorized scope; next human actions are the concrete CLI-first and Toolkit-second merges after tested PRs exist. No further numerical version approval is needed.
 
 The corrected design automatically prepares the version in the same ordinary code PR; reverses initial merge order to CLI then Toolkit; automates post-merge evidence and publication with a durable lease; publishes a directory and verifies its actual npm integrity; retains manual recovery for partial publication. D01 C still requires a real Toolkit companion PR for pre-merge checks of future CLI-only work. Scoped credentials, bounded Toolkit lease reads and isolated lease contention verification are activation prerequisites described precisely in the plan. The coordinator starts inactive until Session A validates and activates it.
+
+Operator approved the implementation-time credential amendment: add Pull requests:read to TOOLKIT_READ_TOKEN while retaining strict live PR checks. Contents-capable TOOLKIT_DISPATCH_TOKEN remains confined to trusted master release jobs. Plan is aligned and Phase2 wiring resumed; token provisioning and real scope verification remain pending. Original decision export/owner fields are unchanged. See implementation-run.md.
+
+Operator resolved activation semantics without a new token: disabling prevents new release generations; an acquired generation may finish evidence, pointer registration and publication. The flag is not a live stop switch. Inspect queued coordinator invocations and active ownership when disabling; keep in-flight npm operations visible and reconcile them. Phase2 dependent work resumed.
 
 Code changes, regression gates and PR preparation are now authorized. Human merges, coordinated login and separate production-promotion approval remain required; no PR is ready yet.
 
@@ -25,7 +29,7 @@ Code changes, regression gates and PR preparation are now authorized. Human merg
 | Published npm latest | `@przeprogramowani/10x-cli@1.20.0` |
 | Published gitHead | `f89f19506cab8c9bbeb112242e4485fce4f1b77b` |
 | Published npm integrity | `sha512-fi38hdT9bOjZRMel7NTb11Kp/3T2tsKahMOYUW5zeUUgP8GpfXxksHihyyTvLms0ElWGob/6724PfEOCpBF2Og==` |
-| Computed example next version | Existing bump rules give `1.21.0` from v1.20.0/#38; no manual number approval. Recalculate from the pinned published baseline before preparing the actual PR; not yet committed/built/published. |
+| Local candidate version | Automatically calculated `1.21.0` from pinned v1.20.0 baseline; local node/binary builds and package smoke pass. Phase2 gates and independent review passed; no new npm publication. |
 | Failed release run | [CLI 34745146982](https://github.com/przeprogramowani/10x-cli/actions/runs/34745146982), attempt 1, ordinary Linux/Windows PASS, exact evidence FAIL, publishing skipped |
 | Retained successful private run | [Toolkit 34743867441](https://github.com/przeprogramowani/10x-toolkit/actions/runs/34743867441), attempt 1, push/master, both OS/receipt/stage/deploy PASS |
 | CLI actually proven by retained run | `c139ac5d89bc935be67174cc031e96f62661036d`, not the merged CLI |
@@ -47,7 +51,7 @@ At the earlier research inspection, repository variables were: Toolkit CLI_CANDI
 ## Evidence already completed
 
 - Reproduced exact current receipt accepting pre-squash CLI and rejecting actual merged CLI.
-- Reproduced identical synthetic OS receipts being reissued under attempt 1 and 2 by the existing producer. Implementation approval is now recorded; the regression was reproduced RED and Phase 1 repair is in progress. No repaired green result is claimed yet.
+- Reproduced identical synthetic OS receipts being reissued under attempt 1 and 2 by the existing producer. The regression was reproduced RED; Phase1 repair passed targeted/full gates and was committed as CLI8000d80 / Toolkite043c15. The retained historical receipt remains invalid for the merged CLI.
 - 86 focused receipt/selection/binding/safety tests PASS.
 - Full current CLI unit/integration baseline: **647 PASS, 0 FAIL**, 35 files, with isolated XDG config. Initial sandbox run failed on localhost/auth-lock restrictions; successful rerun used the same source outside those restrictions.
 - CLI typecheck PASS; lint 0 errors / 3 existing warnings. Node and standalone binary builds PASS; these are local unpublished builds reporting source version 1.20.0.
@@ -91,3 +95,7 @@ Coordinate a real login link for `marcin@przeprogramowani.pl` before sending it;
 Historical real-email results in `/Users/admin/code/10x-cli-v4-delivery/context/changes/10xdevs4-cli-access/package-manual-results-2026-09-13.md` remain useful regressions, not a substitute for the actual new npm package.
 
 **One-line handoff:** Session A release authority and remaining gates: `/Users/admin/code/10x-cli-release-repair/context/changes/cli-release-repair/release-handoff.md`; Session C stage 1 is not satisfied.
+
+## Operator priority update — migration parked
+
+2026-09-13: Operator parked migration of existing projects3→4 until reconsideration on14–15September (D15-C). Migration is no longer P0 or a prerequisite for releasing access and working new10xdevs-4 projects. Session A continues its already authorized release scope without waiting for migration implementation; v3 compatibility and existing security checks remain mandatory. This update does not change exported Decision Record owner fields or authorize merges, publication, deployment or production content promotion beyond earlier grants.

@@ -86,7 +86,8 @@ describe("auto-version script", () => {
 
       // Add commits that touch src/ so the git-diff release gate fires.
       for (const msg of commits) {
-        appendFileSync(join(tmpDir, "src/index.ts"), "// change\n");
+        if (msg.startsWith("chore(release):")) writeFileSync(join(tmpDir, "package.json"), '{"version":"1.0.1"}');
+        else appendFileSync(join(tmpDir, "src/index.ts"), "// change\n");
         execSync(`git add -A && git commit -m "${msg}" -q`, {
           cwd: tmpDir,
           stdio: "pipe",
@@ -98,14 +99,16 @@ describe("auto-version script", () => {
         join(tmpDir, "auto-version.mjs"),
       );
 
+      const baselineSha = execSync("git rev-parse v1.0.0", { cwd: tmpDir, encoding: "utf8" }).trim();
+      writeFileSync(join(tmpDir, "baseline.json"), JSON.stringify({ version: "1.0.0", tag: "v1.0.0", sha: baselineSha, gitHead: baselineSha }));
       const homeEnv = process.platform === "win32"
         ? { USERPROFILE: tmpDir }
         : { HOME: tmpDir };
-      const proc = Bun.spawnSync(["bun", "auto-version.mjs"], {
+      const proc = Bun.spawnSync(["bun", "auto-version.mjs", "--write"], {
         cwd: tmpDir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, ...homeEnv, NODE_PATH: `${ROOT}/node_modules` },
+        env: { ...process.env, ...homeEnv, NODE_PATH: `${ROOT}/node_modules`, VERSION_BASELINE_FILE: join(tmpDir, "baseline.json"), VERSION_BASE_SHA: baselineSha },
       });
 
       const pkgContent = (() => {
@@ -136,7 +139,7 @@ describe("auto-version script", () => {
   it("bumps minor for feat: commits", () => {
     const result = runAutoVersion(["feat: add new command"]);
     expect(result.exitCode).toBe(0);
-    expect(result.packageJson).toContain('"version": "1.1.0"');
+    expect(result.packageJson).toContain('"version":"1.1.0"');
     expect(result.stdout).toContain("NEW_VERSION=v1.1.0");
   });
 });

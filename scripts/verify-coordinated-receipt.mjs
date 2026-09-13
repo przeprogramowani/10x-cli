@@ -1,8 +1,8 @@
+import { realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const repository = "przeprogramowani/10x-toolkit";
 const cliRepository = "przeprogramowani/10x-cli";
@@ -90,7 +90,7 @@ export function validateSourceRun(run, receipt) {
     throw new Error("Retained source is not the exact successful master producer attempt");
 }
 /** Parse just one bounded regular JSON member. No private archive is extracted to disk. */
-export function readReceiptArchive(zip, artifact) {
+export function readReceiptArchive(zip, artifact, expectedName = "coordinated-receipt.json") {
   if (!Buffer.isBuffer(zip) || zip.length !== artifact.size_in_bytes || zip.length > 16384 || zip.length < 22 ||
       `sha256:${createHash("sha256").update(zip).digest("hex")}` !== artifact.digest) throw new Error("Receipt archive digest or bound mismatch");
   const end = zip.length - 22;
@@ -102,7 +102,7 @@ export function readReceiptArchive(zip, artifact) {
   const method = zip.readUInt16LE(central + 10), flags = zip.readUInt16LE(central + 8), size = zip.readUInt32LE(central + 24), packed = zip.readUInt32LE(central + 20);
   const attributes = zip.readUInt32LE(central + 38), unixType = (attributes >>> 16) & 0xf000;
   const name = zip.subarray(central + 46, central + 46 + nameSize).toString("utf8");
-  if (46 + nameSize + extraSize + commentSize !== centralSize || name !== "coordinated-receipt.json" ||
+  if (46 + nameSize + extraSize + commentSize !== centralSize || name !== expectedName ||
       ![0, 0x8000].includes(unixType) || (attributes & 0x10) !== 0 || (flags & ~0x808) !== 0 || ![0, 8].includes(method) || size > 4096 || size < 1 ||
       zip.readUInt32LE(central + 42) !== 0 || zip.readUInt32LE(0) !== 0x04034b50 || zip.readUInt16LE(6) !== flags || zip.readUInt16LE(8) !== method)
     throw new Error("Receipt archive must contain one bounded regular JSON file");
@@ -132,8 +132,11 @@ export async function verifyCoordinatedEvidence(identity, { get, download }) {
         if ((await get("git/ref/heads/master", repo)).object?.sha !== expected) throw new Error("Selected release master pair changed");
       }
     } else {
-      if (!Array.isArray(run.pull_requests) || run.pull_requests.length !== 1 || !Number.isSafeInteger(run.pull_requests[0].number)) throw new Error("One canonical live producer PR required");
-      validateLivePullRequest(await get(`pulls/${run.pull_requests[0].number}`), identity.toolkitSha);
+      const associated = await get(`commits/${identity.toolkitSha}/pulls?per_page=100`);
+      if (!Array.isArray(associated) || associated.length >= 100) throw new Error("Bounded canonical PR association required");
+      const matches = associated.filter((pr) => pr.state === "open" && pr.head?.sha === identity.toolkitSha && pr.head?.repo?.full_name === repository && pr.base?.repo?.full_name === repository && pr.base?.ref === "master");
+      if (matches.length !== 1 || !Number.isSafeInteger(matches[0].number)) throw new Error("One canonical live producer PR required");
+      validateLivePullRequest(await get(`pulls/${matches[0].number}`), identity.toolkitSha);
     }
   };
   await eligibility();
@@ -170,7 +173,7 @@ async function verify() {
   if (!process.env.GH_TOKEN) throw new Error("Private receipt read credential required");
   const get = async (path, repo = repository) => {
     const response = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
-      headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, signal: AbortSignal.timeout(30000),
+      headers: { authorization: `Bearer ${path === "git/ref/heads/master" && repo === repository ? process.env.TOOLKIT_DISPATCH_TOKEN : process.env.GH_TOKEN}`, accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) throw new Error("Cannot verify private evidence");
     return response.json();
@@ -178,7 +181,16 @@ async function verify() {
   const download = async (artifact) => execFileSync("gh", ["api", `repos/${repository}/actions/artifacts/${artifact.id}/zip`], { stdio: ["ignore", "pipe", "pipe"], timeout: 60000, maxBuffer: 16384 });
   console.log(JSON.stringify(await verifyCoordinatedEvidence(identity, { get, download })));
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Node resolves module symlinks, while argv can retain /var or a linked worktree path.
+// Imports (including node -e/stdin) must remain side-effect free.
+function isEntrypoint() {
+  try {
+    return Boolean(process.argv[1]) && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+if (isEntrypoint()) {
   verify().catch(() => {
     console.error("Coordinated evidence rejected. Require a successful private Toolkit CI run with a sanitized receipt for this exact Toolkit/CLI pair and both platforms. Inspect the private run for details.");
     process.exitCode = 1;
