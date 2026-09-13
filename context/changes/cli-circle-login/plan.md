@@ -478,14 +478,14 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 
 #### Automated
 
-- [ ] 4.1 Response table, ordering, same-origin check on `approve` and entitlement matrix are covered and no denial mints tokens
-- [ ] 4.2 Log shape and PII guard pass for every new event
-- [ ] 4.3 Released-CLI compatibility E2E stays green and `/openapi.json` still contains the unchanged email routes
-- [ ] 4.4 A test asserts the Circle routes never call `checkSession` or `/auth/verify`
+- [x] 4.1 Response table, ordering, same-origin check on `approve` and entitlement matrix are covered and no denial mints tokens — 35d93a3
+- [x] 4.2 Log shape and PII guard pass for every new event — 35d93a3
+- [x] 4.3 Released-CLI compatibility E2E stays green and `/openapi.json` still contains the unchanged email routes — 35d93a3
+- [x] 4.4 A test asserts the Circle routes never call `checkSession` or `/auth/verify` — 35d93a3
 
 #### Manual
 
-- [ ] 4.5 Approval page without a fragment sends no request; with a used bearer shows "expired or already used"
+- [x] 4.5 Approval page without a fragment sends no request; with a used bearer shows "expired or already used" — 35d93a3
 
 ### Phase 5: CLI method, polling and credentials
 
@@ -494,7 +494,7 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 - [x] 5.1 Circle start/poll handles `slow_down`, expiry, denial and abort with the documented result kinds — a677271
 - [x] 5.2 Command-level exit codes, JSON envelopes, TTY chooser and non-TTY usage error are covered — a677271
 - [x] 5.3 `AuthData.method` survives `readAuth` and the refresh constructor — a677271
-- [ ] 5.4 Typecheck, lint, build, binary build and generated-types check pass
+- [x] 5.4 Typecheck, lint, build, binary build and generated-types check pass — 0363452
 
 #### Manual
 
