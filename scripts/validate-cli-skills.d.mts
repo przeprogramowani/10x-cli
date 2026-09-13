@@ -7,10 +7,11 @@ export function readPackedPaths(
   root: string,
   options?: {
     platform?: NodeJS.Platform;
+    searchPath?: string;
     run?: (
       command: string,
       args: string[],
-      options: { cwd: string; encoding: "utf8"; stdio: ["ignore", "pipe", "pipe"]; timeout: number },
+      options: { cwd: string; encoding: "utf8"; stdio: ["ignore", "pipe", "pipe"]; timeout: number; killSignal: "SIGKILL" },
     ) => string;
   },
 ): Set<string>;

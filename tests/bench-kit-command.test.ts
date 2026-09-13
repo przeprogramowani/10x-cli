@@ -11,7 +11,8 @@
  * runBootstrap is a fake returning canned contract responses.
  */
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import * as childProcess from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -609,10 +610,32 @@ describe("10x bench-kit dispatch", () => {
   it("routes 'update' to the real implementation", async () => {
     // A temp dir that is not an instance — proves dispatch reaches update.
     const target = tempDir("bench-kit-target-");
-    const result = await runCli(["bench-kit", "update", target, "--json"]);
-    expect(result.exitCode).toBe(1);
-    const envelope = parseEnvelope(result.stdout);
-    expect(envelope.error.code).toBe("not_an_instance");
+    // Keep CAC → real update → real preflight/process handling, but do not let
+    // host Docker/Git installations turn this routing test into a tool health check.
+    const spawn = childProcess.spawn;
+    const probes: string[] = [];
+    const children: childProcess.ChildProcess[] = [];
+    const spy = spyOn(childProcess, "spawn").mockImplementation(((command: string, args: readonly string[] = [], options: childProcess.SpawnOptions = {}) => {
+      expect(["git", "docker"]).toContain(command);
+      expect(args).toEqual(["--version"]);
+      probes.push(command);
+      const child = spawn(process.execPath, args, options);
+      children.push(child);
+      return child;
+    }) as typeof childProcess.spawn);
+    try {
+      const result = await runCli(["bench-kit", "update", target, "--json"]);
+      expect(result.exitCode).toBe(1);
+      const envelope = parseEnvelope(result.stdout);
+      expect(envelope.error.code).toBe("not_an_instance");
+      expect(probes).toEqual(["git", "docker"]);
+      expect(children.every((child) => child.exitCode === 0)).toBe(true);
+    } finally {
+      spy.mockRestore();
+      for (const child of children) {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      }
+    }
   });
 
   it("rejects an unknown action with usage exit code", async () => {

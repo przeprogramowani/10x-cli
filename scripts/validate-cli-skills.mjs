@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
@@ -50,14 +50,39 @@ export function validateCliSkills(repoRoot, { packedPaths } = {}) {
   if (!trees[names[0]].get("references/compatibility.md").equals(trees[names[1]].get("references/compatibility.md"))) throw new Error("Compatibility references differ");
   return names.map((name) => ({ name, files: trees[name].size }));
 }
-export function readPackedPaths(root, { platform = process.platform, run = execFileSync } = {}) {
-  // .cmd files need cmd.exe on Windows. Only a fixed command reaches the shell;
-  // the project path stays in cwd and is never interpolated into command text.
-  const command = platform === "win32" ? "cmd.exe" : "npm";
-  const args = platform === "win32"
-    ? ["/d", "/s", "/c", "npm pack --dry-run --json --ignore-scripts"]
-    : ["pack", "--dry-run", "--json", "--ignore-scripts"];
-  const packed = JSON.parse(run(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15000 }));
+// Select the npm installation behind the first PATH npm.cmd, without executing
+// its prefix-discovery child or a command shell. Only conventional npm layouts
+// are supported; an unknown shim fails explicitly instead of choosing another npm.
+// This deliberately uses that installation's bundled npm, not npm.cmd's optional
+// global-prefix override (which itself launches Node/config discovery).
+function windowsNpm(searchPath) {
+  for (const entry of searchPath.split(";")) {
+    if (!entry) continue;
+    const bin = entry.replace(/^"|"$/g, "");
+    const shim = join(bin, "npm.cmd");
+    if (!existsSync(shim)) continue;
+    const directory = dirname(realpathSync(shim));
+    const match = /%(?:~dp0|dp0%)[\\/](node_modules[\\/]npm|\.\.[\\/]npm)[\\/]bin[\\/]npm-cli\.js/i.exec(readFileSync(shim, "utf8"));
+    if (!match) throw new Error(`Unsupported npm.cmd layout: ${shim}`);
+    const cli = resolve(directory, match[1].replaceAll("\\", "/"), "bin/npm-cli.js");
+    const metadata = JSON.parse(readFileSync(resolve(dirname(cli), "../package.json"), "utf8"));
+    if (metadata.name !== "npm" || !lstatSync(cli).isFile()) throw new Error(`Invalid npm CLI installation: ${cli}`);
+    const node = join(directory, "node.exe");
+    return { command: existsSync(node) ? node : "node", cli: realpathSync(cli) };
+  }
+  throw new Error("Cannot locate a supported npm.cmd installation on PATH");
+}
+export function readPackedPaths(root, { platform = process.platform, run = execFileSync, searchPath = process.env.PATH ?? process.env.Path ?? "" } = {}) {
+  const args = ["pack", "--dry-run", "--json", "--ignore-scripts"];
+  let command = "npm";
+  if (platform === "win32") {
+    const npm = windowsNpm(searchPath);
+    command = npm.command;
+    args.unshift(npm.cli);
+  }
+  // One direct process: on timeout it has exited before synchronous exec returns.
+  // No cmd.exe parent can leave npm holding fixture files during cleanup.
+  const packed = JSON.parse(run(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15000, killSignal: "SIGKILL" }));
   if (packed.length !== 1 || !Array.isArray(packed[0].files)) throw new Error("Unexpected npm inventory");
   return new Set(packed[0].files.map((file) => file.path));
 }

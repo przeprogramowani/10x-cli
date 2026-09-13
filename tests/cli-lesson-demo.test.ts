@@ -17,16 +17,15 @@ const docs = [
   "skills/10x-cli-guide/references/compatibility.md",
   "skills/10x-cli-setup/references/compatibility.md",
 ];
-const read = (path: string) => readFileSync(join(repo, path), "utf8");
 const flags = "--course 10xdevs4 --tool claude-code --lang pl";
 const expectedGets = names.flatMap((name) => [
   `10x_cli get ${name} ${flags} --dry-run`, `10x_cli get ${name} ${flags}`,
 ]);
 function demoGets(text: string) {
-  return text.split("\n").filter((line) => /^10x_cli get (?!10x-cli-|--)/.test(line));
+  return text.split(/\r?\n/).filter((line) => /^10x_cli get (?!10x-cli-|--)/.test(line));
 }
 function preflightPaths(text: string) {
-  return text.split("\n").filter((line) => line.startsWith("test -s ")).map((line) => line.slice(8));
+  return text.split(/\r?\n/).filter((line) => line.startsWith("test -s ")).map((line) => line.slice(8));
 }
 // Evaluate EVERY documented nonempty-file check, including PRD's sibling path.
 // No course content, shell execution, auth, paid model or API is involved.
@@ -53,7 +52,9 @@ let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "cli-lesson-demo-")); });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-describe("launch journey and complete supporting trees", () => {
+describe.each(["\n", "\r\n"])("launch journey and complete supporting trees with newline %j", (newline) => {
+  // Exercise both checkout line endings on every platform, including negative cases.
+  const read = (path: string) => readFileSync(join(repo, path), "utf8").replace(/\r?\n/g, newline);
   it("documents separate preview/write pairs in init → shape → PRD order with the same context", () => {
     for (const path of [...docs, "README.md"]) {
       const text = read(path);

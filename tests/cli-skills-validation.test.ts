@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 import { readPackedPaths, validateCliSkills } from "../scripts/validate-cli-skills.mjs";
 
 const names = ["10x-cli-setup", "10x-cli-guide"];
@@ -20,6 +21,19 @@ beforeEach(() => {
   }
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+// A conventional npm shim/package layout, never a replacement for real npm pack.
+function npmFixture(bin: string, layout = "node_modules/npm") {
+  mkdirSync(bin, { recursive: true });
+  const cli = resolve(bin, layout, "bin/npm-cli.js");
+  mkdirSync(dirname(cli), { recursive: true });
+  writeFileSync(resolve(dirname(cli), "../package.json"), '{"name":"npm","version":"0.0.0-fixture"}');
+  writeFileSync(cli, "// synthetic entrypoint\n");
+  const ref = layout.replaceAll("/", "\\");
+  const prefix = layout === "node_modules/npm" ? "%~dp0" : "%dp0%";
+  writeFileSync(join(bin, "npm.cmd"), `@echo off\r\n"${prefix}\\node.exe" "${prefix}\\${ref}\\bin\\npm-cli.js" %*\r\n`);
+  return realpathSync(cli);
+}
 
 describe("complete packaged CLI helpers", () => {
   // Cold npm startup on Windows exceeded Bun's default 5s on CI. Keep real
@@ -51,20 +65,69 @@ describe("complete packaged CLI helpers", () => {
     writeFileSync(path(names[0]!, "references/compatibility.md"), "[Outside](../../package.json)\n");
     expect(() => validateCliSkills(root)).toThrow("Dangling local link");
   });
-  it("launches Windows npm through cmd.exe using a fixed command and isolated cwd", () => {
+  it.each(["node_modules/npm", "../npm"])("launches bundled Windows npm directly from %s without a shell", (layout) => {
+    const bin = join(root, "npm bin & space");
+    const cli = npmFixture(bin, layout);
+    writeFileSync(join(bin, "node.exe"), "not executed by this injected runner");
     let called = false;
-    readPackedPaths(root, { platform: "win32", run: (command: string, args: string[], options: { cwd: string; timeout: number }) => {
+    readPackedPaths(root, { platform: "win32", searchPath: `"${bin}";${join(root, "later")}`, run: (command, args, options) => {
       called = true;
-      expect(command).toBe("cmd.exe");
-      expect(args).toEqual(["/d", "/s", "/c", "npm pack --dry-run --json --ignore-scripts"]);
+      expect(command).toBe(join(realpathSync(bin), "node.exe"));
+      expect(args).toEqual([cli, "pack", "--dry-run", "--json", "--ignore-scripts"]);
       expect(options.cwd).toBe(root);
       expect(options.timeout).toBe(15000);
+      expect(options.killSignal).toBe("SIGKILL");
       return JSON.stringify([{ files: [] }]);
     } });
     expect(called).toBe(true);
   });
+  it("uses PATH Node when no sibling node.exe exists and never skips an unknown first shim", () => {
+    const bin = join(root, "first");
+    const later = join(root, "later");
+    const cli = npmFixture(bin);
+    npmFixture(later);
+    const searchPath = `${bin};${later}`;
+    let calls = 0;
+    const run = (command: string, args: string[]) => {
+      calls++;
+      expect(command).toBe("node");
+      expect(args[0]).toBe(cli);
+      return JSON.stringify([{ files: [] }]);
+    };
+    readPackedPaths(root, { platform: "win32", searchPath, run });
+    expect(calls).toBe(1);
+    writeFileSync(join(bin, "npm.cmd"), "@echo custom shim\n");
+    expect(() => readPackedPaths(root, { platform: "win32", searchPath, run })).toThrow("Unsupported npm.cmd layout");
+    expect(calls).toBe(1);
+    expect(() => readPackedPaths(root, { platform: "win32", searchPath: "", run })).toThrow("Cannot locate");
+  });
+  it("rejects an adjacent package that is not npm", () => {
+    const bin = join(root, "bin");
+    const cli = npmFixture(bin);
+    writeFileSync(resolve(dirname(cli), "../package.json"), '{"name":"other-package"}');
+    expect(() => readPackedPaths(root, { platform: "win32", searchPath: bin })).toThrow("Invalid npm CLI installation");
+  });
+  it("terminates the direct child before timeout cleanup, leaving its held file removable", () => {
+    const bin = join(root, "bin");
+    const cli = npmFixture(bin);
+    const held = join(root, "held.txt");
+    // Synthetic stalled CLI tests the process boundary only; real packing is
+    // still exercised by the two npm-inventory tests above, without stubs.
+    writeFileSync(cli, 'const fs = require("node:fs"); fs.openSync("held.txt", "w"); fs.writeFileSync("started.txt", String(process.pid)); setInterval(() => {}, 1000);');
+    expect(() => readPackedPaths(root, { platform: "win32", searchPath: bin, run: (command, args, options) => {
+      expect(command).toBe("node");
+      // Exercise the actual bounded production deadline and kill signal.
+      // No shell or grandchildren are launched by this fixture.
+      return execFileSync(command, args, options);
+    } })).toThrow();
+    expect(existsSync(join(root, "started.txt"))).toBe(true);
+    const pid = Number(readFileSync(join(root, "started.txt"), "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+    rmSync(held);
+    expect(existsSync(held)).toBe(false);
+  }, 30000);
   it("propagates npm failure and rejects an unexpected inventory", () => {
-    expect(() => readPackedPaths(root, { run: () => { throw new Error("npm failed"); } })).toThrow("npm failed");
-    expect(() => readPackedPaths(root, { run: () => "[]" })).toThrow("Unexpected npm inventory");
+    expect(() => readPackedPaths(root, { platform: "linux", run: () => { throw new Error("npm failed"); } })).toThrow("npm failed");
+    expect(() => readPackedPaths(root, { platform: "linux", run: () => "[]" })).toThrow("Unexpected npm inventory");
   });
 });
