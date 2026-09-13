@@ -1,7 +1,7 @@
 ---
 change_id: cli-circle-login
 title: Circle message login for 10x CLI
-status: implementing
+status: impl_reviewed
 created: 2026-09-13
 updated: 2026-09-13
 archived_at: null
@@ -30,3 +30,7 @@ Operator approved the reviewed plan and started `/10x-goal-implement` in the tri
 ## Implementation checkpoint — 2026-09-13 (Session B, `/10x-goal-implement`)
 
 Phases 2–6 implemented and gated. Toolkit `feat/cli-circle-login` (from `39925ab6`): `52b6beb` state and policy DOs (p2), `10e846c` transport, secret and flag (p3), `35d93a3` routes, approval page and OpenAPI (p4), `3a55f15` coordinated E2E (p6). CLI `plan/cli-circle-login` (from `b0c789af`): `a677271` method, polling and credentials (p5), `0363452` regenerated types from the candidate spec, `46a7e3a` poll tolerates transient 5xx/429. Gates green locally: Toolkit unit 689, DO/routes workerd lanes 22, released-CLI compatibility E2E 29 (email routes byte-identical in `/openapi.json`), Circle E2E 5 scenarios, wrangler dry-run with both DOs; CLI typecheck, lint, 725 tests, build, binary, `generate-types --check`. Open Automated rows: 6.1 (Linux/Windows private CI needs a branch push, not authorized here) and 7.1 (deployed candidate). Manual rows 1.1, 1.2, 4.5, 5.5, 7.2–7.4 are the operator's; see [runbooks/pilot-prep.md](runbooks/pilot-prep.md). No merge, deploy, flag change, live message or pilot performed. Release slot with `p0-cli-release` still to be agreed by the operator (session not reachable from this machine).
+
+## Implementation review — 2026-09-13 (Session B, `/10x-impl-review`)
+
+Report saved as [reviews/impl-review.md](reviews/impl-review.md): verdict NEEDS ATTENTION, 0 critical, 2 warnings, 8 observations, all decisions `PENDING` for the operator. Both warnings were fixed after the review in Toolkit `8a6817d41db6b5ac0a6d48d399375a70865a08a5` on `feat/cli-circle-login`: `POST /auth/circle/poll` now answers unknown or expired codes from the KV login record before touching a Durable Object (route test proves no object is created), and the how-to lists the `*.request` events and the `login_exists` detail. Re-gated after the fix: 689 unit, 18 DO, 4 route, 5 Circle CLI and 29 released-CLI E2E tests green, `/openapi.json` byte-identical to the Phase 4 candidate, wrangler dry-run lists both DOs. Progress rows unchanged (6.1, 7.1 and all Manual rows still open). No merge, deploy, flag change, live message or pilot performed.
