@@ -505,7 +505,7 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 #### Automated
 
 - [ ] 6.1 Full Circle login E2E passes on Linux and Windows in the private Toolkit CI, including rejected/unknown DM and mid-flow revocation
-- [ ] 6.2 Existing released-CLI E2E remains green in the same run
+- [x] 6.2 Existing released-CLI E2E remains green in the same run — 3a55f15
 
 ### Phase 7: Rollout, pilot and registration
 
