@@ -25,6 +25,7 @@ import {
   saveAuth,
 } from "../src/lib/config";
 import { authFlowMockState, resetAuthFlowMock } from "./helpers/auth-flow-mock";
+import { resetApiContentMock } from "./helpers/api-content-mock";
 import { resetClackMock } from "./helpers/clack-mock";
 import { redirectConfigDir, restoreConfigDir } from "./helpers/config-isolation";
 
@@ -175,6 +176,7 @@ beforeEach(() => {
   // Force JSON mode by simulating piped stdout.
   process.stdout.isTTY = false;
   resetAuthFlowMock();
+  resetApiContentMock();
   resetClackMock();
 });
 
@@ -184,6 +186,7 @@ afterEach(() => {
   else process.stdout.isTTY = priorIsTTY;
   // Leave shared mock state pristine for any test file that runs after us.
   resetAuthFlowMock();
+  resetApiContentMock();
   resetClackMock();
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -371,9 +374,11 @@ describe("auth --status JSON envelope", () => {
       email: string;
       expires_at: string;
       is_valid: boolean;
+      access_checked: boolean;
     }>(stdout);
     expect(data.email).toBe("stored@example.com");
     expect(data.is_valid).toBe(true);
+    expect(data.access_checked).toBe(true);
     // The stored email is *expected* in the envelope, but the canary leak
     // email isn't relevant to status — apply the standard leakage guard.
     assertNoLeakage(stdout, { forbidEmail: FORBIDDEN_EMAIL });

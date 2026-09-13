@@ -35,6 +35,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Validate packaged CLI helpers and shared references
+        run: bun run validate:cli-skills
+
       - name: Test (unit + integration, excludes smoke)
         run: bun test tests/*.test.ts
 

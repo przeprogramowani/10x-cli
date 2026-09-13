@@ -23,34 +23,78 @@ npm install -g @przeprogramowani/10x-cli
 
 ## Agentic Installation
 
-Let your AI coding agent handle the setup. This repo ships a [`10x-cli-setup`](skills/10x-cli-setup/SKILL.md) skill that walks your agent through installing, authenticating, and configuring the CLI — all driven by the latest README.
+The [`10x-cli-setup`](skills/10x-cli-setup/SKILL.md) helper prepares the CLI and
+passes project context to [`10x-cli-guide`](skills/10x-cli-guide/SKILL.md), which
+leads through download → an actual agent task → sync. Each ships its own
+[compatibility reference](skills/10x-cli-guide/references/compatibility.md).
+Installing the npm CLI does not activate these helpers in your agent.
 
-Install the skill with [skills.sh](https://skills.sh):
+For public installation on demand, choose a full retained public CLI master SHA
+containing the helper version you want. From your project root (macOS/zsh):
 
 ```bash
-# Add the skill to your current project (symlinked)
-npx skills add przeprogramowani/10x-cli
-
-# Or install globally so it's available in every project
-npx skills add przeprogramowani/10x-cli -g
-
-# Target a specific agent
-npx skills add przeprogramowani/10x-cli -a claude-code
-npx skills add przeprogramowani/10x-cli -a cursor
+: "${CLI_SKILLS_REF:?Set the full public CLI master SHA containing the helpers}"
+npx --yes skills@1.5.26 add "https://github.com/przeprogramowani/10x-cli/tree/$CLI_SKILLS_REF/skills" --skill 10x-cli-setup --agent claude-code --copy
+# Install guide when needed using the same channel:
+npx --yes skills@1.5.26 add "https://github.com/przeprogramowani/10x-cli/tree/$CLI_SKILLS_REF/skills" --skill 10x-cli-guide --agent claude-code --copy
 ```
 
-Once installed, just tell your agent to **set up 10x-cli** and it will pick up the skill automatically.
+These are project copies. Installer prompts remain enabled; `npx --yes` only
+accepts running the pinned tool. Inspect the actual installed paths and ask the
+agent to read that SKILL.md and its references. No automatic discovery is assumed.
+
+Both helpers can also be downloaded through the CLI once named get is supported
+by your verified release and v4 m1l1 content is published and accessible. In a
+separate project from public copies, after setup/auth:
+
+```bash
+: "${CLI_VERSION:?Set the actual verified published CLI version}"
+10x_cli() { npx --yes "@przeprogramowani/10x-cli@$CLI_VERSION" "$@"; }
+10x_cli --version
+10x_cli get --help
+10x_cli get 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl
+```
+
+Source membership does not prove publication. Confirm named support and direct
+sync against the actual package and content; do not infer it from a version label
+or silently replace the name with a full lesson. CLI-owned copies update through
+sync; public copies update through a deliberate new source SHA and pinned add.
+The CLI executable has its own npm/binary update procedure.
+
+Keep one updater per copy. Before either route, inspect destination paths/symlinks
+and CLI/installer ownership. For public→CLI takeover, back up the whole helper
+outside managed trees, unregister only that helper through the original installer,
+verify its destination and registration are gone, then named get. Preserve local
+edits for conscious merging. For CLI→public use a new project; no verified CLI
+per-skill unregister is promised. See the compatibility reference for details.
 
 ## Quick Start
 
+Use an existing verified global/standalone `10x`, or the pinned `10x_cli` runner
+above. Retain your v3 project and use a separate v4 exercise directory. After
+checking named capability and content availability:
+
 ```bash
-10x auth        # Authenticate with your email
-10x list        # Browse available modules and lessons
-10x get m1l1    # Fetch and apply lesson artifacts
-10x sync        # Update everything you've downloaded; show what changed
-10x doctor      # Check everything is working
-10x bench       # Show the 10xBench top-10 model leaderboard
+10x_cli auth --status
+10x_cli list --course 10xdevs4
+10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get 10x-plan --course 10xdevs4 --tool claude-code --lang pl
+# Ask the agent to read .claude/skills/10x-plan/SKILL.md and its references,
+# then plan the task in task.md without implementing it.
+10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
+10x_cli doctor
 ```
+
+The guide's small reading-list exercise produces
+`context/changes/reading-list-filter/plan.md` with unchecked Progress while
+preserving `index.html`. A successful download alone is not successful skill use.
+Inspect sync conflicts even on exit 0; never apply automatic `--force`. A missing
+tool directory before first get can explain that doctor check; other failures
+remain visible. Full lesson downloads and other commands remain available below.
 
 ## Commands
 

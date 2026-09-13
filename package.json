@@ -27,7 +27,8 @@
     "generate-types": "bun run scripts/generate-types.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "bun run --bun node_modules/oxlint/bin/oxlint ."
+    "lint": "bun run --bun node_modules/oxlint/bin/oxlint .",
+    "validate:cli-skills": "node scripts/validate-cli-skills.mjs"
   },
   "dependencies": {
     "@clack/prompts": "0.9.1",
