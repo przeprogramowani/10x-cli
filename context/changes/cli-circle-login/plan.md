@@ -446,6 +446,16 @@ The `new_sqlite_classes` migration is additive; no data migration. `AuthData` ke
 - EDU anchors (`965539af`): `apps/edu-platform/src/server/circle-login/{policy,crypto,transport}.ts`
 - Lesson: `context/foundation/lessons.md` "Pin only commits retained on master after merge"
 
+## Implementation addenda (recorded 2026-09-13, review F10)
+
+Additions found during implementation that stay inside the plan's contracts; future reviews treat them as ground truth:
+
+- Phase 2: `DeviceLogin` keeps a `poll_clock` table so `inspectForPoll(hash, now, minGapMs)` can answer `slow_down`; `triggerAlarm()` is a test-only RPC reachable solely through the e2e fixture entry.
+- Phase 3: the transport returns `rejected` with reason `token_missing` when called without a secret (the route already fails closed earlier); the response body is never read and is cancelled after the status is known.
+- Phase 4: `start` answers `429 rate_limited` with `detail: login_exists` on a `device_code` collision; `poll` reads the `circle:login:<hash>` KV record before touching a Durable Object; the approval page adds `X-Content-Type-Options: nosniff`, a hash-pinned `Content-Security-Policy` and `X-Frame-Options: DENY`.
+- Phase 5: `describeCircleClient()` sends `hostname` and `"<platform> <release>"` inside the planned `client?` shape; email login also records `method: "email"` and echoes it in the envelope; the 429 hint is budget-neutral and uses `retry_after_s` when the server sends it.
+- Phase 6: one extra E2E scenario, revocation between approve and poll.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles. See `references/progress-format.md`.
