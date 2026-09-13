@@ -217,18 +217,18 @@ Progress revision: obsolete entries 2.1 (staged gitHead/automatic recovery), 2.3
 
 #### Automated
 
-- [x] 2.2 CLI unit, type, lint, node/binary builds and package/binary smoke pass: isolated `bun test tests/*.test.ts`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run build:binary`, `bun test tests/smoke/`.
-- [x] 2.4 Directory-pack/mock-registry regressions with pinned npm prove registry gitHead, exact tag/source/version, stable packing inputs and post-publish SHA-512 equality; deliberate mismatch leaves release incomplete and never republishes.
-- [x] 2.5 Workflow regressions prove both ordinary OS checks and exact private evidence precede publishing, all checkouts use the tested SHA, and no release job writes a version commit to master.
-- [x] 2.6 Coordinator regressions cover either-repository wake-up, duplicate/out-of-order events, lease contention, interrupted ownership, stale pair or pointers, dispatch identity ambiguity and zero second npm publishes.
-- [x] 2.7 Version-preparation regressions prove automatic same-PR numbering from a pinned release baseline, repeat no-op, changed base/head invalidation, bot-triggered CI, fork rejection and no candidate execution with write credentials.
+- [x] 2.2 CLI unit, type, lint, node/binary builds and package/binary smoke pass: isolated `bun test tests/*.test.ts`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run build:binary`, `bun test tests/smoke/`. — ca19fe2
+- [x] 2.4 Directory-pack/mock-registry regressions with pinned npm prove registry gitHead, exact tag/source/version, stable packing inputs and post-publish SHA-512 equality; deliberate mismatch leaves release incomplete and never republishes. — ca19fe2
+- [x] 2.5 Workflow regressions prove both ordinary OS checks and exact private evidence precede publishing, all checkouts use the tested SHA, and no release job writes a version commit to master. — ca19fe2
+- [x] 2.6 Coordinator regressions cover either-repository wake-up, duplicate/out-of-order events, lease contention, interrupted ownership, stale pair or pointers, dispatch identity ambiguity and zero second npm publishes. — ca19fe2
+- [x] 2.7 Version-preparation regressions prove automatic same-PR numbering from a pinned release baseline, repeat no-op, changed base/head invalidation, bot-triggered CI, fork rejection and no candidate execution with write credentials. — ca19fe2
 
 ### Phase 3: Validate rollout instructions and prepare reviewed PRs
 
 #### Automated
 
-- [ ] 3.1 Toolkit `pnpm ci:local` passes; promotion tests reject dispatch/non-master/wrong-source/attempt/mixed artifact selections and retain exact stage identity.
-- [ ] 3.2 `10x-impl-review` reports no unresolved critical implementation findings; scoped PR diffs contain no private content/credentials or unrelated files.
+- [x] 3.1 Toolkit `pnpm ci:local` passes; promotion tests reject dispatch/non-master/wrong-source/attempt/mixed artifact selections and retain exact stage identity.
+- [x] 3.2 `10x-impl-review` reports no unresolved critical implementation findings; scoped PR diffs contain no private content/credentials or unrelated files.
 - [ ] 3.3 Both repair PRs are created with source identities, test evidence and the concrete human merge sequence; `release-handoff.md` explicitly records unpublished status and Session C prerequisite state.
 - [ ] 3.6 Session A verifies the scoped automation credentials and a synthetic Git-ref contention trial before enabling the coordinator; unavailable credentials or failed atomic update verification stop activation.
 

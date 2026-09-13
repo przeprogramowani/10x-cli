@@ -1,6 +1,6 @@
 # Session A release handoff
 
-**Status: operator approved the reviewed plan and invoked 10x-goal-implement on 2026-09-13. Phases1–2 implementation passed targeted, deliberate-break and full repository gates; independent phase review APPROVED. Phase3 runbooks/promotion-consumer repair and PR preparation remain pending. No repaired package has been published by this session. Last production inspection showed unpublished v4. Session C stage-1 prerequisite is NOT satisfied; migration is parked and does not block this release.**
+**Status: operator approved the reviewed plan and invoked 10x-goal-implement on 2026-09-13. Phases1–2 implementation passed targeted, deliberate-break and full repository gates; independent phase review APPROVED. Phase3 promotion-consumer repair/runbooks pass80targeted tests,917full Toolkit tests/all validators, deliberate-break and independent APPROVED reviews. PR preparation and credential activation checks remain pending. No repaired package has been published by this session. Last production inspection showed unpublished v4. Session C stage-1 prerequisite is NOT satisfied; migration is parked and does not block this release.**
 
 Canonical folder: `/Users/admin/code/10x-cli-release-repair/context/changes/cli-release-repair`. Read [plan brief](plan-brief.md), [plan](plan.md) and [research](research.md). This file is the release coordination handoff; other sessions must not change shared candidate variables/run pointers.
 
@@ -40,13 +40,15 @@ Code changes, regression gates and PR preparation are now authorized. Human merg
 | Stage source / validation | Toolkit `39925ab...`; manifest hash and all 12 listed object sizes/hashes verified by `readStage` |
 | Current Worker version | `4a635328-e005-4d8b-91b6-a48000dd9c48`, 100% traffic |
 | Current Worker deployment | `562dab9c-5a3c-4f37-95f1-f16becfa819d`, 2026-09-13T07:07:54.304Z; annotation ties it to Toolkit `39925ab` / run `34743867441` |
-| Actual production v4 pointer / lock | Both absent; full `10xdevs4/` prefix contains zero objects at 2026-09-13T08:22:05Z |
-| Module 1 KV override | `stateOverride:10xdevs4:1` GET returned 404; none written |
+| Actual production v4 pointer / lock | Both absent on fresh remote GET at 2026-09-13T11:57Z. The earlier full prefix listing was empty at 08:22:05Z; that full listing was not repeated. |
+| Module 1 KV override | `stateOverride:10xdevs4:1` remote GET returned 404 at 11:57Z; configured module-state namespace independently confirmed present. None written. |
 | Module 1 schedule | `2026-09-14T06:00:00Z` = 08:00 Europe/Warsaw; server/KV gates preserved |
-| Production publication policy | `productionEnabled:false`, `securedWorkerRevision:null` |
+| Production publication policy | `productionEnabled:false`, `securedWorkerRevision:null` in freshly fetched Toolkit master at 12:00:23Z |
 | Promotion environment | `content-production` GET 404; repository environment list empty |
 
-At the earlier research inspection, repository variables were: Toolkit CLI_CANDIDATE_SHA=`c139ac5...`; CLI TOOLKIT_CANDIDATE_SHA=`39925ab...`; CLI TOOLKIT_COORDINATED_RUN_ID=`34743867441`. Full values/timestamps and fixture identities are in research. No active, queued or environment-waiting runs were found at that inspection. This planning revision did not refresh run/variable or production state and did not mutate it. Reinspect immediately before any future operation; this snapshot is not a lock.
+At 11:39Z, Toolkit CLI_CANDIDATE_SHA remained `c139ac5d89bc935be67174cc031e96f62661036d` (updated06:23:51Z), CLI TOOLKIT_CANDIDATE_SHA remained `39925ab6155c9c17fbdabd69d160b5f4fe928c4e` (updated06:54:55Z), and TOOLKIT_COORDINATED_RUN_ID remained `34743867441` (updated07:08:50Z). Attempt/artifact pointers and activation flag were absent. All five nonterminal-status queries (queued, in_progress, waiting, requested, pending) were empty in both repositories at11:35Z. No shared candidate/evidence pointer was changed by Session A. Reinspect immediately before each operation; this snapshot is not a lock.
+
+Scoped activation prerequisites remain incomplete: CLI TOOLKIT_DISPATCH_TOKEN and Toolkit CLI_RELEASE_CONTROL_TOKEN secret names were absent at11:39Z. CLI TOOLKIT_READ_TOKEN and RELEASE_TOKEN exist, but names do not prove granted scopes. A real isolated Git-ref contention probe using the operator credential passed (duplicate create422, sibling updates200/422, winner readback); only its own fixture ref was retired. Runtime-token capability verification is still required before activation. Do not copy the operator's broad credential into automation or request pasted tokens.
 
 ## Evidence already completed
 
@@ -80,7 +82,7 @@ Before presenting the final promotion for approval:
 1. Finish new receipt/stage workflow repair and human merges. Select a successful canonical **push/master** source run, its explicit attempt and exact retained artifact ID; revalidate all stage bytes, schedule, curriculum/full skills and source ancestry. A dispatch run cannot substitute as content producer.
 2. Verify secured Worker source/traffic and access guards; present a narrowly scoped policy PR setting productionEnabled and the exact secured source floor. Prepare `content-production` master restriction, required human reviewer and least-privileged credential setup without printing/requiring pasted secret values. Operator approves the concrete production-enablement configuration and performs its merge.
 3. Reinspect active writers, production pointer/lock, KV state and v3 baseline. Stop on an unexplained newer pointer/candidate or nonterminal lock holder. Refresh stage/evidence if the selected Toolkit SHA changes.
-4. Submit exact promote inputs: canonical source run/attempt, selected release ID, manifest hash, `expected_current` equal to the observed pointer (`null` only while still absent). Canonical `promote-content.yml` uploads/verifies immutable objects then CAS-switches current. No direct R2 PUT, clock change or entitlement workaround.
+4. Submit exact promote inputs: canonical source run/attempt, full Toolkit SHA, immutable stage artifact ID, selected release ID, manifest hash, `expected_current` equal to the observed pointer (`null` only while still absent). Canonical `promote-content.yml` uploads/verifies immutable objects then CAS-switches current. No direct R2 PUT, clock change or entitlement workaround.
 5. First-publication rollback is **withdraw**, with expected_current equal to the newly active pointer. It creates a tombstone, preserves all objects and v3, and blocks historical v4 reads. Rollback to a different release is possible only after verifying an actual retained previous release. Do not roll back to the old unguarded Worker or delete the pointer/lock blindly.
 6. Verify production manifest/hash, complete EN/PL object inventory and unchanged v3 inventory; then verify the actual downloaded CLI against production. Before 06:00 UTC on 14 September, locked module behavior is expected; unlocked acceptance remains pending until real server time reaches the boundary.
 
@@ -99,3 +101,15 @@ Historical real-email results in `/Users/admin/code/10x-cli-v4-delivery/context/
 ## Operator priority update — migration parked
 
 2026-09-13: Operator parked migration of existing projects3→4 until reconsideration on14–15September (D15-C). Migration is no longer P0 or a prerequisite for releasing access and working new10xdevs-4 projects. Session A continues its already authorized release scope without waiting for migration implementation; v3 compatibility and existing security checks remain mandatory. This update does not change exported Decision Record owner fields or authorize merges, publication, deployment or production content promotion beyond earlier grants.
+
+## Implementation and production refresh — Phase 3
+
+- Phase1 commits: CLI `8000d800715ae0f55920d54151399e6a658671eb`; Toolkit `e043c154174ff85c5870b57f1b746b25a9b3e964`.
+- Phase2 commits: CLI `ca19fe244f45fed72e68b228e0cd24d6d2715f11`; Toolkit `150da9eee41f727915b14b39fd797dd5b3d539fb`. CLI673 unit tests +10smoke pass, types/lint/builds pass; Toolkit889tests and all ci:local validators pass. Both deliberate-break checks went red and were restored. Independent Phase2 review APPROVED, findings closed.
+- Fresh retained-stage validation: manifest and all12objects passed again; provenance remains Toolkit39925ab. Source run34743867441 is still successful push/master attempt1; artifact10313382854 is unexpired, size1582545, expires2026-12-12T06:53:33Z, archive digest `sha256:b4bcfa7b60b89dcb008f45ad68483da1abcae55ca694845f492e6ed859d7daa6`. Its old fixed-name/schema proof remains historical and cannot satisfy the repaired release/promotion verifier.
+- Fresh Worker deployment query at11:57Z confirms the same deployment/version listed above (selected by latest created_on, not response-array order). No production write or clock/entitlement change was performed.
+- All57local v3 backup objects were rehashed and size-checked again:35,776,634bytes and the same inventory SHA-256. The earlier08:22Z remote full comparison remains the last remote inventory comparison; repeat it before eventual promotion.
+- Existing Toolkit internal-package publisher audit: fresh master `39925ab6155c9c17fbdabd69d160b5f4fe928c4e`, package2.44.1, baseline tagv2.44.1 resolves `f4be3c5ed59f291f5d42c0b991dd43a8b4321fa5`. Diff from that tag through the repair HEAD under internal-pkg/ai-artifacts, excluding READMEs, has zero changed paths. This repair therefore does not trigger its additional version commit. Repeat before merge if source advances. Future internal-package changes can advance Toolkit master after source CI and leave the coordinator pending a new exact source stage; do not accept equivalent trees or repurpose old provenance. No unrelated publisher redesign is included.
+- Process applicability: 10x-deployment's PaaS foundation/config generation is skipped because this repair does not propose a new platform/Worker deployment; existing read-only Wrangler production preflight and Toolkit Worker build checks supply the relevant evidence. Browser 10x-e2e is not applicable to CLI workflow changes; real CLI/API hosted matrices and actual npm acceptance remain required. No archive until actual completion.
+
+Toolkit reviewed repair head after Phase3: `1d5c1990df949670c5673f7d8bf0fc9589665071`. CLI Phase3 closing SHA is written after its commit; see the final operational section for the frozen pair.

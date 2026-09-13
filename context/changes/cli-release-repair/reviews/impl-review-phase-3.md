@@ -1,0 +1,58 @@
+<!-- IMPL-REVIEW-REPORT -->
+# Implementation Review: Exact-commit CLI release repair
+
+- **Plan**: ../plan.md
+- **Scope**: Phase 3 of 4; local implementation and rollout instructions. Hosted proof, credential activation and human merges remain pending.
+- **Date**: 2026-09-13
+- **Verdict**: APPROVED (local implementation; operational gates remain pending)
+- **Findings**: 0 critical, 2 warnings, 1 observation
+
+## Verdicts
+
+| Dimension | Verdict |
+|---|---|
+| Plan Adherence | PASS |
+| Scope Discipline | PASS |
+| Safety & Quality | PASS |
+| Architecture | PASS |
+| Pattern Consistency | PASS |
+| Success Criteria | PASS for verified local criteria; hosted/credential/human gates explicitly pending |
+
+## Findings
+
+### F1 — Successful print acceptance needs the required artifact type
+
+- **Severity**: WARNING
+- **Impact**: LOW — quick decision; fix is obvious and narrowly scoped
+- **Dimension**: Success Criteria
+- **Location**: docs/how-to/release-cli.md, actual-package acceptance commands; src/commands/get.ts:294.
+- **Detail**: The example --print command omitted --type, causing invalid_options rather than a successful preview. An unchanged directory after argument rejection would not prove preview immutability.
+- **Fix**: Add --type skills and require successful output before comparing complete before/after inventories.
+- **Decision**: FIXED by root as a mechanical runbook correction. Actual published-package execution remains pending publication and coordinated login.
+
+### F2 — Reverify retained promotion source ancestry
+
+- **Severity**: WARNING
+- **Impact**: LOW — quick decision; fix is obvious and narrowly scoped
+- **Dimension**: Plan Adherence
+- **Location**: Toolkit packages/api/scripts/lib/publication-policy.mjs, verifyPromotionStage.
+- **Detail**: Canonical successful historical push/master metadata alone does not prove the selected commit remains reachable from current master. The user requires master ancestry; promotion must reject a formerly-master orphan without equating tree identity with commit identity.
+- **Fix**: Promotion-only fresh master-ref and exact compare/merge-base validation before and after retained metadata/byte checks. Preserve valid historical ancestors and existing Contents-read scopes. Regressions must prove rejection before opening R2, including a mid-verification ancestry change.
+- **Decision**: FIXED under the approved identity contract. Independent safety and drift reviewers confirmed closure; no new scope or storage/authorization design.
+
+### F3 — Existing Toolkit internal-package master writer remains outside this repair
+
+- **Severity**: OBSERVATION
+- **Impact**: LOW — quick decision; fix is obvious and narrowly scoped
+- **Dimension**: Architecture
+- **Location**: Toolkit .github/workflows/ci.yml, publish-internal-pkg; packages/internal-pkg/scripts/auto-version.mjs.
+- **Detail**: Current package2.44.1/tagv2.44.1 has zero package-affecting path changes through this repair, so no extra version commit is expected. Future payload changes can still advance master after source CI.
+- **Fix**: Record the exact current no-op audit and require re-audit if base/branch changes; future source SHA changes require their own exact stage.
+- **Decision**: DOCUMENTED in both runbooks and handoff; no unrelated publisher redesign or verifier relaxation.
+
+## Independent review and verification evidence
+
+- Drift reviewer: impl_drift_review, read-only; F1 plus F3 observation, other Phase3 changes MATCH.
+- Safety reviewer: phase1_implementation (independent of Phase3 implementation), read-only; F2 only, other safety contracts MATCH. Original safety agent was unavailable because the tool reported an agent-thread limit; reused a reviewer who did not implement this phase.
+- Root gate: promotion/retained targeted73PASS. Initial ci:local failed only formatting of the new contract register; root applied the formatter, then full ci:local passed (910 tests across packages, all validators/build/type/lint/format checks). Updated ancestry regressions80PASS. Independent reviewers confirmed all findings closed; Deliberate ancestry break produced6expected failures and was restored from index. Final Toolkit ci:local917tests PASS (API665/course150/internal61/artifact16/shared25), all validators/build/lint/format PASS,7existingwarnings. CLI Phase2 executable/test inputs unchanged;673unit+10smoke/type/lint/build results reused. Scoped diff/privacy review found no credentials, private content or unrelated files.
+- Publisher implementation and production policy unchanged; no course selection/auth/entitlement/clock changes. Runtime credentials, hosted exact-pair proof, both PRs and all human/production checks are separate pending gates, not inferred from this local review.
