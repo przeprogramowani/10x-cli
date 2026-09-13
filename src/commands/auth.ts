@@ -1,4 +1,5 @@
 import type { CAC } from "cac";
+import type { ApiErrorPayload } from "../lib/api-client";
 import { cancel, intro, isCancel, outro, select, spinner, text } from "@clack/prompts";
 import {
   AUTH_FILE_VERSION,
@@ -6,8 +7,8 @@ import {
   type AuthMethod,
   deleteAuth,
   readAuth,
+  saveAuth,
 } from "../lib/config";
-import { saveAuth } from "../lib/config";
 import {
   type CirclePollResult,
   type CircleStartResponse,
@@ -272,7 +273,7 @@ async function runCircleLogin(ctx: OutputContext, email: string): Promise<void> 
   const start = await circleStartRequest(email, describeCircleClient());
   if (!start.ok) {
     sp?.stop("Circle message request failed.", 1);
-    handleCircleStartError(ctx, start.status, start.code, start.error);
+    handleCircleStartError(ctx, start.status, start.code, start.error, start.payload);
   }
 
   const { device_code, expires_in, interval, delivery }: CircleStartResponse = start.data;
@@ -380,6 +381,7 @@ function handleCircleStartError(
   status: number,
   code: string,
   error: string,
+  payload?: ApiErrorPayload,
 ): never {
   verbose(ctx, `circle start failed: status=${status} code=${code}`);
 
@@ -394,12 +396,19 @@ function handleCircleStartError(
   }
 
   if (status === 429) {
+    // The budget may be per account, per client IP or community-wide; the
+    // server says how long to wait when it knows.
+    const retryAfter = payload?.retry_after_s;
+    const wait =
+      typeof retryAfter === "number" && Number.isFinite(retryAfter) && retryAfter > 0
+        ? `Wait about ${Math.ceil(retryAfter)} seconds`
+        : "Wait a few minutes";
     outputError(
       ctx,
       "rate_limited",
-      "Too many Circle login requests for this email.",
+      "Too many Circle login requests right now.",
       ExitCodes.ERROR,
-      "Wait a few minutes, then run '10x auth --method circle' again.",
+      `${wait}, then run '10x auth --method circle' again.`,
     );
   }
 

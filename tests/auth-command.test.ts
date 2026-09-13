@@ -455,6 +455,25 @@ describe("10x auth --method circle", () => {
       });
     }
 
+    it("429 with retry_after_s → hint names the wait and does not blame the email", async () => {
+      authFlowMockState.circleStartImpl = () => ({
+        ...startErr(429, "rate_limited", "slow down"),
+        payload: { error: "rate_limited", retry_after_s: 120 },
+      });
+      const { stdout, exitCode } = await runAuth([
+        "auth",
+        "--method",
+        "circle",
+        "--email",
+        TEST_EMAIL,
+        "--json",
+      ]);
+      expect(exitCode).toBe(1);
+      const err = expectErrorEnvelope(stdout, "rate_limited");
+      expect(err.hint).toContain("about 120 seconds");
+      expect(err.message).not.toContain("for this email");
+    });
+
     it("unknown start failure → exit 1 with the server code", async () => {
       authFlowMockState.circleStartImpl = () => startErr(500, "internal_error", "boom");
       const { stdout, exitCode } = await runAuth([
