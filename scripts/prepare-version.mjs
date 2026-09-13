@@ -56,6 +56,39 @@ export function validatePreparationRecord(record) {
   if (!record || JSON.stringify(Object.keys(record).sort()) !== JSON.stringify(fields) || record.schemaVersion !== 1 || record.repository !== CLI_REPOSITORY || !["trusted", "bootstrap"].includes(record.kind) || !/^[1-9]\d*$/.test(record.runId) || !Number.isSafeInteger(record.runAttempt) || record.runAttempt < 1 || !Number.isSafeInteger(record.prNumber) || record.prNumber < 1 || ![record.workflowSha, record.inputHead, record.preparedHead, record.baseSha].every(fullSha) || !stableVersion(record.version) || !record.baseline || JSON.stringify(Object.keys(record.baseline).sort()) !== JSON.stringify(["version", "tag", "sha", "gitHead"].sort()) || !stableVersion(record.baseline.version) || record.baseline.tag !== `v${record.baseline.version}` || !fullSha(record.baseline.sha) || record.baseline.sha !== record.baseline.gitHead) throw new Error("Bounded version preparation provenance required");
   return record;
 }
+const CLI_REPOSITORY_API_URL = `https://api.github.com/repos/${CLI_REPOSITORY}`;
+function canonicalRepository(repository) {
+  return Number.isSafeInteger(repository?.id) && repository.id > 0 && repository?.url === CLI_REPOSITORY_API_URL && repository?.full_name === CLI_REPOSITORY;
+}
+function sameRunIdentity(actual, selected) {
+  return actual && Number.isSafeInteger(actual.id) && actual.id > 0 && Number.isSafeInteger(actual.run_attempt) && actual.run_attempt > 0 &&
+    String(actual.id) === String(selected.id) && actual.run_attempt === selected.run_attempt &&
+    actual.path === selected.path && actual.event === selected.event && actual.head_sha === selected.head_sha &&
+    actual.head_branch === selected.head_branch && canonicalRepository(actual.repository) && canonicalRepository(actual.head_repository) &&
+    actual.repository.id === actual.head_repository.id && actual.repository.id === selected.repository?.id &&
+    actual.head_repository.id === selected.head_repository?.id &&
+    actual.status === "completed" && actual.conclusion === "success";
+}
+function bindPreparationRun(record, run) {
+  if (!sameRunIdentity(run, run)) throw new Error("Canonical successful preparation producer required");
+  if (record.runId !== String(run.id) || record.runAttempt !== run.run_attempt) throw new Error("Preparation run attempt identity mismatch");
+  if (record.kind === "bootstrap") {
+    if (run.event !== "pull_request" || record.workflowSha !== run.head_sha) throw new Error("Bootstrap preparation execution identity mismatch");
+    return;
+  }
+  if (run.event === "pull_request_target") {
+    const associated = run.pull_requests;
+    if (!Array.isArray(associated) || associated.length !== 1 || associated[0]?.number !== record.prNumber ||
+        associated[0]?.head?.sha !== record.inputHead || associated[0]?.head?.repo?.id !== run.head_repository.id ||
+        associated[0]?.head?.repo?.url !== run.head_repository.url || associated[0]?.base?.ref !== "master" ||
+        associated[0]?.base?.sha !== record.baseSha || associated[0]?.base?.repo?.id !== run.repository.id ||
+        associated[0]?.base?.repo?.url !== run.repository.url || run.head_sha !== record.inputHead ||
+        record.workflowSha !== record.baseSha) throw new Error("Pull request target preparation identity mismatch");
+    return;
+  }
+  if (!["push", "workflow_run"].includes(run.event) || run.head_branch !== "master" ||
+      record.workflowSha !== run.head_sha || record.workflowSha !== record.baseSha) throw new Error("Trusted master preparation identity mismatch");
+}
 export async function verifyMergedPreparation(record, { sourceSha, packageVersion, get, baseline, recalculate, readPackage }) {
   validatePreparationRecord(record);
   const pr = await get(`pulls/${record.prNumber}`);
@@ -77,7 +110,7 @@ export async function loadPreparationForMerge(sourceSha, { get, download, baseli
     const runs = await get(`actions/workflows/${workflow}/runs?per_page=100`);
     if (!runs || !Array.isArray(runs.workflow_runs)) throw new Error("Preparation history exceeds bounded selection; exact retained record required");
     for (const run of runs.workflow_runs ?? []) {
-      if (run.status !== "completed" || run.conclusion !== "success" || run.path !== `.github/workflows/${workflow}` || run.repository?.full_name !== CLI_REPOSITORY || run.head_repository?.full_name !== CLI_REPOSITORY) continue;
+      if (run.status !== "completed" || run.conclusion !== "success" || run.path !== `.github/workflows/${workflow}` || !canonicalRepository(run.repository) || !canonicalRepository(run.head_repository)) continue;
       const attempt = run.run_attempt;
       if (kind === "trusted" && !["pull_request_target", "push", "workflow_run"].includes(run.event)) continue;
       if (kind === "bootstrap" && (run.event !== "pull_request")) continue;
@@ -90,10 +123,23 @@ export async function loadPreparationForMerge(sourceSha, { get, download, baseli
       successfulJobs(await get(`actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=100`), run, [kind === "trusted" ? `Prepare version (#${matches[0].number})` : "version-bootstrap"]);
       const record = readReceiptArchive(await download(selected[0]), selected[0], "version-preparation.json");
       validatePreparationRecord(record);
-      if (record.runId !== String(run.id) || record.runAttempt !== attempt || record.workflowSha !== run.head_sha || record.kind !== kind || record.preparedHead !== matches[0].head.sha) continue;
-      if (kind === "trusted" && (await get(`compare/${run.head_sha}...${sourceSha}`))?.merge_base_commit?.sha !== run.head_sha) throw new Error("Version writer did not execute trusted master history");
+      if (record.runId !== String(run.id) || record.runAttempt !== attempt || record.kind !== kind || record.prNumber !== matches[0].number || record.preparedHead !== matches[0].head.sha) continue;
+      bindPreparationRun(record, run);
+      const selectedAttempt = await get(`actions/runs/${run.id}/attempts/${attempt}`);
+      if (!sameRunIdentity(selectedAttempt, run)) throw new Error("Preparation attempt identity changed");
+      bindPreparationRun(record, selectedAttempt);
+      if (kind === "trusted" && (await get(`compare/${record.workflowSha}...${sourceSha}`))?.merge_base_commit?.sha !== record.workflowSha) throw new Error("Version writer did not execute trusted master history");
+      const currentArtifacts = await get(`actions/runs/${run.id}/artifacts?per_page=100`);
+      const currentSelected = currentArtifacts?.artifacts?.filter((a) => a.name === name) ?? [];
+      if (currentArtifacts?.total_count !== currentArtifacts?.artifacts?.length || currentSelected.length !== 1 ||
+          currentSelected[0].id !== selected[0].id || currentSelected[0].expired || currentSelected[0].digest !== selected[0].digest ||
+          currentSelected[0].size_in_bytes !== selected[0].size_in_bytes || String(currentSelected[0].workflow_run?.id) !== String(run.id) ||
+          currentSelected[0].workflow_run?.head_sha !== run.head_sha) throw new Error("Preparation artifact changed during verification");
       const current = await get(`actions/runs/${run.id}`);
-      if (current.run_attempt !== attempt || current.conclusion !== "success") throw new Error("Preparation producer changed");
+      const currentAttempt = await get(`actions/runs/${run.id}/attempts/${attempt}`);
+      if (!sameRunIdentity(current, run) || !sameRunIdentity(currentAttempt, run)) throw new Error("Preparation producer changed");
+      bindPreparationRun(record, current);
+      bindPreparationRun(record, currentAttempt);
       await verifyMergedPreparation(record, { sourceSha, packageVersion, get, baseline, recalculate, readPackage });
       return { ...record, artifactId: String(selected[0].id) };
     }
