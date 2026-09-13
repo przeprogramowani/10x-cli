@@ -82,7 +82,10 @@ export function readPackedPaths(root, { platform = process.platform, run = execF
   }
   // One direct process: on timeout it has exited before synchronous exec returns.
   // No cmd.exe parent can leave npm holding fixture files during cleanup.
-  const packed = JSON.parse(run(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15000, killSignal: "SIGKILL" }));
+  // Use the operator-approved 60s Windows pack budget; this is a robustness
+  // allowance, not a root-cause fix. Keep 15s on other platforms.
+  const timeout = platform === "win32" ? 60000 : 15000;
+  const packed = JSON.parse(run(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout, killSignal: "SIGKILL" }));
   if (packed.length !== 1 || !Array.isArray(packed[0].files)) throw new Error("Unexpected npm inventory");
   return new Set(packed[0].files.map((file) => file.path));
 }
