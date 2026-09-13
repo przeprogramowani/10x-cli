@@ -227,9 +227,9 @@ Progress revision: obsolete entries 2.1 (staged gitHead/automatic recovery), 2.3
 
 #### Automated
 
-- [x] 3.1 Toolkit `pnpm ci:local` passes; promotion tests reject dispatch/non-master/wrong-source/attempt/mixed artifact selections and retain exact stage identity.
-- [x] 3.2 `10x-impl-review` reports no unresolved critical implementation findings; scoped PR diffs contain no private content/credentials or unrelated files.
-- [ ] 3.3 Both repair PRs are created with source identities, test evidence and the concrete human merge sequence; `release-handoff.md` explicitly records unpublished status and Session C prerequisite state.
+- [x] 3.1 Toolkit `pnpm ci:local` passes; promotion tests reject dispatch/non-master/wrong-source/attempt/mixed artifact selections and retain exact stage identity. — a0bcd44
+- [x] 3.2 `10x-impl-review` reports no unresolved critical implementation findings; scoped PR diffs contain no private content/credentials or unrelated files. — a0bcd44
+- [x] 3.3 Both repair PRs are created with source identities, test evidence and the concrete human merge sequence; `release-handoff.md` explicitly records unpublished status and Session C prerequisite state. — a0bcd44
 - [ ] 3.6 Session A verifies the scoped automation credentials and a synthetic Git-ref contention trial before enabling the coordinator; unavailable credentials or failed atomic update verification stop activation.
 
 #### Manual

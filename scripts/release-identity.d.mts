@@ -9,4 +9,5 @@ export function assertReleaseLease(identity: any, dependencies: any): Promise<an
 export function releaseManifest(input: any): any;
 export function registryPackage(version: string): Promise<any>;
 export function releaseInputs(env: any): any;
-export function npmInvocation(args: string[]): { command: string; args: string[] };
+export function npmInvocation(args: string[], context?: { cwd?: string; env?: NodeJS.ProcessEnv }): { command: string; args: string[] };
+export function windowsNpmInvocation(wrapper: string, args: string[], context?: { cwd?: string; env?: NodeJS.ProcessEnv }): { command: string; args: string[] };

@@ -5,11 +5,41 @@ import { promisify } from "node:util";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { packDirectory, assertFrozenInputs, validateRegistryResult, publishDirectoryOnce, integrity, assertReleaseLease, npmInvocation } from "../scripts/release-identity.mjs";
+import { packDirectory, assertFrozenInputs, validateRegistryResult, publishDirectoryOnce, integrity, assertReleaseLease, npmInvocation, windowsNpmInvocation } from "../scripts/release-identity.mjs";
 import { github } from "../scripts/release-github.mjs";
 const execute = promisify(execFile);
 const sha = (c: string) => c.repeat(40);
 describe("directory publication identity", () => {
+  it("resolves the Windows launcher global upgrade before bundled npm and preserves arguments without a shell", () => {
+    const root = mkdtempSync(join(tmpdir(), "npm launcher & layout-"));
+    const bundled = join(root, "setup node"), prefix = join(root, "global & npm");
+    const bundledBin = join(bundled, "node_modules", "npm", "bin"), globalBin = join(prefix, "node_modules", "npm", "bin");
+    const cwd = join(root, "package"), wrapper = join(bundled, "npm.cmd");
+    try {
+      for (const directory of [bundledBin, globalBin, cwd]) mkdirSync(directory, { recursive: true });
+      // The real npm.cmd runs this helper with no CLI arguments, in the caller's
+      // cwd/env. npm's configuration resolves globalPrefix, not the bundled dir.
+      writeFileSync(join(bundledBin, "npm-prefix.js"), 'if (process.argv.length !== 2 || process.cwd() !== require("node:fs").realpathSync(process.env.FIXTURE_CWD)) process.exit(91); console.log(process.env.FIXTURE_PREFIX);');
+      const cliSource = (version: string) => `console.log(JSON.stringify({ version: ${JSON.stringify(version)}, args: process.argv.slice(2) }));`;
+      writeFileSync(join(bundledBin, "npm-cli.js"), cliSource("10.9.2"));
+      writeFileSync(join(globalBin, "npm-cli.js"), cliSource("11.12.1"));
+      const args = ["pack", "--pack-destination", join(root, "output & literal $(no-shell)")];
+      const context = { cwd, env: { ...process.env, FIXTURE_CWD: cwd, FIXTURE_PREFIX: prefix } };
+      const invoke = () => {
+        const invocation = windowsNpmInvocation(wrapper, args, context);
+        return { invocation, result: JSON.parse(execFileSync(invocation.command, invocation.args, { ...context, encoding: "utf8" })) };
+      };
+      const upgraded = invoke();
+      expect(upgraded.invocation.command).toBe("node");
+      expect(upgraded.invocation.args[0]).toBe(join(globalBin, "npm-cli.js"));
+      expect(upgraded.result).toEqual({ version: "11.12.1", args });
+      rmSync(join(globalBin, "npm-cli.js"));
+      expect(invoke().result).toEqual({ version: "10.9.2", args });
+      // An unusable first launcher must fail closed, never pick a later PATH npm.
+      rmSync(join(bundledBin, "npm-prefix.js"));
+      expect(invoke).toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }, 30000);
   it("pinned real npm directory publish retains gitHead and the exact prepack bytes", async () => {
     const root = mkdtempSync(join(tmpdir(), "release-registry-")), cwd = join(root, "package"), output = join(root, "retained");
     mkdirSync(join(cwd, "dist"), { recursive: true });
@@ -33,7 +63,7 @@ describe("directory publication identity", () => {
       const result = await publishDirectoryOnce(candidate, {
         registry: async () => uploaded ? { metadata: uploaded.versions["1.1.0"], bytes: Buffer.from((Object.values(uploaded._attachments)[0] as any).data, "base64") } : null,
         tag: async () => git("rev-parse", "v1.1.0"), lease: async () => {}, freeze: async () => assertFrozenInputs(cwd, candidate), ensureTag: async () => {},
-        publishDirectory: async () => { const invocation = npmInvocation(["publish", ".", "--ignore-scripts", "--access", "public", `--registry=${registry}`]); await execute(invocation.command, invocation.args, { cwd, env: { ...process.env, NPM_CONFIG_USERCONFIG: config }, timeout: 60000 }); },
+        publishDirectory: async () => { const context = { cwd, env: { ...process.env, NPM_CONFIG_USERCONFIG: config } }; const invocation = npmInvocation(["publish", ".", "--ignore-scripts", "--access", "public", `--registry=${registry}`], context); await execute(invocation.command, invocation.args, { ...context, timeout: 60000 }); },
       });
       expect(result.status).toBe("published-verified"); expect(puts).toBe(1);
       const metadata = uploaded.versions["1.1.0"], bytes = Buffer.from((Object.values(uploaded._attachments)[0] as any).data, "base64");

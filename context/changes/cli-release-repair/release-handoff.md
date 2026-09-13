@@ -1,6 +1,6 @@
 # Session A release handoff
 
-**Status: operator approved the reviewed plan and invoked 10x-goal-implement on 2026-09-13. Phases1–2 implementation passed targeted, deliberate-break and full repository gates; independent phase review APPROVED. Phase3 promotion-consumer repair/runbooks pass80targeted tests,917full Toolkit tests/all validators, deliberate-break and independent APPROVED reviews. PR preparation and credential activation checks remain pending. No repaired package has been published by this session. Last production inspection showed unpublished v4. Session C stage-1 prerequisite is NOT satisfied; migration is parked and does not block this release.**
+**Status: operator approved the reviewed plan and invoked 10x-goal-implement on 2026-09-13. Phases1–2 implementation passed targeted, deliberate-break and full repository gates; independent phase review APPROVED. Phase3 promotion-consumer repair/runbooks pass80targeted tests,917full Toolkit tests/all validators, deliberate-break and independent APPROVED reviews. Both draft PRs exist; hosted exact-pair proof and credential activation checks remain pending. No repaired package has been published by this session. Last production inspection showed unpublished v4. Session C stage-1 prerequisite is NOT satisfied; migration is parked and does not block this release.**
 
 Canonical folder: `/Users/admin/code/10x-cli-release-repair/context/changes/cli-release-repair`. Read [plan brief](plan-brief.md), [plan](plan.md) and [research](research.md). This file is the release coordination handoff; other sessions must not change shared candidate variables/run pointers.
 
@@ -16,7 +16,7 @@ Operator approved the implementation-time credential amendment: add Pull request
 
 Operator resolved activation semantics without a new token: disabling prevents new release generations; an acquired generation may finish evidence, pointer registration and publication. The flag is not a live stop switch. Inspect queued coordinator invocations and active ownership when disabling; keep in-flight npm operations visible and reconcile them. Phase2 dependent work resumed.
 
-Code changes, regression gates and PR preparation are now authorized. Human merges, coordinated login and separate production-promotion approval remain required; no PR is ready yet.
+Code changes, regression gates and PR preparation are now authorized. Human merges, coordinated login and separate production-promotion approval remain required; both draft PRs await final hosted proof before the human merge gate.
 
 ## Exact identities, observed 2026-09-13
 
@@ -67,7 +67,7 @@ Private raw artifacts, backups and test logs: `/private/tmp/10x-release-repair-e
 
 ## Selected design and execution order after authorization
 
-All eight exported choices, including the D05 comment, supersede the earlier plan's recommendations. No repair PRs exist yet; implementation has started under the approved plan. Minimum version automation is deterministic preparation on the same code PR, reusing the existing bump rules; it adds no separate version PR or approval. Literal zero additional logic cannot repair the current post-evidence writer, but no new numbering service is proposed.
+All eight exported choices, including the D05 comment, supersede the earlier plan's recommendations. Repair PRs now exist (CLI#39, Toolkit#32); implementation proceeded under the approved plan. Minimum version automation is deterministic preparation on the same code PR, reusing the existing bump rules; it adds no separate version PR or approval. Literal zero additional logic cannot repair the current post-evidence writer, but no new numbering service is proposed.
 
 After plan approval: implement/test the two repair PRs; automatically prepare final CLI version and prove exact Tpr/Cpr through the Toolkit PR path; operator merges CLI first; refresh Toolkit PR evidence against actual CLI master Cm; operator merges Toolkit; canonical Tm push/master retains its stage. Provision the scoped coordinator credentials and validate lease contention at activation. The coordinator reacts to either repository, serializes the operation, produces release-only Tm/Cm evidence, registers its receipt and starts public CLI release for Cm. Actual npm download must prove registry gitHead/version/tag and post-publication integrity. No old fixed-name successful run is rerun or discarded as a shortcut.
 
@@ -113,3 +113,19 @@ Historical real-email results in `/Users/admin/code/10x-cli-v4-delivery/context/
 - Process applicability: 10x-deployment's PaaS foundation/config generation is skipped because this repair does not propose a new platform/Worker deployment; existing read-only Wrangler production preflight and Toolkit Worker build checks supply the relevant evidence. Browser 10x-e2e is not applicable to CLI workflow changes; real CLI/API hosted matrices and actual npm acceptance remain required. No archive until actual completion.
 
 Toolkit reviewed repair head after Phase3: `1d5c1990df949670c5673f7d8bf0fc9589665071`. CLI Phase3 closing SHA is written after its commit; see the final operational section for the frozen pair.
+
+## Frozen PR pair and hosted verification — 2026-09-13T12:21Z
+
+- CLI [PR39](https://github.com/przeprogramowani/10x-cli/pull/39), draft, exact head `a0bcd44a30df15f2b1dd5ec030fd89b9bc9b7b82`.
+- Toolkit [PR32](https://github.com/przeprogramowani/10x-toolkit/pull/32), draft, exact head `1d5c1990df949670c5673f7d8bf0fc9589665071`.
+- CLI [CI34756812656/1](https://github.com/przeprogramowani/10x-cli/actions/runs/34756812656) started on that exact head. Bootstrap numbering provenance job passed; ordinary OS checks were in progress. Its initial private pointer remains old until the fresh Toolkit proof is complete.
+- Toolkit [CI34756860298/1](https://github.com/przeprogramowani/10x-toolkit/actions/runs/34756860298) started for the frozen pair. Label-gated ImplReview run34756860290 was skipped (impl-review label absent; not a draft condition); independent local reviews are recorded separately.
+- At12:20:31Z all Toolkit nonterminal queries were empty; the sole CLI run was this session's known PR39 CI, not a release/shared writer. Lease ref absent. Old candidate value/timestamp and live CLI PR head were rechecked immediately before Session A changed Toolkit CLI_CANDIDATE_SHA from `c139ac5d89bc935be67174cc031e96f62661036d` to `a0bcd44a30df15f2b1dd5ec030fd89b9bc9b7b82`, readback updated12:21:04Z. CLI proof pointers remain unchanged pending fresh successful evidence. No activation/publish/production write.
+- HTTPS push was rejected because the existing OAuth credential lacks workflow scope; authenticated existing SSH successfully pushed the same reviewed feature branches. No token scope or repository remote configuration changed; no direct master push or merge.
+- Local post-commit Progress/handoff updates are operational evidence, deliberately not pushed during frozen-source proof. Every future code/doc commit changes source identity and requires fresh proof; do not equate working trees with these committed candidates.
+
+## First hosted CLI regression — Windows npm resolution
+
+CLI CI34756812656/1: Linux ordinary job PASS; bootstrap version provenance PASS; Windows670PASS/2pre-existingSKIP/1FAIL. The new real mock-registry publication test rejects an npm version other than pinned11.12.1; Windows resolver currently selects npm-cli.js next to npm.cmd rather than following npm.cmd's global-prefix upgrade behavior. Targeted repair is in progress without relaxing the version check or skipping the Windows test. Private proof was skipped because Windows failed. PRs remain drafts; do not merge based only on local green gates. Toolkit34756860298/1 is still running for the original frozen CLIhead; any CLI repair commit requires fresh full evidence afterward. Shared variables remain as last recorded until that run is terminal.
+
+Windows npm correction local verification complete: official launcher prefix resolution is preserved without a shell; target6PASS/fullCLI674unit+10smoke/type/lint/build/binaryPASS, deliberate-break and two independent reviewsPASS. The first hosted failed result remains historical; next exact CLIhead and hosted Windows proof will be recorded after the ongoing Toolkit attempt is terminal.

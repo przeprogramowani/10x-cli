@@ -7,17 +7,31 @@ import { fileURLToPath } from "node:url";
 const stableVersion = (value) => typeof value === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value);
 import { fullSha, numericId, CLI_REPOSITORY, TOOLKIT_REPOSITORY, github } from "./release-github.mjs";
 export const NPM_VERSION = "11.12.1";
-export function npmInvocation(args) {
+export function windowsNpmInvocation(wrapper, args, { cwd = process.cwd(), env = process.env } = {}) {
+  // Match npm.cmd: its prefix helper can redirect a setup-node bundled npm to
+  // the globally upgraded installation. Use the same Node and execution context.
+  const directory = dirname(wrapper), localNode = join(directory, "node.exe");
+  const command = existsSync(localNode) ? localNode : "node";
+  const bin = join(directory, "node_modules", "npm", "bin");
+  const prefix = execFileSync(command, [join(bin, "npm-prefix.js")], {
+    cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30000, maxBuffer: 1024 * 1024,
+  }).trim();
+  if (!prefix || /[\r\n]/.test(prefix)) throw new Error("Cannot resolve the installed npm prefix");
+  const globalCli = join(prefix, "node_modules", "npm", "bin", "npm-cli.js");
+  const cli = existsSync(globalCli) ? globalCli : join(bin, "npm-cli.js");
+  if (!existsSync(cli)) throw new Error("Cannot resolve the installed npm JavaScript entry");
+  return { command, args: [cli, ...args] };
+}
+export function npmInvocation(args, { cwd = process.cwd(), env = process.env } = {}) {
   if (process.platform !== "win32") return { command: "npm", args };
   // Execute npm's JavaScript entry with Node; .cmd wrappers cannot be execFile'd,
   // and a shell would reinterpret package/output paths containing metacharacters.
-  const wrappers = execFileSync("where.exe", ["npm.cmd"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim().split(/\r?\n/);
-  const cli = wrappers.map((path) => join(dirname(path), "node_modules", "npm", "bin", "npm-cli.js")).find((path) => existsSync(path));
-  if (!cli) throw new Error("Cannot resolve the installed npm JavaScript entry");
-  return { command: "node", args: [cli, ...args] };
+  const [wrapper] = execFileSync("where.exe", ["npm.cmd"], { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30000 }).trim().split(/\r?\n/);
+  if (!wrapper) throw new Error("Cannot resolve the installed npm launcher");
+  return windowsNpmInvocation(wrapper, args, { cwd, env });
 }
 const run = (command, args, cwd, env = process.env) => {
-  const invocation = command === "npm" ? npmInvocation(args) : { command, args };
+  const invocation = command === "npm" ? npmInvocation(args, { cwd, env }) : { command, args };
   return execFileSync(invocation.command, invocation.args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120000, maxBuffer: 8 * 1024 * 1024 }).trim();
 };
 export const integrity = (bytes) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
