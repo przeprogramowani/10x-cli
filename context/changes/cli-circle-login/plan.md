@@ -1,6 +1,6 @@
 # Circle Message Login for 10x CLI — Implementation Plan
 
-> Status: **planned, not approved for implementation.** Implementation starts only after explicit approval of the reviewed plan, under a separate `/10x-goal-implement` goal. No live messages, deployments, releases or merges are authorized by this document.
+> Status: **approved for implementation (2026-09-13)** in the triaged scope, executed under `/10x-goal-implement` (Toolkit branch `feat/cli-circle-login`, CLI branch `plan/cli-circle-login`). The Phase 1 live DM is executed by the operator and gates the Phase 7 pilot only. This document itself authorizes no live messages, deployments, releases, flag flips or merges; those remain separate operator actions.
 
 ## Overview
 
@@ -63,7 +63,7 @@ Design A from `architecture-review.md` §3–§7, reduced by the interview: devi
 
 ### Overview
 
-Close W01–W03 before any transport code exists: confirm which token can call the Circle messaging endpoint, which header form it needs, who appears as sender, and whether chat preferences block admin DMs. This phase sends exactly one supervised DM to a pilot account owned by the operator, executed by the user, never by an agent. Phase 2 does not depend on it; Phases 3–7 do.
+Close W01–W03 before any transport code exists: confirm which token can call the Circle messaging endpoint, which header form it needs, who appears as sender, and whether chat preferences block admin DMs. This phase sends exactly one supervised DM to a pilot account owned by the operator, executed by the user, never by an agent. Phases 2–6 do not depend on it (the header form is configuration, see the Implementation Note); only the Phase 7 pilot does.
 
 ### Changes Required:
 
