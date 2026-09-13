@@ -44,7 +44,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 ## Quick Start
 
 ```bash
-10x auth        # Authenticate with your email
+10x auth        # Authenticate with your email (magic link or Circle message)
 10x list        # Browse available modules and lessons
 10x get m1l1    # Fetch and apply lesson artifacts
 10x sync        # Update everything you've downloaded; show what changed
@@ -57,6 +57,7 @@ Once installed, just tell your agent to **set up 10x-cli** and it will pick up t
 | Command | Description |
 |---------|-------------|
 | `10x auth` | Magic-link login with your Circle-registered email |
+| `10x auth --method circle` | No email received? Get the approval link as a Circle message instead |
 | `10x list` | Browse modules and lessons in your course |
 | `10x get <ref>` | Fetch a lesson and apply artifacts to your workspace |
 | `10x sync` | Bulk-download / refresh lessons and report what changed upstream |

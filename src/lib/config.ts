@@ -22,6 +22,9 @@ import { join } from "node:path";
 
 export const AUTH_FILE_VERSION = 1;
 
+/** How the session was established. Absent on files written before Circle login existed. */
+export type AuthMethod = "email" | "circle";
+
 export interface AuthData {
   version: typeof AUTH_FILE_VERSION;
   email: string;
@@ -31,6 +34,11 @@ export interface AuthData {
   expires_at: string;
   /** ISO 8601 timestamp when the record was first written. */
   created_at: string;
+  /**
+   * Login method that produced these credentials. Optional at file version 1
+   * so pre-existing records read back unchanged; refresh preserves it.
+   */
+  method?: AuthMethod;
 }
 
 export function configDir(): string {

@@ -215,3 +215,72 @@ describe("requireAuth", () => {
     expect(exitCode).toBe(4);
   });
 });
+
+describe("requireAuth — AuthData.method round-trip (W07)", () => {
+  function refreshOk(): ApiResult<TokenBundle> {
+    return {
+      ok: true,
+      status: 200,
+      data: {
+        token: "jwt-new",
+        refresh_token: "rt-new",
+        expires_at: new Date(FIXED_NOW.getTime() + 30 * 60 * 1_000).toISOString(),
+      },
+      responseHeaders: new Headers(),
+      rawBody: "",
+    };
+  }
+
+  it("preserves method: 'circle' through the refresh constructor", async () => {
+    const auth = makeAuth({
+      method: "circle",
+      expires_at: new Date(FIXED_NOW.getTime() + 60 * 1_000).toISOString(),
+    });
+    let persisted: AuthData | null = null;
+    const result = await requireAuth(ctx, {
+      now: () => FIXED_NOW,
+      read: () => auth,
+      persist: (next) => {
+        persisted = next;
+      },
+      refresh: async () => refreshOk(),
+    });
+    expect(result.method).toBe("circle");
+    expect(persisted!.method).toBe("circle");
+    expect(persisted!.access_token).toBe("jwt-new");
+  });
+
+  it("preserves method: 'email' through the refresh constructor", async () => {
+    const auth = makeAuth({
+      method: "email",
+      expires_at: new Date(FIXED_NOW.getTime() + 60 * 1_000).toISOString(),
+    });
+    let persisted: AuthData | null = null;
+    await requireAuth(ctx, {
+      now: () => FIXED_NOW,
+      read: () => auth,
+      persist: (next) => {
+        persisted = next;
+      },
+      refresh: async () => refreshOk(),
+    });
+    expect(persisted!.method).toBe("email");
+  });
+
+  it("does not invent a method for a pre-existing record without one", async () => {
+    const auth = makeAuth({
+      expires_at: new Date(FIXED_NOW.getTime() + 60 * 1_000).toISOString(),
+    });
+    let persisted: AuthData | null = null;
+    await requireAuth(ctx, {
+      now: () => FIXED_NOW,
+      read: () => auth,
+      persist: (next) => {
+        persisted = next;
+      },
+      refresh: async () => refreshOk(),
+    });
+    expect(persisted).not.toBeNull();
+    expect("method" in persisted!).toBe(false);
+  });
+});
