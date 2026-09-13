@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { readPackedPaths, validateCliSkills } from "../scripts/validate-cli-skills.mjs";
 
 const names = ["10x-cli-setup", "10x-cli-guide"];
@@ -22,6 +23,22 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+const timingPreload = fileURLToPath(new URL("./fixtures/npm-pack-timing.cjs", import.meta.url));
+function measuredPackedPaths() {
+  if (process.platform !== "win32") return readPackedPaths(root);
+  const started = performance.now();
+  try {
+    return readPackedPaths(root, { run: (command, args, options) => {
+      // Same direct Node/npm, pack arguments and 15s deadline. No warmup/retry.
+      return execFileSync(command, ["--require", timingPreload, ...args], options);
+    } });
+  } finally {
+    const log = join(root, ".npm-pack-timing.jsonl");
+    console.error(`[npm-pack-timing] totalMs=${Math.round(performance.now() - started)}`);
+    console.error(existsSync(log) ? readFileSync(log, "utf8") : "[npm-pack-timing] no node-ready marker");
+  }
+}
+
 // A conventional npm shim/package layout, never a replacement for real npm pack.
 function npmFixture(bin: string, layout = "node_modules/npm") {
   mkdirSync(bin, { recursive: true });
@@ -39,14 +56,14 @@ describe("complete packaged CLI helpers", () => {
   // Cold npm startup on Windows exceeded Bun's default 5s on CI. Keep real
   // packing and all assertions; the child itself is bounded to 15s.
   it("uses actual npm inventory, handles a cwd with spaces/metacharacters, and never runs prepack", () => {
-    const packedPaths = readPackedPaths(root);
+    const packedPaths = measuredPackedPaths();
     expect(validateCliSkills(root, { packedPaths })).toEqual(names.map((name) => ({ name, files: 2 })));
   }, 30000);
   it("rejects a support file excluded by npm even when the local tree is complete", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({
       name: "cli-helper-validation-fixture", version: "1.0.0", files: ["skills/*/SKILL.md"],
     }));
-    expect(() => validateCliSkills(root, { packedPaths: readPackedPaths(root) })).toThrow("Missing from npm package");
+    expect(() => validateCliSkills(root, { packedPaths: measuredPackedPaths() })).toThrow("Missing from npm package");
   }, 30000);
   it("rejects an absent reference and mismatched copies", () => {
     writeFileSync(path(names[0]!, "references/compatibility.md"), "");
@@ -130,4 +147,27 @@ describe("complete packaged CLI helpers", () => {
     expect(() => readPackedPaths(root, { platform: "linux", run: () => { throw new Error("npm failed"); } })).toThrow("npm failed");
     expect(() => readPackedPaths(root, { platform: "linux", run: () => "[]" })).toThrow("Unexpected npm inventory");
   });
+  it("records only bounded allowlisted npm timing events and versions", () => {
+    execFileSync("node", ["--require", timingPreload, "-e", `
+      process.emit('time', 'start', 'npm:load');
+      process.emit('time', 'end', 'npm:load');
+      process.emit('time', 'start', 'PRIVATE-CANARY');
+      process.emit('log', 'info', 'using', 'npm@%s', '10.9.3');
+      process.emit('log', 'info', 'using', 'npm@%s', 'PRIVATE-CANARY');
+      process.emit('log', 'info', 'using', 'npm@%s', '1.2.3-' + 'A'.repeat(1000));
+      process.emit('log', 'error', 'PRIVATE-CANARY');
+      for (let i = 0; i < 100; i++) process.emit('time', 'start', 'command:pack');
+    `], { cwd: root, timeout: 15000, stdio: "pipe" });
+    const log = readFileSync(join(root, ".npm-pack-timing.jsonl"), "utf8");
+    const rows = log.trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    expect(rows).toHaveLength(64);
+    expect(rows[0]).toMatchObject({ event: "node-ready" });
+    expect(rows.slice(1, 4)).toMatchObject([
+      { event: "start", phase: "npm:load" }, { event: "end", phase: "npm:load" },
+      { event: "npm-version", version: "10.9.3" },
+    ]);
+    expect(rows.every((row) => Number.isInteger(row.elapsedMs) && row.elapsedMs >= 0)).toBe(true);
+    expect(log).not.toContain("PRIVATE-CANARY");
+    expect(log).not.toContain("AAAA");
+  }, 30000);
 });
