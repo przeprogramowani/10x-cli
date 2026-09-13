@@ -1,0 +1,12 @@
+import { readFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+const output = process.env.RELEASE_OUTPUT_DIR;
+const candidate = JSON.parse(readFileSync(join(output, "candidate.json"), "utf8"));
+const install = join(process.env.RUNNER_TEMP, "release-pack-smoke");
+mkdirSync(install, { recursive: true });
+execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", install, join(output, candidate.filename)], { stdio: "pipe" });
+const entry = join(install, "node_modules/@przeprogramowani/10x-cli/dist/index.mjs");
+const version = execFileSync("node", [entry, "--version"], { encoding: "utf8", stdio: "pipe" });
+if (!version.includes(candidate.version)) throw new Error("Packed CLI version mismatch");
+execFileSync("node", [entry, "--help"], { stdio: "pipe" });
