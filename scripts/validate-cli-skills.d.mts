@@ -10,7 +10,7 @@ export function readPackedPaths(
     run?: (
       command: string,
       args: string[],
-      options: { cwd: string; encoding: "utf8"; stdio: ["ignore", "pipe", "pipe"] },
+      options: { cwd: string; encoding: "utf8"; stdio: ["ignore", "pipe", "pipe"]; timeout: number },
     ) => string;
   },
 ): Set<string>;

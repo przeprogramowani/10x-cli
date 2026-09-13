@@ -22,16 +22,18 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("complete packaged CLI helpers", () => {
+  // Cold npm startup on Windows exceeded Bun's default 5s on CI. Keep real
+  // packing and all assertions; the child itself is bounded to 15s.
   it("uses actual npm inventory, handles a cwd with spaces/metacharacters, and never runs prepack", () => {
     const packedPaths = readPackedPaths(root);
     expect(validateCliSkills(root, { packedPaths })).toEqual(names.map((name) => ({ name, files: 2 })));
-  });
+  }, 30000);
   it("rejects a support file excluded by npm even when the local tree is complete", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({
       name: "cli-helper-validation-fixture", version: "1.0.0", files: ["skills/*/SKILL.md"],
     }));
     expect(() => validateCliSkills(root, { packedPaths: readPackedPaths(root) })).toThrow("Missing from npm package");
-  });
+  }, 30000);
   it("rejects an absent reference and mismatched copies", () => {
     writeFileSync(path(names[0]!, "references/compatibility.md"), "");
     expect(() => validateCliSkills(root)).toThrow("Missing compatibility reference");
@@ -51,11 +53,12 @@ describe("complete packaged CLI helpers", () => {
   });
   it("launches Windows npm through cmd.exe using a fixed command and isolated cwd", () => {
     let called = false;
-    readPackedPaths(root, { platform: "win32", run: (command: string, args: string[], options: { cwd: string }) => {
+    readPackedPaths(root, { platform: "win32", run: (command: string, args: string[], options: { cwd: string; timeout: number }) => {
       called = true;
       expect(command).toBe("cmd.exe");
       expect(args).toEqual(["/d", "/s", "/c", "npm pack --dry-run --json --ignore-scripts"]);
       expect(options.cwd).toBe(root);
+      expect(options.timeout).toBe(15000);
       return JSON.stringify([{ files: [] }]);
     } });
     expect(called).toBe(true);

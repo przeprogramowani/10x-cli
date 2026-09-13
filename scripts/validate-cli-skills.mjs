@@ -57,7 +57,7 @@ export function readPackedPaths(root, { platform = process.platform, run = execF
   const args = platform === "win32"
     ? ["/d", "/s", "/c", "npm pack --dry-run --json --ignore-scripts"]
     : ["pack", "--dry-run", "--json", "--ignore-scripts"];
-  const packed = JSON.parse(run(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const packed = JSON.parse(run(command, args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15000 }));
   if (packed.length !== 1 || !Array.isArray(packed[0].files)) throw new Error("Unexpected npm inventory");
   return new Set(packed[0].files.map((file) => file.path));
 }
