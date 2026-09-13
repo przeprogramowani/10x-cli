@@ -3,9 +3,15 @@ change_id: 10xdevs4-cli-access
 title: Enable safe 10xDevs 4 login and first-week delivery across CLI and toolkit
 status: impl_reviewed
 created: 2026-09-07
-updated: 2026-09-12
+updated: 2026-09-13
 archived_at: null
 ---
+
+## Source prerequisite merged — 2026-09-13
+
+The operator squash-merged #30 as `5141b5bd00b238be4e59ef86aa1cfd9c93753d62`. The delivery branch merges that actual master commit, preserving complete closure lessons/docs, the portable package-auth script and v4 CI checks, while retaining master’s shared-reference validation in `pnpm test`. V3 retains cutoff `da989a6f7d4963c275a98943e85d225baf426228`; the stack-assess package and five progress-document file exceptions now use the verified actual master SHA.
+
+Full dependent `pnpm ci:local` PASS on 2026-09-13, including both course builds and all validators. The private vetted fixture was uploaded to private prerelease `v3-e2e-fixture-20260913`; its registered producer run `34741021103` passed at the exact master SHA and emitted the verified 57-object fixture. Private Toolkit fixture variables are configured. Canonical 6.2 is complete; exact final paired remote Linux/Windows and public receipt verification remain pending. No main PR merge or production deployment/publication was performed by the agent.
 
 ## Current PR readiness — 2026-09-12
 

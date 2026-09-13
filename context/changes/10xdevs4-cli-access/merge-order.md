@@ -2,6 +2,8 @@
 
 Stan sprawdzony 12.09.2026. Główne zmiany CLI i Toolkit można wystawić jako drafty do przeglądu. Gotowość do przeglądu nie zamyka warunków merge ani publikacji.
 
+**Aktualizacja 13.09:** operator scalił #30 jako `5141b5bd00b238be4e59ef86aa1cfd9c93753d62`. Konflikty #31 rozwiązane, wyjątki źródeł wskazują rzeczywisty commit mastera, a pełne lokalne CI zależnej zmiany przeszło. Prywatny producent danych E2E zakończył się sukcesem (`34741021103`). Dalsze punkty są sekwencją wydania; krok 1 jest już wykonany, trwa końcowe CI dokładnej pary kandydatów.
+
 ## 1. Toolkit: komplet dokumentów źródłowych
 
 [PR #30](https://github.com/przeprogramowani/10x-toolkit/pull/30) dostarcza references dla `10x-stack-assess`. Trzeba również dostarczyć pięć przygotowanych kopii `references/progress-format.md` dla `10x-implement`, `10x-impl-review`, `10x-plan-review`, `10x-tdd` i `10x-goal-implement`, wraz z testem zgodności. Rozszerzenie #30 zostało przygotowane i wypchnięte jako commit `01232887c36fdffbea5251172c47bbb1f44b9616`; pełne lokalne CI tego prerequisite przeszło. Nadal potrzebny jest jego rzeczywisty merge i ustawienie wyjątków w głównym PR.

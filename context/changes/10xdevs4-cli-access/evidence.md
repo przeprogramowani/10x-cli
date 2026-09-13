@@ -383,3 +383,14 @@ Public CLI initial run `34706552849` passed normal Linux/Windows checks but stop
 Repeated-sync invalidation fixed with ten regressions; 647 CLI tests + 10 smoke, typecheck/lint/ESM/native builds PASS. Private receipt/fixture/input/stage tests 24 PASS. Real E2E 29/29 PASS in 119.45 seconds, including idle-repeat snapshots across all 18 course/language/tool combinations. Binary hash 8d140980d3aacb4d4ab782fb7617e9b6588f1177837be1e7705fe37b34f2b958; candidate OpenAPI check PASS. Logs `/tmp/10x-v4-pr-fixes-*`.
 
 Prerequisite PR #30 extended at 01232887c36fdffbea5251172c47bbb1f44b9616: complete progress documents plus private fixture producer bootstrap. Isolated full CI PASS (475 package + 25 parity tests); actual 57-object fixture verification PASS. GitHub run 34707030277 lint/validate/E2E PASS; production jobs skipped. No master pins were invented; the operator explicitly chose to perform the prerequisite merge themselves. Workflow suspension and merge were not executed. The Actions-read secret name is present in CLI; value was never read or copied.
+
+
+### Actual master pins and conflict resolution — 2026-09-13
+
+The operator merged source/bootstrap PR #30 with squash commit `5141b5bd00b238be4e59ef86aa1cfd9c93753d62`. Full-history ancestry and existence of all six repair inputs were verified against `origin/master`. Merging it into the Toolkit delivery branch conflicted only in `context/foundation/lessons.md`, `docs/reference/source-revision-pins.md`, and `package.json`. Resolution preserves both documentation contracts, all v4 build/curriculum checks, portable package-auth setup, and master’s shared-reference validator in the test command.
+
+V3 cutoff remains `da989a6f7d4963c275a98943e85d225baf426228`; only the stack-assess package and five missing progress-file exceptions use the actual master repair SHA. Full `pnpm ci:local` now PASS, exit 0: both v3 and v4 builds, package tests, parity and all validators. Log `/tmp/10x-v4-post-master-ci-local-20260913.log`. CLI code is unchanged from its previously passing Linux/Windows and local 647+10/E2E checks. Canonical Progress 6.2 is now checked.
+
+Private prerelease `v3-e2e-fixture-20260913` retains the vetted original archive (SHA-256 `1e51c7442c1aba49872c2274f7537497d96bcb5b030b8fb77c7cb811dd85f3ae`). Producer run `34741021103`, workflow_dispatch from the immutable tag at the actual master SHA, completed successfully and produced `published-v3-e2e-fixture` (8,385,242-byte Actions artifact). Inventory SHA-256 remains `ca8a7993686793b9ddde461ccdfec305b509a7f57e78a59670d6be6f4c30d9e0`; all 57 objects were validated. All three vetted fixture variables are configured only in private Toolkit. No paid material was uploaded into the public CLI repository.
+
+The remaining step is actual final-pair private Linux/Windows CI and public receipt verification. The agent did not merge #31/#38, suspend workflows or perform a production rollout.

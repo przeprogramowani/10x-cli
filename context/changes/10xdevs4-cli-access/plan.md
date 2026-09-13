@@ -475,7 +475,7 @@ The second plan consumes release schema, signed map envelope, guarded release ro
 #### Automated
 
 - [x] 6.1 Coordinated real-auth matrix passes: `E2E_CLI_PATH=/Users/admin/code/10x-cli-v4-delivery/dist/10x pnpm test:e2e:cli` from toolkit (CI uses its own exact checkout path).
-- [ ] 6.2 Full clean toolkit gate passes: `pnpm ci:local`; CLI unit/type/lint/build/binary and `bun test tests/smoke/` pass.
+- [x] 6.2 Full clean toolkit gate passes: `pnpm ci:local`; CLI unit/type/lint/build/binary and `bun test tests/smoke/` pass.
 - [ ] 6.3 CI records exact candidate SHAs and passes Windows checks; implementation review has no unresolved critical findings.
 
 
