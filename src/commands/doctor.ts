@@ -2,10 +2,12 @@ import type { CAC } from "cac";
 import { existsSync, accessSync, constants } from "node:fs";
 import { join } from "node:path";
 import packageJson from "../../package.json" with { type: "json" };
-import { apiBaseUrl, fetchHealth } from "../lib/api-content";
+import { apiBaseUrl, fetchHealth, fetchCourses } from "../lib/api-content";
 import { isExpired, isNearExpiry } from "../lib/auth-guard";
 import { configDir, readAuth, readToolConfig } from "../lib/config";
 import { formatReleaseAt } from "../lib/format";
+import { inspectProjectCourse } from "../lib/project-course";
+import { selectCourse } from "../lib/course-selection";
 import { getToolProfile, PROFILES, DEFAULT_TOOL } from "../lib/tool-profile";
 import { compareSemver, fetchLatestVersion, upgradeCommand } from "../lib/update-check";
 import {
@@ -45,7 +47,7 @@ export function registerDoctorCommand(cli: CAC): void {
 export async function runDoctor(ctx: OutputContext): Promise<void> {
   verbose(ctx, "running doctor checks");
   const checks: CheckResult[] = [];
-  checks.push(checkAuth());
+  checks.push(await checkAuth());
   checks.push(await checkApiConnectivity());
   checks.push(checkConfigDirectory());
   checks.push(await checkCliVersion());
@@ -102,7 +104,7 @@ export async function runDoctor(ctx: OutputContext): Promise<void> {
 // Individual checks
 // ---------------------------------------------------------------------------
 
-function checkAuth(): CheckResult {
+async function checkAuth(): Promise<CheckResult> {
   const auth = readAuth();
   if (!auth) {
     return {
@@ -123,6 +125,12 @@ function checkAuth(): CheckResult {
       details: { email: auth.email, expires_at: auth.expires_at },
     };
   }
+  const access = await fetchCourses(auth.access_token);
+  if (!access.ok) return { name: "auth", label: "Auth", status: "fail", message: `Session exists, but course access could not be verified: ${access.error}`, details: { email: auth.email, expires_at: auth.expires_at, code: access.code, access_checked: false } };
+  let selected;
+  try { selected = selectCourse(access.data, inspectProjectCourse(process.cwd())); }
+  catch (error) { return { name: "auth", label: "Auth", status: "fail", message: error instanceof Error ? error.message : String(error), details: { access_checked: true, courses: access.data.courses, code: error && typeof error === "object" && "code" in error ? error.code : "course_error" } }; }
+  const accessDetails = { access_checked: true, courses: access.data.courses, course: selected.course, selectionReason: selected.reason };
   const nearExpiry = isNearExpiry(auth);
   const prettyDate = formatReleaseAt(auth.expires_at);
   if (nearExpiry) {
@@ -132,15 +140,15 @@ function checkAuth(): CheckResult {
       status: "warn",
       message: `Signed in as ${auth.email}, but the session expires ${prettyDate.toLowerCase()}.`,
       hint: "The next command will transparently refresh the token.",
-      details: { email: auth.email, expires_at: auth.expires_at },
+      details: { email: auth.email, expires_at: auth.expires_at, ...accessDetails },
     };
   }
   return {
     name: "auth",
     label: "Auth",
     status: "pass",
-    message: `Signed in as ${auth.email} — session expires ${prettyDate.toLowerCase()}.`,
-    details: { email: auth.email, expires_at: auth.expires_at },
+    message: `Signed in as ${auth.email} — ${selected.course} (${selected.reason}); session expires ${prettyDate.toLowerCase()}.`,
+    details: { email: auth.email, expires_at: auth.expires_at, ...accessDetails },
   };
 }
 

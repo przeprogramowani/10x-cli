@@ -187,7 +187,7 @@ describe("writer — migration from internal-pkg markers", () => {
       ].join("\n"),
     );
 
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { onConflict: async () => "overwrite" });
     const claudeMd = readFileSync(join(tmp, "CLAUDE.md"), "utf8");
 
     expect(claudeMd).not.toContain("legacy rules");
@@ -368,11 +368,11 @@ describe("writer — multi-file skills", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Manifest v1 → v2 migration
+// Unsupported v1 manifests must block writes
 // ---------------------------------------------------------------------------
 
-describe("writer — v1 manifest is treated as no-prior-state", () => {
-  it("readManifest returns null for v1 shape and cleanup is skipped", async () => {
+describe("writer — unsupported v1 manifest", () => {
+  it("rejects writing before mutation and preserves the legacy manifest and content bytes", async () => {
     // Hand-craft a v1 manifest: skills as `string[]`, no manifestVersion.
     mkdirSync(join(tmp, ".claude"), { recursive: true });
     writeFileSync(
@@ -393,15 +393,24 @@ describe("writer — v1 manifest is treated as no-prior-state", () => {
 
     expect(readManifest(join(tmp, ".claude"))).toBeNull();
 
-    // Apply a fresh bundle that doesn't reference legacy-skill. With the v1
-    // manifest treated as null, cleanup is a no-op for one cycle — the
-    // legacy file survives.
-    await applyBundle(bundleA(), tmp);
-    expect(existsSync(join(tmp, ".claude/skills/legacy-skill/SKILL.md"))).toBe(true);
+    const manifestPath = join(tmp, ".claude", MANIFEST_FILENAME);
+    const legacyPath = join(tmp, ".claude/skills/legacy-skill/SKILL.md");
+    const manifestBefore = readFileSync(manifestPath);
+    const legacyBefore = readFileSync(legacyPath);
 
-    // The freshly written manifest is v3.
-    const next = readManifest(join(tmp, ".claude"));
-    expect(next!.manifestVersion).toBe(3);
+    // A nullable low-level read is not permission to erase unsupported state.
+    await expect(applyBundle(bundleA(), tmp)).rejects.toMatchObject({
+      code: "course_binding_invalid",
+    });
+    expect(readFileSync(manifestPath)).toEqual(manifestBefore);
+    expect(readFileSync(legacyPath)).toEqual(legacyBefore);
+    expect(readManifest(join(tmp, ".claude"))).toBeNull();
+    expect(existsSync(join(tmp, ".10x-cli.json"))).toBe(false);
+    expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(tmp, ".claude/skills/code-review"))).toBe(false);
+    expect(existsSync(join(tmp, ".claude/skills/tdd"))).toBe(false);
+    expect(existsSync(join(tmp, ".claude/prompts"))).toBe(false);
+    expect(existsSync(join(tmp, ".claude/config-templates"))).toBe(false);
   });
 });
 

@@ -4,9 +4,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   DEFAULT_TOOL,
   LEGACY_PROFILES,
@@ -15,7 +15,7 @@ import {
   SENTINEL_END,
 } from "../src/lib/tool-profile";
 import { readToolConfig, saveToolConfig, toolConfigPath } from "../src/lib/config";
-import { resolveToolProfile } from "../src/lib/tool-prompt";
+import { prepareToolForWrite, resolveToolProfile } from "../src/lib/tool-prompt";
 import { isSafeName } from "../src/lib/writer";
 import {
   CLI_PACKAGE_NAME,
@@ -188,22 +188,32 @@ describe("resolveToolProfile", () => {
     expect(profile.toolId).toBe("cursor");
   });
 
-  it("legacy windsurf config resolves to Devin Desktop and is canonicalized", async () => {
+  it("legacy windsurf config resolves read-only and is canonicalized only for a validated write", async () => {
     saveToolConfig({ tool: "windsurf" });
     process.stdout.isTTY = false;
 
-    const profile = await resolveToolProfile();
+    const before = readFileSync(toolConfigPath());
+    const profile = await resolveToolProfile(undefined, tmp);
 
     expect(profile.toolId).toBe("devin-desktop");
+    expect(readFileSync(toolConfigPath())).toEqual(before);
+    expect(readToolConfig()?.tool).toBe("windsurf");
+    expect(existsSync(join(tmp, ".10x-cli.json"))).toBe(false);
+
+    await prepareToolForWrite(tmp, profile, "10xdevs3");
     expect(readToolConfig()?.tool).toBe("devin-desktop");
   });
 
   it("legacy --tool windsurf flag remains an alias for Devin Desktop", async () => {
     process.stdout.isTTY = false;
 
-    const profile = await resolveToolProfile("windsurf");
+    const profile = await resolveToolProfile("windsurf", tmp);
 
     expect(profile.toolId).toBe("devin-desktop");
+    expect(readToolConfig()).toBeNull();
+    expect(existsSync(join(tmp, ".10x-cli.json"))).toBe(false);
+
+    await prepareToolForWrite(tmp, profile, "10xdevs3");
     expect(readToolConfig()?.tool).toBe("devin-desktop");
   });
 
@@ -282,7 +292,7 @@ describe("resolveToolProfile — auto-detection", () => {
 // resolveToolProfile — tool-switch migration integration
 // ---------------------------------------------------------------------------
 
-describe("resolveToolProfile — tool-switch migration", () => {
+describe("prepareToolForWrite — tool-switch migration", () => {
   let tmp: string;
   let projectRoot: string;
   let priorIsTTY: boolean | undefined;
@@ -315,7 +325,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
       manifestVersion: 2,
       lastApplied: "2026-04-18T00:00:00Z",
       lessonId: "m1l1",
-      course: "10xDevs",
+      course: "10xdevs3",
       tool: toolId,
       files: { skills: skillsRecord, prompts: [], configs: [] },
     };
@@ -329,6 +339,35 @@ describe("resolveToolProfile — tool-switch migration", () => {
     }
   }
 
+  function projectSnapshot(): Record<string, string> {
+    const result: Record<string, string> = {};
+    function visit(dir: string): void {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        const key = relative(projectRoot, path);
+        if (entry.isDirectory()) {
+          result[`${key}/`] = "directory";
+          visit(path);
+        } else {
+          result[key] = readFileSync(path).toString("base64");
+        }
+      }
+    }
+    visit(projectRoot);
+    return result;
+  }
+
+  async function resolveThenPrepare() {
+    const projectBefore = projectSnapshot();
+    const configBefore = readFileSync(toolConfigPath());
+    const profile = await resolveToolProfile(undefined, projectRoot);
+    expect(projectSnapshot()).toEqual(projectBefore);
+    expect(readFileSync(toolConfigPath())).toEqual(configBefore);
+    expect(clackMockState.selectCalls.some((call) => call.message.includes("What should we do"))).toBe(false);
+    await prepareToolForWrite(projectRoot, profile, "10xdevs3");
+    return profile;
+  }
+
   it("prompts for migrate/delete/keep when switching tools with a present, non-acknowledged orphan", async () => {
     process.stdout.isTTY = true;
     saveToolConfig({ tool: "cursor" });
@@ -339,7 +378,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
       return opts.initialValue;
     };
 
-    const profile = await resolveToolProfile(undefined, projectRoot);
+    const profile = await resolveThenPrepare();
 
     expect(profile.toolId).toBe("cursor");
     const migrationPrompt = clackMockState.selectCalls.find((c) =>
@@ -365,7 +404,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
       return opts.initialValue;
     };
 
-    const profile = await resolveToolProfile(undefined, projectRoot);
+    const profile = await resolveThenPrepare();
 
     expect(profile.toolId).toBe("devin-desktop");
     expect(readToolConfig()?.tool).toBe("devin-desktop");
@@ -379,7 +418,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
     saveToolConfig({ tool: "cursor", acknowledgedOrphans: ["claude-code"] });
     seedOrphanManifest("claude-code", ["code-review"]);
 
-    await resolveToolProfile(undefined, projectRoot);
+    await resolveThenPrepare();
 
     const migrationPrompt = clackMockState.selectCalls.find((c) =>
       c.message.includes("What should we do"),
@@ -396,7 +435,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
     saveToolConfig({ tool: "cursor" });
     seedOrphanManifest("claude-code", ["code-review"]);
 
-    await resolveToolProfile(undefined, projectRoot);
+    await resolveThenPrepare();
 
     expect(clackMockState.selectCalls).toEqual([]);
     // Files left in place — non-TTY keeps the legacy verbose warning in get.ts
@@ -414,7 +453,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
       return opts.initialValue;
     };
 
-    await resolveToolProfile(undefined, projectRoot);
+    await resolveThenPrepare();
 
     const cfg = readToolConfig();
     expect(cfg?.acknowledgedOrphans).toEqual(["claude-code"]);
@@ -449,7 +488,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
       return opts.initialValue;
     };
 
-    await resolveToolProfile(undefined, projectRoot);
+    await resolveThenPrepare();
 
     const raw = JSON.parse(readFileSync(cfgPath, "utf8")) as Record<string, unknown>;
     expect(raw["tool"]).toBe("cursor");
@@ -469,7 +508,7 @@ describe("resolveToolProfile — tool-switch migration", () => {
       return opts.initialValue;
     };
 
-    await resolveToolProfile(undefined, projectRoot);
+    await resolveThenPrepare();
 
     const cfg = readToolConfig();
     expect(cfg?.acknowledgedOrphans).toBeUndefined();

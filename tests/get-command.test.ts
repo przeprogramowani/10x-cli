@@ -19,6 +19,8 @@ import { join } from "node:path";
 import cac from "cac";
 import type { ApiResult } from "../src/lib/api-client";
 import type { LessonBundle } from "../src/lib/api-content";
+import { applyBundle } from "../src/lib/writer";
+import { readManifest } from "../src/lib/manifest";
 import { AUTH_FILE_VERSION, type AuthData, saveAuth, readToolConfig, saveToolConfig } from "../src/lib/config";
 // IMPORTANT: import the shared mock BEFORE any dynamic import of the command.
 import {
@@ -606,10 +608,12 @@ describe("10x get — course rules opt-out", () => {
     saveToolConfig({ tool: "claude-code" });
     apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
 
-    // Pre-seed a rules file that already holds a course block bracketed by
-    // user-authored content. A single disabled run must strip only the block.
+    // Establish the baseline through a successful delivery, then add user
+    // content outside its sentinel without changing the managed block.
+    await applyBundle(makeBundle(), projectRoot);
     const claudeMd = join(projectRoot, "CLAUDE.md");
-    writeFileSync(claudeMd, `# My own rules\n\nKeep me.\n\n${BEGIN}\ncourse stuff\n${END}\n`);
+    const installed = readFileSync(claudeMd, "utf8");
+    writeFileSync(claudeMd, `# My own rules\n\nKeep me.\n\n${installed}\r\nTrailer  `);
 
     const { stdout, exitCode } = await runGet(["get", "m1l1", "--no-course-rules", "--json"]);
     expect(exitCode ?? 0).toBe(0);
@@ -619,9 +623,8 @@ describe("10x get — course rules opt-out", () => {
     expect(data.counts.rules).toBe(0);
 
     const after = readFileSync(claudeMd, "utf8");
-    expect(after).not.toContain(BEGIN);
-    expect(after).toContain("# My own rules");
-    expect(after).toContain("Keep me.");
+    expect(after).toBe("# My own rules\n\nKeep me.\n\n\n\r\nTrailer  ");
+    expect(readManifest(join(projectRoot, ".claude"))!.managedRules).toBeUndefined();
   });
 
   it("human output renders a [removed] rules line when a block is stripped", async () => {
@@ -629,15 +632,46 @@ describe("10x get — course rules opt-out", () => {
     saveToolConfig({ tool: "claude-code" });
     apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
 
-    // Pre-seed an existing block, then run in human mode (TTY, no --json): the
-    // renderer emits the [removed] rules line. No conflict resolver fires —
-    // rules are sentinel-based, not manifest-tracked.
-    writeFileSync(join(projectRoot, "CLAUDE.md"), `${BEGIN}\ncourse stuff\n${END}\n`);
+    // A genuine delivered baseline permits removal without prompting.
+    await applyBundle(makeBundle(), projectRoot);
+    expect(readManifest(join(projectRoot, ".claude"))!.managedRules?.upstreamHash).toBeDefined();
 
     process.stdout.isTTY = true;
     const { stdout, stderr, exitCode } = await runGet(["get", "m1l1", "--no-course-rules"]);
     expect(exitCode ?? 0).toBe(0);
     expect(`${stdout}${stderr}`).toContain("[removed] rules");
+  });
+
+  it("--no-course-rules preserves an unknown block byte-for-byte and does not adopt its baseline", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    const path = join(projectRoot, "CLAUDE.md");
+    const existing = `  before\r\n${BEGIN}\nlocal course rules\n${END}\r\nvaluable trailer  `;
+    writeFileSync(path, existing);
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--no-course-rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    const data = parseOk<{ writes: { rules: { action: string; reason: string } } }>(stdout);
+    expect(data.writes.rules).toMatchObject({ action: "conflict_skipped", reason: "missing_baseline" });
+    expect(readFileSync(path, "utf8")).toBe(existing);
+    expect(readManifest(join(projectRoot, ".claude"))!.managedRules).toBeUndefined();
+  });
+
+  it("--no-course-rules preserves edited managed rules and their original upstream hash", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    await applyBundle(makeBundle(), projectRoot);
+    const baseline = readManifest(join(projectRoot, ".claude"))!.managedRules;
+    const path = join(projectRoot, "CLAUDE.md");
+    const edited = readFileSync(path, "utf8").replace("rules md", "my edited rules");
+    writeFileSync(path, edited);
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--no-course-rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    const data = parseOk<{ writes: { rules: { action: string; reason: string } } }>(stdout);
+    expect(data.writes.rules).toMatchObject({ action: "conflict_skipped", reason: "locally_modified" });
+    expect(readFileSync(path, "utf8")).toBe(edited);
+    expect(readManifest(join(projectRoot, ".claude"))!.managedRules).toEqual(baseline);
   });
 
   it("--course-rules (positive form) parses through CAC without a USAGE exit", async () => {

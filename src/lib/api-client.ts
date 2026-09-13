@@ -94,6 +94,10 @@ export const UNKNOWN_API_ERROR_MESSAGE =
 const ERROR_CODE_MESSAGES: Record<string, string> = {
   // Content
   course_not_found: "Course not found.",
+  course_unavailable: "This course has no available published content yet.",
+  course_access_denied: "Your account does not have access to this course.",
+  invalid_release: "The selected content release is invalid.",
+  release_mismatch: "Content does not match the selected release. Run the command again.",
   lesson_not_found: "Lesson not found.",
   module_not_found: "Module not found.",
   artifact_not_found: "Artifact not found.",
@@ -206,7 +210,7 @@ async function request<T>(
     return {
       ok: false,
       status: response.status,
-      code: typeof payload?.code === "string" ? payload.code : `http_${response.status}`,
+      code: typeof payload?.code === "string" ? payload.code : typeof payload?.error === "string" ? payload.error : `http_${response.status}`,
       error: errorMessage,
       payload,
     };

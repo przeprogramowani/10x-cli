@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
@@ -449,5 +449,237 @@ describe("10x sync — locked modules", () => {
     expect(fetched).toEqual(["m1l1"]); // m2l1 excluded, never fetched
     const excluded = envelope(res.stdout).data.excluded as Array<{ lessonId: string; reason: string }>;
     expect(excluded).toEqual([{ lessonId: "m2l1", reason: "module 2 is locked" }]);
+  });
+});
+
+describe("v4 operation release consistency", () => {
+  beforeEach(() => {
+    apiContentMockState.fetchCoursesImpl = () => ({ ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data: { courses: [{ id: "10xdevs-4", slug: "10xdevs4", title: "10xDevs 4", edition: 4, available: true }], defaultCourse: "10xdevs4" } });
+  });
+  it("sync reads one catalog and retains that release after current advances between lessons", async () => {
+    const release = { course: "10xdevs4", releaseId: `r-${"a".repeat(64)}`, releaseManifestHash: "b".repeat(64) };
+    const catalog = { ...makeCatalog([lessonSummary({lessonId:"m1l1",module:1,lesson:1}),lessonSummary({lessonId:"m1l2",module:1,lesson:2})]), ...release };
+    let catalogReads = 0;
+    const selections: unknown[] = [];
+    apiContentMockState.fetchCatalogImpl = () => { catalogReads++; return okCatalog(catalog); };
+    apiContentMockState.fetchLessonImpl = (_course,id,_token,options) => {
+      selections.push(options?.release);
+      return okLesson({ ...makeBundle(id, options?.release?.releaseId === release.releaseId ? "selected-old-bytes" : "new-current-bytes"), ...release });
+    };
+    const res = await runSyncCmd(["--all","--course","10xdevs4","--tool","claude-code"]);
+    expect(res.exitCode).toBeUndefined(); expect(envelope(res.stdout).status).toBe("ok");
+    expect(catalogReads).toBe(1); expect(selections).toEqual([release,release]);
+    expect(readFileSync(join(tmp,".claude/skills/auth-skill/SKILL.md"),"utf8")).toBe("selected-old-bytes");
+  });
+  it("printed get selects the catalog once and propagates release to individual artifact reads", async () => {
+    const release = { course:"10xdevs4", releaseId:`r-${"a".repeat(64)}`, releaseManifestHash:"b".repeat(64) };
+    let catalogReads=0; let selected:unknown;
+    apiContentMockState.fetchCatalogImpl=()=>{catalogReads++;return okCatalog({...makeCatalog([]),...release});};
+    apiContentMockState.fetchArtifactImpl=(_course,_lesson,_type,_name,_tool,_token,options)=>{selected=options?.release;return {ok:true,status:200,data:{type:"prompts",name:"hello",content:"selected artifact",...release},responseHeaders:new Headers(),rawBody:""};};
+    const res=await captureStreams(async()=>{const {runGet}=await import("../src/commands/get");const {resolveContext}=await import("../src/lib/output");await runGet(resolveContext({json:true}),"m1l1",{course:"10xdevs4",tool:"claude-code",print:true,type:"prompts",name:"hello"});});
+    expect(catalogReads).toBe(1);expect(selected).toEqual(release);expect(res.stdout).toContain("selected artifact");
+  });
+});
+
+describe("sync local state and representation", () => {
+  function seed() {
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "same-digest" })]), { m1l1: makeBundle("m1l1", "upstream") });
+  }
+  it("repairs missing files despite an unchanged catalog digest", async () => {
+    seed(); await runSyncCmd(["--all", "--tool", "claude-code"]);
+    rmSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"));
+    fetched = [];
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1"]);
+    expect(readFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "utf8")).toBe("upstream");
+  });
+  it("reports local edits even when upstream digest has not changed", async () => {
+    seed(); await runSyncCmd(["--all", "--tool", "claude-code"]);
+    writeFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "local");
+    fetched = [];
+    const response = await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1"]);
+    expect(response.stdout).toContain("skipped-conflict");
+    expect(readFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "utf8")).toBe("local");
+  });
+  it("changing language invalidates the digest shortcut and stores the delivered representation", async () => {
+    seed(); await runSyncCmd(["--all", "--tool", "claude-code", "--lang", "en"]);
+    fetched = [];
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "same-digest" })]), { m1l1: makeBundle("m1l1", "polska wersja") });
+    await runSyncCmd(["--tool", "claude-code", "--lang", "pl"]);
+    expect(fetched).toEqual(["m1l1"]);
+    expect(readFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "utf8")).toBe("polska wersja");
+    const state = readManifestFile() as { lessons: Record<string, { representation: { lang: string } }> };
+    expect(state.lessons.m1l1!.representation.lang).toBe("pl");
+  });
+  it("refetches old manifests without representation metadata", async () => {
+    seed(); await runSyncCmd(["--all", "--tool", "claude-code"]);
+    const state = readManifestFile() as { lessons: Record<string, { representation?: unknown }> };
+    delete state.lessons.m1l1!.representation;
+    writeFileSync(join(tmp, ".claude", MANIFEST_FILENAME), JSON.stringify(state));
+    fetched = [];
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1"]);
+  });
+  it("force still preserves edited managed rules and their upstream baseline", async () => {
+    const original = { ...makeBundle("m1l1", "upstream"), rules: [{ name: "rules", content: "original rule" }] };
+    const catalog = makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" })]);
+    wire(catalog, { m1l1: original });
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    const before = readManifestFile().managedRules;
+    const path = join(tmp, "CLAUDE.md");
+    const local = readFileSync(path, "utf8").replace("original rule", "my local rule");
+    writeFileSync(path, local);
+    const response = await runSyncCmd(["--force", "--tool", "claude-code"]);
+    expect(response.stdout).toContain("skipped-conflict");
+    expect(readFileSync(path, "utf8")).toBe(local);
+    expect(readManifestFile().managedRules).toEqual(before);
+  });
+});
+
+describe("sync cumulative variants converge", () => {
+  function variants(secondId = "m1l2", firstId = "m1l1") {
+    const summaries = [firstId, secondId].map((id) => {
+      const [, module, lesson] = /^m(\d+)l(\d+)$/.exec(id)!;
+      return lessonSummary({ lessonId: id, module: Number(module), lesson: Number(lesson), contentHash: `digest-${id}` });
+    });
+    const bundles = Object.fromEntries(summaries.map(({ lessonId }) => {
+      const bundle = makeBundle(lessonId, `skill-${lessonId}`);
+      bundle.skills[0]!.files.push({ path: "references/shared.md", content: `reference-${lessonId}` });
+      bundle.prompts = [{ name: "shared", content: `prompt-${lessonId}` }];
+      bundle.rules = [{ name: "rules", content: `rules-${lessonId}` }];
+      return [lessonId, bundle];
+    }));
+    wire(makeCatalog(summaries), bundles);
+    return { summaries, bundles };
+  }
+  function skillPath() { return join(tmp, ".claude/skills/auth-skill/SKILL.md"); }
+  function assertFinal(secondId = "m1l2") {
+    expect(readFileSync(skillPath(), "utf8")).toBe(`skill-${secondId}`);
+    expect(readFileSync(join(tmp, ".claude/skills/auth-skill/references/shared.md"), "utf8")).toBe(`reference-${secondId}`);
+    expect(readFileSync(join(tmp, ".claude/prompts/shared.md"), "utf8")).toBe(`prompt-${secondId}`);
+    expect(readFileSync(join(tmp, "CLAUDE.md"), "utf8")).toContain(`rules-${secondId}`);
+  }
+  async function assertIdle() {
+    const paths = [skillPath(), join(tmp, ".claude/skills/auth-skill/references/shared.md"), join(tmp, ".claude/prompts/shared.md"), join(tmp, "CLAUDE.md"), join(tmp, ".claude", MANIFEST_FILENAME)];
+    const before = paths.map((path) => {
+      utimesSync(path, new Date("2001-01-01T00:00:00Z"), new Date("2001-01-01T00:00:00Z"));
+      return { bytes: readFileSync(path), mtime: statSync(path).mtimeMs };
+    });
+    fetched = [];
+    const response = await runSyncCmd(["--tool", "claude-code"]);
+    expect(response.exitCode).toBeUndefined();
+    expect(envelope(response.stdout).data.totals).toMatchObject({ updated: 0, unchanged: 2, conflicts: 0, errored: 0, resources: { created: 0, upstreamUpdated: 0, removed: 0 } });
+    expect(fetched).toEqual([]);
+    paths.forEach((path, index) => {
+      expect(readFileSync(path)).toEqual(before[index]!.bytes);
+      expect(statSync(path).mtimeMs).toBe(before[index]!.mtime);
+    });
+  }
+  it("repeated sync of distinct cumulative skill, support, prompt and rules variants has zero writes", async () => {
+    variants();
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    assertFinal();
+    await assertIdle();
+    await assertIdle();
+  });
+  it("orders supersession numerically when lesson numbers have different widths", async () => {
+    variants("m1l10", "m1l2");
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    assertFinal("m1l10");
+    await assertIdle();
+  });
+  it("an earlier upstream change still reapplies the later owner before becoming idle", async () => {
+    const { summaries, bundles } = variants();
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    summaries[0]!.contentHash = "earlier-new-digest";
+    bundles.m1l1!.skills[0]!.files[0]!.content = "earlier new upstream";
+    wire(makeCatalog(summaries), bundles);
+    fetched = [];
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1", "m1l2"]);
+    assertFinal();
+    await assertIdle();
+  });
+  it("module filtering preserves selected scope and a later full sync restores later ownership", async () => {
+    const { summaries, bundles } = variants("m2l1");
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    summaries[0]!.contentHash = "earlier-new-digest";
+    bundles.m1l1!.skills[0]!.files[0]!.content = "earlier new upstream";
+    wire(makeCatalog(summaries), bundles);
+    fetched = [];
+    await runSyncCmd(["--module", "m1", "--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1"]);
+    expect(readFileSync(skillPath(), "utf8")).toBe("earlier new upstream");
+    fetched = [];
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m2l1"]);
+    assertFinal("m2l1");
+    await assertIdle();
+  });
+  it("repairs a missing shared support file with the final owner's exact bytes", async () => {
+    variants();
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    rmSync(join(tmp, ".claude/skills/auth-skill/references/shared.md"));
+    await runSyncCmd(["--tool", "claude-code"]);
+    assertFinal();
+    await assertIdle();
+  });
+  it("preserves local shared edits despite matching digests", async () => {
+    variants();
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    writeFileSync(skillPath(), "my local shared edit");
+    fetched = [];
+    const response = await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1", "m1l2"]);
+    expect(response.stdout).toContain("skipped-conflict");
+    expect(readFileSync(skillPath(), "utf8")).toBe("my local shared edit");
+  });
+  it("a module-scoped language change invalidates owners in the previous language", async () => {
+    const { summaries, bundles } = variants("m2l1");
+    await runSyncCmd(["--all", "--tool", "claude-code", "--lang", "en"]);
+    bundles.m2l1!.skills[0]!.files[0]!.content = "polski wariant";
+    wire(makeCatalog(summaries), bundles);
+    await runSyncCmd(["--module", "m2", "--tool", "claude-code", "--lang", "pl"]);
+    expect(readFileSync(skillPath(), "utf8")).toBe("polski wariant");
+    fetched = [];
+    await runSyncCmd(["--module", "m1", "--tool", "claude-code", "--lang", "en"]);
+    expect(fetched).toEqual(["m1l1"]);
+    expect(readFileSync(skillPath(), "utf8")).toBe("skill-m1l1");
+  });
+  it("a later lesson with no rules retains the earlier managed block without repeated writes", async () => {
+    const { summaries, bundles } = variants();
+    bundles.m1l2!.rules = [];
+    wire(makeCatalog(summaries), bundles);
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    expect(readFileSync(join(tmp, "CLAUDE.md"), "utf8")).toContain("rules-m1l1");
+    await assertIdle();
+  });
+  it("a partial later write cannot certify a complete cumulative representation", async () => {
+    variants();
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    const { applyBundle } = await import("../src/lib/writer");
+    await applyBundle(makeBundle("m1l2", "partial later variant"), tmp, { partial: true });
+    expect(readFileSync(skillPath(), "utf8")).toBe("partial later variant");
+    fetched = [];
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1", "m1l2"]);
+    assertFinal();
+    await assertIdle();
+  });
+  it("a module-scoped rules opt-out does not preserve earlier owners' enabled-policy shortcut", async () => {
+    variants("m2l1");
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    const argv = process.argv;
+    try {
+      process.argv = [...argv, "--no-course-rules"];
+      await runSyncCmd(["--module", "m2", "--tool", "claude-code"]);
+      expect(readFileSync(join(tmp, "CLAUDE.md"), "utf8")).not.toContain("rules-m2l1");
+      process.argv = [...argv, "--course-rules"];
+      fetched = [];
+      await runSyncCmd(["--module", "m1", "--tool", "claude-code"]);
+      expect(fetched).toEqual(["m1l1"]);
+      expect(readFileSync(join(tmp, "CLAUDE.md"), "utf8")).toContain("rules-m1l1");
+    } finally { process.argv = argv; }
   });
 });

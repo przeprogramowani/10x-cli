@@ -1,168 +1,51 @@
-/**
- * Rules sentinel handling for CLAUDE.md.
- *
- * Two concerns live here:
- *
- *  1. **Migration** from the legacy `@przeprogramowani/10x-toolkit` marker
- *     pair (written by `internal-pkg`) to the new `@przeprogramowani/10x-cli`
- *     marker pair. A student who ran `internal-pkg` before switching to
- *     `10x-cli` must not end up with two sentinel blocks, and partial/orphan
- *     markers (from manual edits) must be repaired rather than duplicated.
- *
- *  2. **Idempotent re-apply** of the new block. Running `10x get m1l1`
- *     twice in a row must produce byte-identical CLAUDE.md output so the
- *     writer can report `rules.action: "unchanged"` without trickery.
- *
- * This module is intentionally string-in / string-out so it's trivially
- * unit-testable with no filesystem involvement — see
- * `tests/sentinel-migration.test.ts`.
- */
-
+/** Sentinel surgery preserves every byte outside the selected marker pair. */
 export const OLD_BEGIN = "<!-- BEGIN @przeprogramowani/10x-toolkit -->";
 export const OLD_END = "<!-- END @przeprogramowani/10x-toolkit -->";
 export const NEW_BEGIN = "<!-- BEGIN @przeprogramowani/10x-cli -->";
 export const NEW_END = "<!-- END @przeprogramowani/10x-cli -->";
+export interface RulesBlockResult { content: string; warnings: string[] }
+export interface RemoveRulesResult { content: string; removed: boolean }
+export interface RulesBlock { start: number; finish: number; text: string; body: string }
 
-export interface RulesBlockResult {
-  content: string;
-  warnings: string[];
+export function inspectRulesBlock(content: string, begin: string, end: string): RulesBlock | null {
+  const starts = content.split(begin).length - 1;
+  const ends = content.split(end).length - 1;
+  if (!starts && !ends) return null;
+  const start = content.indexOf(begin);
+  const stop = content.indexOf(end);
+  if (starts !== 1 || ends !== 1 || stop < start) {
+    throw new Error("Rules markers need repair: orphan, duplicate, or out-of-order sentinel. Preserve the file and resolve its markers before continuing.");
+  }
+  const finish = stop + end.length;
+  return { start, finish, text: content.slice(start, finish), body: content.slice(start + begin.length, stop).trim() };
 }
 
-export interface RemoveRulesResult {
-  content: string;
-  removed: boolean;
+export function removeRulesBlockWithMarkers(existing: string, begin: string, end: string): RemoveRulesResult {
+  const block = inspectRulesBlock(existing, begin, end);
+  if (!block) return { content: existing, removed: false };
+  return { content: existing.slice(0, block.start) + existing.slice(block.finish), removed: true };
 }
 
-/**
- * Symmetric counterpart to `applyRulesBlockWithMarkers`: strip the sentinel
- * block bounded by `begin`/`end` from `existing`, collapsing the splice point
- * to at most one blank line. Used by the tool-switch migration flow to clean
- * the old tool's rules file after artifacts have been moved or deleted.
- *
- * Returns `{ removed: false }` unchanged when either marker is missing or
- * they appear out of order (defensive no-op for corrupted inputs).
- */
-export function removeRulesBlockWithMarkers(
-  existing: string,
-  begin: string,
-  end: string,
-): RemoveRulesResult {
-  const beginIdx = existing.indexOf(begin);
-  const endIdx = existing.indexOf(end);
-  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) {
-    return { content: existing, removed: false };
-  }
-  const beforeRaw = existing.slice(0, beginIdx);
-  const afterRaw = existing.slice(endIdx + end.length);
-  // Strip trailing/leading newlines (incl. CRLF) around the splice so the
-  // output has a deterministic amount of blank space at the join point.
-  const before = beforeRaw.replace(/[\r\n]*$/, "");
-  const after = afterRaw.replace(/^[\r\n]*/, "");
-  const joiner = before.length > 0 && after.length > 0 ? "\n\n" : "";
-  const combined = before + joiner + after;
-  const content = combined.length === 0 ? "" : combined.replace(/[\r\n]*$/, "\n");
-  return { content, removed: true };
+export function applyRulesBlock(existing: string, body: string): RulesBlockResult {
+  return applyRulesBlockWithMarkers(existing, body, NEW_BEGIN, NEW_END);
 }
 
-/**
- * Strip any existing sentinel blocks (old or new) from `existingContent` and
- * append a fresh `@przeprogramowani/10x-cli` block wrapping `rulesBody`.
- *
- * Partial/orphan markers (one of BEGIN/END present without the matching
- * other) produce a warning and are repaired by truncating from the orphan
- * marker — mirrors the repair strategy in `internal-pkg/src/install.ts`
- * (`existing = existing.slice(0, idx)`).
- */
-/**
- * Apply rules with the default (10x-cli) sentinel markers. Delegates to
- * `applyRulesBlockWithMarkers()` for backward compatibility.
- */
-export function applyRulesBlock(
-  existingContent: string,
-  rulesBody: string,
-): RulesBlockResult {
-  return applyRulesBlockWithMarkers(existingContent, rulesBody, NEW_BEGIN, NEW_END);
-}
-
-/**
- * Apply rules with custom sentinel markers. Strips legacy and current
- * marker pairs, then appends a fresh block using the given markers.
- */
-export function applyRulesBlockWithMarkers(
-  existingContent: string,
-  rulesBody: string,
-  beginMarker: string,
-  endMarker: string,
-): RulesBlockResult {
-  // Guard: if the rules body itself contains any sentinel marker string, an
-  // attacker or buggy lesson could trick the next re-apply's `stripBlock`
-  // into treating the embedded marker as the real one — permanently
-  // destroying student content beyond the sentinel. See F5 in the
-  // 2026-04-11 security review for the full breakdown.
-  for (const marker of [OLD_BEGIN, OLD_END, beginMarker, endMarker]) {
-    if (rulesBody.includes(marker)) {
-      throw new Error(
-        `rules body contains a sentinel marker (${JSON.stringify(marker)}) — refusing to write to prevent rules file corruption`,
-      );
-    }
+export function applyRulesBlockWithMarkers(existing: string, body: string, begin: string, end: string): RulesBlockResult {
+  for (const marker of [OLD_BEGIN, OLD_END, begin, end]) {
+    if (body.includes(marker)) throw new Error(`rules body contains a sentinel marker (${JSON.stringify(marker)})`);
   }
-
-  const warnings: string[] = [];
-  let content = existingContent;
-
-  // 1. Strip legacy `@przeprogramowani/10x-toolkit` block.
-  content = stripBlock(content, OLD_BEGIN, OLD_END, "@przeprogramowani/10x-toolkit", warnings);
-
-  // 2. Strip existing block (for idempotent re-apply; also covers the
-  //    rare coexistence case after step 1).
-  content = stripBlock(content, beginMarker, endMarker, "@przeprogramowani/10x-cli", warnings);
-
-  // 3. Normalize whitespace around the surgery site — collapse runs of 3+
-  //    newlines and trim leading/trailing whitespace so the next append has
-  //    a deterministic anchor.
-  content = content.replace(/\n{3,}/g, "\n\n").trim();
-
-  // 4. Append a fresh block.
-  const block = `${beginMarker}\n\n${rulesBody.trim()}\n\n${endMarker}`;
-  const result = content.length > 0 ? `${content}\n\n${block}\n` : `${block}\n`;
-
-  return { content: result, warnings };
-}
-
-function stripBlock(
-  content: string,
-  begin: string,
-  end: string,
-  label: string,
-  warnings: string[],
-): string {
-  const beginIdx = content.indexOf(begin);
-  const endIdx = content.indexOf(end);
-
-  if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
-    return content.slice(0, beginIdx) + content.slice(endIdx + end.length);
+  const current = inspectRulesBlock(existing, begin, end);
+  const legacy = begin === OLD_BEGIN ? null : inspectRulesBlock(existing, OLD_BEGIN, OLD_END);
+  const fresh = `${begin}\n\n${body.trim()}\n\n${end}`;
+  // This string helper performs explicit replacement. Writer first resolves
+  // unknown baselines and shared owners; it never silently adopts a legacy block.
+  const blocks = [current, legacy].filter((entry): entry is RulesBlock => entry !== null).sort((a, b) => a.start - b.start);
+  if (blocks.length > 1 && blocks[0]!.finish > blocks[1]!.start) throw new Error("Rules markers need repair: nested sentinel blocks.");
+  if (!blocks.length) return { content: `${existing}${existing && !existing.endsWith("\n") ? "\n" : ""}${fresh}\n`, warnings: [] };
+  let content = existing;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!;
+    content = content.slice(0, block.start) + (i === 0 ? fresh : "") + content.slice(block.finish);
   }
-  if (beginIdx !== -1 && endIdx === -1) {
-    warnings.push(
-      `CLAUDE.md has an orphan ${label} BEGIN marker; truncating from the marker onward.`,
-    );
-    return content.slice(0, beginIdx);
-  }
-  if (beginIdx === -1 && endIdx !== -1) {
-    warnings.push(
-      `CLAUDE.md has an orphan ${label} END marker; truncating content before the marker.`,
-    );
-    // Match internal-pkg repair behavior: slice to before the orphan marker,
-    // keeping the student's own content above it and dropping whatever came
-    // after.
-    return content.slice(0, endIdx);
-  }
-  // End before begin is pathological (edited file); treat as two orphans.
-  if (beginIdx !== -1 && endIdx !== -1 && endIdx < beginIdx) {
-    warnings.push(
-      `CLAUDE.md has out-of-order ${label} markers; repairing by truncating to the first marker.`,
-    );
-    return content.slice(0, Math.min(beginIdx, endIdx));
-  }
-  return content;
+  return { content, warnings: [] };
 }

@@ -13,7 +13,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    release?: string;
+                };
                 header?: never;
                 path: {
                     course: string;
@@ -29,6 +31,8 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            releaseId?: string;
+                            releaseManifestHash?: string;
                             course: string;
                             modules: {
                                 module: number;
@@ -47,7 +51,19 @@ export interface paths {
                                 summary: string;
                                 bundlePath: string;
                                 contentHash?: string;
+                                availableLanguages?: string[];
                             }[];
+                        };
+                    };
+                };
+                /** @description Course access denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
                         };
                     };
                 };
@@ -82,6 +98,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    release?: string;
                     tool?: string;
                     lang?: string;
                 };
@@ -101,6 +118,9 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            course?: string;
+                            releaseId?: string;
+                            releaseManifestHash?: string;
                             lessonId: string;
                             module: number;
                             lesson: number;
@@ -137,7 +157,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Module is locked */
+                /** @description Course access denied or module locked */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -181,6 +201,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    release?: string;
                     tool?: string;
                     lang?: string;
                 };
@@ -202,6 +223,9 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            course?: string;
+                            releaseId?: string;
+                            releaseManifestHash?: string;
                             /** @enum {string} */
                             type: "skills";
                             name: string;
@@ -212,6 +236,9 @@ export interface paths {
                             }[];
                             universalContent?: string;
                         } | {
+                            course?: string;
+                            releaseId?: string;
+                            releaseManifestHash?: string;
                             /** @enum {string} */
                             type: "prompts" | "rules" | "configs";
                             name: string;
@@ -219,7 +246,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Module is locked */
+                /** @description Course access denied or module locked */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -263,6 +290,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    release?: string;
                     type?: "skills" | "prompts" | "rules" | "configs";
                     name?: string;
                     tool?: string;
@@ -287,7 +315,7 @@ export interface paths {
                         "text/markdown": string;
                     };
                 };
-                /** @description Module is locked */
+                /** @description Course access denied or module locked */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -321,7 +349,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/modules/{course}": {
+    "/api/me/courses": {
         parameters: {
             query?: never;
             header?: never;
@@ -331,6 +359,139 @@ export interface paths {
         get: {
             parameters: {
                 query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Live course grants and highest available edition */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            courses: {
+                                id: string;
+                                slug: string;
+                                title: string;
+                                edition: number;
+                                available: boolean;
+                            }[];
+                            defaultCourse: string | null;
+                        };
+                    };
+                };
+                /** @description Membership, catalog or module-state lookup failed */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/courses/{course}/migration-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    release?: string;
+                };
+                header?: never;
+                path: {
+                    course: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Signed unavailable mapping envelope; grants no access */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {number} */
+                            schemaVersion: 1;
+                            /** @enum {string} */
+                            sourceCourse: "10xdevs3";
+                            /** @enum {string} */
+                            targetCourse: "10xdevs4";
+                            releaseId: string;
+                            /** @enum {string} */
+                            mappingStatus: "unavailable";
+                            entries: Record<string, never>[];
+                            /** @enum {string} */
+                            course: "10xdevs4";
+                            releaseManifestHash: string;
+                            mapHash: string;
+                        };
+                    };
+                };
+                /** @description Course denied or module locked */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description Release unavailable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/modules/{course}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    release?: string;
+                };
                 header?: never;
                 path: {
                     course: string;
@@ -346,6 +507,8 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
+                            releaseId?: string;
+                            releaseManifestHash?: string;
                             course: string;
                             modules: {
                                 module: number;
@@ -356,6 +519,17 @@ export interface paths {
                                 /** @enum {string} */
                                 effectiveState: "locked" | "unlocked";
                             }[];
+                        };
+                    };
+                };
+                /** @description Course access denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
                         };
                     };
                 };
@@ -389,7 +563,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    release?: string;
+                };
                 header?: never;
                 path: {
                     course: string;
@@ -413,6 +589,9 @@ export interface paths {
                             stateOverride: "locked" | "unlocked" | null;
                             /** @enum {string} */
                             effectiveState: "locked" | "unlocked";
+                            course?: string;
+                            releaseId?: string;
+                            releaseManifestHash?: string;
                             lessons: {
                                 lessonId: string;
                                 lesson: number;
@@ -425,6 +604,17 @@ export interface paths {
                                  */
                                 availableLanguages: string[];
                             }[];
+                        };
+                    };
+                };
+                /** @description Course access denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
                         };
                     };
                 };
@@ -491,6 +681,17 @@ export interface paths {
                 };
                 /** @description Admin access required */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description Course not found */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };

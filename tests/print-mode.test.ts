@@ -384,10 +384,10 @@ describe("10x get --print --type — type filter (no name)", () => {
     const parsed = JSON.parse(stdout.trim());
     expect(parsed.status).toBe("ok");
     // In JSON mode, returns the array of artifacts
-    expect(parsed.data).toBeArray();
-    expect(parsed.data.length).toBe(2);
-    expect(parsed.data[0].name).toBe("code-review");
-    expect(parsed.data[1].name).toBe("debugging");
+    expect(parsed.data.artifacts).toBeArray();
+    expect(parsed.data.artifacts.length).toBe(2);
+    expect(parsed.data.artifacts[0].name).toBe("code-review");
+    expect(parsed.data.artifacts[1].name).toBe("debugging");
   });
 
   it("outputs concatenated content with --- separators (human mode)", async () => {
@@ -456,9 +456,9 @@ describe("10x get --print --type — type filter (no name)", () => {
     ]);
     expect(exitCode ?? 0).toBe(0);
     const parsed = JSON.parse(stdout.trim());
-    expect(parsed.data).toBeArray();
-    expect(parsed.data.length).toBe(1);
-    expect(parsed.data[0].name).toBe("plan");
+    expect(parsed.data.artifacts).toBeArray();
+    expect(parsed.data.artifacts.length).toBe(1);
+    expect(parsed.data.artifacts[0].name).toBe("plan");
   });
 
   it("--print does not write files or update manifest", async () => {

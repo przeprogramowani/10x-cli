@@ -6,7 +6,7 @@
  * Override the source URL with API_BASE_URL in the environment:
  *   API_BASE_URL=http://localhost:8787 bun run generate-types
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -17,8 +17,11 @@ const specUrl = `${apiBase.replace(/\/$/, "")}/openapi.json`;
 const outPath = fileURLToPath(new URL("../src/generated/api-types.ts", import.meta.url));
 
 async function main() {
-  process.stderr.write(`[generate-types] Fetching ${specUrl}\n`);
-  const ast = await openapiTS(new URL(specUrl));
+  process.stderr.write(`[generate-types] Reading ${process.env["OPENAPI_SPEC_PATH"] ?? specUrl}\n`);
+  const localSpec = process.env["OPENAPI_SPEC_PATH"];
+  const check = process.argv.includes("--check");
+  if (check && !localSpec) throw new Error("--check requires OPENAPI_SPEC_PATH exported from the exact candidate backend; deployed/latest is not a candidate contract.");
+  const ast = await openapiTS(localSpec ? JSON.parse(await readFile(localSpec, "utf8")) : new URL(specUrl));
   const body = astToString(ast);
 
   const header = [
@@ -30,8 +33,14 @@ async function main() {
     "",
   ].join("\n");
 
+  const generated = `${header}${body}`;
+  if (check) {
+    if (await readFile(outPath, "utf8") !== generated) throw new Error("Committed API types differ from the candidate OpenAPI schema. Regenerate with the same OPENAPI_SPEC_PATH.");
+    process.stderr.write("[generate-types] Candidate schema matches committed types\n");
+    return;
+  }
   await mkdir(dirname(outPath), { recursive: true });
-  await writeFile(outPath, `${header}${body}`, "utf8");
+  await writeFile(outPath, generated, "utf8");
 
   process.stderr.write(`[generate-types] Wrote ${outPath}\n`);
 }

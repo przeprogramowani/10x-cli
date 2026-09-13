@@ -13,6 +13,37 @@
 import type { ApiResult } from "./api-client";
 import { apiGet, resolveApiBase } from "./api-client";
 import { verifyBundleSignature, SignatureError, REQUIRE_SIGNATURES } from "./signing";
+import type { paths } from "../generated/api-types";
+
+export type CourseDiscovery = paths["/api/me/courses"]["get"]["responses"][200]["content"]["application/json"];
+
+export function validateCourseDiscovery(value: unknown): value is CourseDiscovery {
+  if (!value || typeof value !== "object") return false;
+  const data = value as CourseDiscovery;
+  if (!Array.isArray(data.courses) || (data.defaultCourse !== null && typeof data.defaultCourse !== "string")) return false;
+  const identifiers = new Set<string>();
+  for (const course of data.courses) {
+    if (!course || typeof course.id !== "string" || !course.id || typeof course.slug !== "string" || !course.slug || typeof course.title !== "string" || !Number.isInteger(course.edition) || course.edition < 1 || typeof course.available !== "boolean") return false;
+    for (const identifier of new Set([course.id, course.slug])) {
+      if (identifiers.has(identifier)) return false;
+      identifiers.add(identifier);
+    }
+  }
+  const available = data.courses.filter((course) => course.available);
+  if (data.defaultCourse === null) return available.length === 0;
+  const selected = available.find((course) => course.id === data.defaultCourse || course.slug === data.defaultCourse);
+  return !!selected && available.every((course) => course.edition <= selected.edition);
+}
+
+export async function fetchCourses(token: string): Promise<ApiResult<CourseDiscovery>> {
+  const result = await apiGet<CourseDiscovery>("/api/me/courses", { token });
+  if (!result.ok) {
+    if (result.status === 404) return { ...result, code: "discovery_unsupported", error: "The backend does not support course discovery. Update the backend before using this CLI." };
+    return result;
+  }
+  if (!validateCourseDiscovery(result.data)) return { ok: false, status: 0, code: "discovery_invalid", error: "Invalid course discovery response; no course was selected." };
+  return result;
+}
 
 /** Module summary as returned by /api/catalog/:course and /api/modules/:course. */
 export interface ModuleSummary {
@@ -40,7 +71,21 @@ export interface LessonSummary {
   contentHash?: string;
 }
 
+export interface ReleaseSelection { course: string; releaseId: string; releaseManifestHash: string }
+export function catalogRelease(catalog: CatalogResponse): ReleaseSelection | undefined {
+  if (catalog.course !== "10xdevs4") return undefined;
+  if (!/^r-[a-f0-9]{64}$/.test(catalog.releaseId ?? "") || !/^[a-f0-9]{64}$/.test(catalog.releaseManifestHash ?? "")) throw new Error("Invalid or missing v4 catalog release identity");
+  return { course: catalog.course, releaseId: catalog.releaseId!, releaseManifestHash: catalog.releaseManifestHash! };
+}
+function releaseMismatch(course: string, data: unknown, selected?: ReleaseSelection): string | null {
+  if (course !== "10xdevs4" && course !== "10xdevs-4") return null;
+  if (!selected || selected.course !== "10xdevs4" || !data || typeof data !== "object") return "V4 content requires the operation's selected catalog release.";
+  const value = data as Record<string, unknown>;
+  return value["course"] === selected.course && value["releaseId"] === selected.releaseId && value["releaseManifestHash"] === selected.releaseManifestHash ? null : "Signed content differs from the selected course/release/manifest.";
+}
 export interface CatalogResponse {
+  releaseId?: string;
+  releaseManifestHash?: string;
   course: string;
   modules: ModuleSummary[];
   lessons: LessonSummary[];
@@ -87,6 +132,9 @@ export interface SkillBundle {
 }
 
 export interface LessonBundle {
+  course?: string;
+  releaseId?: string;
+  releaseManifestHash?: string;
   lessonId: string;
   module: number;
   lesson: number;
@@ -99,62 +147,74 @@ export interface LessonBundle {
 }
 
 /** Individual artifact as returned by /api/artifacts/:course/:lessonId/:type/:name. */
-export type ArtifactResponse =
+export type ArtifactResponse = { course?: string; releaseId?: string; releaseManifestHash?: string } & (
   | { type: "skills"; name: string; files: SkillFile[]; universalContent?: string }
-  | { type: "prompts" | "rules" | "configs"; name: string; content: string };
+  | { type: "prompts" | "rules" | "configs"; name: string; content: string });
 
 export interface HealthResponse {
   status: string;
 }
 
-export function fetchCatalog(
+export async function fetchCatalog(
   course: string,
   token: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; release?: ReleaseSelection } = {},
 ): Promise<ApiResult<CatalogResponse>> {
-  return apiGet<CatalogResponse>(
-    `/api/catalog/${encodeURIComponent(course)}`,
+  const result = await apiGet<CatalogResponse>(
+    `/api/catalog/${encodeURIComponent(course)}${options.release ? `?release=${encodeURIComponent(options.release.releaseId)}` : ""}`,
     { token, signal: options.signal },
   );
+  if (result.ok && (course === "10xdevs4" || course === "10xdevs-4")) {
+    try { if (result.data.course !== "10xdevs4") throw new Error("Catalog course mismatch"); catalogRelease(result.data); if (options.release) { const mismatch = releaseMismatch(course, result.data, options.release); if (mismatch) throw new Error(mismatch); } }
+    catch (error) { return { ok: false, status: 0, code: "release_mismatch", error: error instanceof Error ? error.message : String(error) }; }
+  }
+  return result;
 }
 
-export function fetchModules(
+export async function fetchModules(
   course: string,
   token: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; release?: ReleaseSelection } = {},
 ): Promise<ApiResult<ModulesResponse>> {
-  return apiGet<ModulesResponse>(
-    `/api/modules/${encodeURIComponent(course)}`,
+  const result = await apiGet<ModulesResponse>(
+    `/api/modules/${encodeURIComponent(course)}${options.release ? `?release=${encodeURIComponent(options.release.releaseId)}` : ""}`,
     { token, signal: options.signal },
   );
+  if (result.ok) { const mismatch = releaseMismatch(course, result.data, options.release); if (mismatch) return { ok: false, status: 0, code: "release_mismatch", error: mismatch }; }
+  return result;
 }
 
-export function fetchModuleDetail(
+export async function fetchModuleDetail(
   course: string,
   module: number,
   token: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; release?: ReleaseSelection } = {},
 ): Promise<ApiResult<ModuleDetailResponse>> {
-  return apiGet<ModuleDetailResponse>(
-    `/api/modules/${encodeURIComponent(course)}/${module}`,
+  const result = await apiGet<ModuleDetailResponse>(
+    `/api/modules/${encodeURIComponent(course)}/${module}${options.release ? `?release=${encodeURIComponent(options.release.releaseId)}` : ""}`,
     { token, signal: options.signal },
   );
+  if (result.ok) { const mismatch = releaseMismatch(course, result.data, options.release); if (mismatch) return { ok: false, status: 0, code: "release_mismatch", error: mismatch }; }
+  return result;
 }
 
 export async function fetchLesson(
   course: string,
   lessonId: string,
   token: string,
-  options: { signal?: AbortSignal; lang?: string; tool?: string } = {},
+  options: { signal?: AbortSignal; lang?: string; tool?: string; release?: ReleaseSelection } = {},
 ): Promise<ApiResult<LessonBundle>> {
   const params = new URLSearchParams();
   if (options.lang) params.set("lang", options.lang);
+  if (options.release) params.set("release", options.release.releaseId);
   if (options.tool) params.set("tool", options.tool);
   const qs = params.toString();
   const path = `/api/lessons/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}${qs ? `?${qs}` : ""}`;
   const result = await apiGet<LessonBundle>(path, { token, signal: options.signal });
 
   if (!result.ok) return result;
+  const mismatch = releaseMismatch(course, result.data, options.release);
+  if (mismatch) return { ok: false, status: 0, code: "release_mismatch", error: mismatch };
 
   const signature = result.responseHeaders.get("X-Bundle-Signature");
   const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
@@ -207,14 +267,17 @@ export async function fetchArtifact(
   name: string,
   tool: string,
   token: string,
-  options: { signal?: AbortSignal; lang?: string } = {},
+  options: { signal?: AbortSignal; lang?: string; release?: ReleaseSelection } = {},
 ): Promise<ApiResult<ArtifactResponse>> {
   const params = new URLSearchParams({ tool });
   if (options.lang) params.set("lang", options.lang);
+  if (options.release) params.set("release", options.release.releaseId);
   const path = `/api/artifacts/${encodeURIComponent(course)}/${encodeURIComponent(lessonId)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}?${params}`;
   const result = await apiGet<ArtifactResponse>(path, { token, signal: options.signal });
 
   if (!result.ok) return result;
+  const mismatch = releaseMismatch(course, result.data, options.release);
+  if (mismatch) return { ok: false, status: 0, code: "release_mismatch", error: mismatch };
 
   const signature = result.responseHeaders.get("X-Bundle-Signature");
   const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
@@ -294,4 +357,28 @@ export async function fetchHealth(
 /** Resolved API base URL — exported so doctor() can print it in its report. */
 export function apiBaseUrl(): string {
   return resolveApiBase();
+}
+
+/** Contract primitive for the separately scoped migration command. */
+export interface MigrationMapResponse extends ReleaseSelection {
+  schemaVersion: 1;
+  sourceCourse: "10xdevs3";
+  targetCourse: "10xdevs4";
+  mappingStatus: "unavailable";
+  entries: never[];
+  mapHash: string;
+}
+export async function fetchMigrationMap(course: string, token: string, release: ReleaseSelection): Promise<ApiResult<MigrationMapResponse>> {
+  const result = await apiGet<MigrationMapResponse>(`/api/courses/${encodeURIComponent(course)}/migration-map?release=${encodeURIComponent(release.releaseId)}`, { token });
+  if (!result.ok) return result;
+  const mismatch = releaseMismatch(course, result.data, release);
+  const data = result.data;
+  if (mismatch || data.schemaVersion !== 1 || data.sourceCourse !== "10xdevs3" || data.targetCourse !== "10xdevs4" || data.mappingStatus !== "unavailable" || !Array.isArray(data.entries) || data.entries.length !== 0 || !/^[a-f0-9]{64}$/.test(data.mapHash)) return { ok: false, status: 0, code: "release_mismatch", error: mismatch ?? "Invalid migration-map envelope." };
+  const signature = result.responseHeaders.get("X-Bundle-Signature");
+  const keyId = result.responseHeaders.get("X-Bundle-Key-Id");
+  const hash = result.responseHeaders.get("X-Bundle-Content-Hash");
+  if (!signature || !keyId || !hash) return { ok: false, status: 0, code: "signature_missing", error: "Migration map must be signed." };
+  try { verifyBundleSignature(result.rawBody, signature, Number(keyId), hash); }
+  catch (error) { return { ok: false, status: 0, code: "signature_error", error: error instanceof Error ? error.message : String(error) }; }
+  return result;
 }

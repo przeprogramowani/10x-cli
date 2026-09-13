@@ -1,12 +1,14 @@
 import type { CAC } from "cac";
 import {
   fetchCatalog,
+  catalogRelease,
+  type ReleaseSelection,
   fetchModuleDetail,
   type CatalogResponse,
   type ModuleDetailResponse,
   type ModuleSummary,
 } from "../lib/api-content";
-import { requireAuth } from "../lib/auth-guard";
+import { resolveCourseSelection, type SelectionReason } from "../lib/course-selection";
 import { formatReleaseAt } from "../lib/format";
 import { MAX_MODULE, MIN_MODULE, parseModuleRef } from "../lib/lesson-ref";
 import {
@@ -23,12 +25,10 @@ interface ListFlags extends GlobalFlags {
   course?: string;
 }
 
-const DEFAULT_COURSE = "10xdevs3";
-
 export function registerListCommand(cli: CAC): void {
   cli
     .command("list [module]", "Browse available modules and lessons")
-    .option("--course <course>", "Override the course slug (default: 10xdevs3)")
+    .option("--course <course>", "Select course ID or slug (default: project edition or API recommendation)")
     .action(async (moduleArg: string | undefined, options: ListFlags) => {
       const ctx = resolveContext(options);
       await runList(ctx, moduleArg, options);
@@ -40,11 +40,11 @@ export async function runList(
   moduleArg: string | undefined,
   options: ListFlags,
 ): Promise<void> {
-  const auth = await requireAuth(ctx);
-  const course = options.course ?? DEFAULT_COURSE;
+  const selection = await resolveCourseSelection(ctx, { explicit: options.course });
+  const { auth, course } = selection;
 
   if (moduleArg === undefined) {
-    await listAllModules(ctx, course, auth.access_token);
+    await listAllModules(ctx, course, auth.access_token, selection.reason);
     return;
   }
 
@@ -60,20 +60,21 @@ export async function runList(
     );
   }
 
-  await listModuleDetail(ctx, course, module, auth.access_token);
+  await listModuleDetail(ctx, course, module, auth.access_token, selection.reason);
 }
 
 async function listAllModules(
   ctx: OutputContext,
   course: string,
   token: string,
+  reason: SelectionReason,
 ): Promise<void> {
   verbose(ctx, `fetching catalog for ${course}`);
   const result = await fetchCatalog(course, token);
   if (!result.ok) {
     handleListError(ctx, result.status, result.code, result.error);
   }
-  renderCatalog(ctx, result.data);
+  renderCatalog(ctx, result.data, reason);
 }
 
 async function listModuleDetail(
@@ -81,13 +82,20 @@ async function listModuleDetail(
   course: string,
   module: number,
   token: string,
+  reason: SelectionReason,
 ): Promise<void> {
   verbose(ctx, `fetching module detail ${course}/${module}`);
-  const result = await fetchModuleDetail(course, module, token);
+  let release: ReleaseSelection | undefined;
+  if (course === "10xdevs4" || course === "10xdevs-4") {
+    const catalog = await fetchCatalog(course, token);
+    if (!catalog.ok) handleListError(ctx, catalog.status, catalog.code, catalog.error);
+    release = catalogRelease(catalog.data);
+  }
+  const result = await fetchModuleDetail(course, module, token, release ? { release } : {});
   if (!result.ok) {
     handleListError(ctx, result.status, result.code, result.error);
   }
-  renderModuleDetail(ctx, result.data);
+  renderModuleDetail(ctx, result.data, course, reason);
 }
 
 function handleListError(
@@ -96,6 +104,8 @@ function handleListError(
   code: string,
   error: string,
 ): never {
+  if (["course_access_denied", "module_locked", "course_unavailable"].includes(code)) outputError(ctx, code, error, status === 403 ? ExitCodes.FORBIDDEN : ExitCodes.ERROR);
+  if (code === "release_mismatch") outputError(ctx, code, error, ExitCodes.ERROR);
   if (status === 404) {
     outputError(
       ctx,
@@ -135,7 +145,7 @@ function handleListError(
   );
 }
 
-function renderCatalog(ctx: OutputContext, catalog: CatalogResponse): void {
+function renderCatalog(ctx: OutputContext, catalog: CatalogResponse, reason: SelectionReason): void {
   const lessonCountByModule = new Map<number, number>();
   for (const lesson of catalog.lessons) {
     lessonCountByModule.set(lesson.module, (lessonCountByModule.get(lesson.module) ?? 0) + 1);
@@ -144,6 +154,7 @@ function renderCatalog(ctx: OutputContext, catalog: CatalogResponse): void {
   if (ctx.json) {
     output(ctx, "", {
       course: catalog.course,
+      selectionReason: reason,
       modules: catalog.modules.map((m) => ({
         module: m.module,
         title: m.title,
@@ -169,7 +180,7 @@ function renderCatalog(ctx: OutputContext, catalog: CatalogResponse): void {
     0;
 
   const lines: string[] = [];
-  lines.push(`Course: ${catalog.course}`);
+  lines.push(`Course: ${catalog.course} (${reason})`);
   lines.push("");
   for (const m of catalog.modules) {
     lines.push(formatModuleRow(m, lessonCountByModule.get(m.module) ?? 0));
@@ -191,11 +202,13 @@ function formatModuleRow(m: ModuleSummary, lessonCount: number): string {
   return `  ${icon} ${label} — ${lessonCount} lesson${lessonCount === 1 ? "" : "s"} [${state}]`;
 }
 
-function renderModuleDetail(ctx: OutputContext, module: ModuleDetailResponse): void {
+function renderModuleDetail(ctx: OutputContext, module: ModuleDetailResponse, course: string, reason: SelectionReason): void {
   const isLocked = module.effectiveState === "locked";
 
   if (ctx.json) {
     output(ctx, "", {
+      course,
+      selectionReason: reason,
       module: module.module,
       title: module.title,
       state: module.effectiveState,
@@ -218,6 +231,7 @@ function renderModuleDetail(ctx: OutputContext, module: ModuleDetailResponse): v
     : "unlocked";
 
   const lines: string[] = [];
+  lines.push(`Course: ${course} (${reason})`);
   lines.push(`Module ${module.module}: ${module.title} [${stateLabel}]`);
   lines.push("");
   if (isLocked) {

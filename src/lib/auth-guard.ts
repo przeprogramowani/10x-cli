@@ -40,6 +40,8 @@ export const LOCK_STALE_MS = 10_000;
 export interface RequireAuthOptions {
   /** Override the refresh window in milliseconds. Defaults to 5 minutes. */
   refreshWindowMs?: number;
+  /** Force one locked rotation unless another process already replaced this token. */
+  forceRefreshForToken?: string;
   /** Test seam: override the clock. */
   now?: () => Date;
   /** Test seam: inject a custom refresher (defaults to refreshTokenRequest). */
@@ -139,7 +141,8 @@ export async function requireAuth(
   }
 
   const initialNow = now();
-  if (!isExpired(auth, initialNow) && !isNearExpiry(auth, windowMs, initialNow)) {
+  const forced = options.forceRefreshForToken !== undefined;
+  if (!forced && !isExpired(auth, initialNow) && !isNearExpiry(auth, windowMs, initialNow)) {
     return auth;
   }
 
@@ -162,7 +165,8 @@ export async function requireAuth(
     const freshNow = now();
     const freshExpired = isExpired(fresh, freshNow);
 
-    if (!freshExpired && !isNearExpiry(fresh, windowMs, freshNow)) {
+    if (!freshExpired && !isNearExpiry(fresh, windowMs, freshNow) &&
+        (!forced || fresh.access_token !== options.forceRefreshForToken)) {
       verbose(ctx, "another process already refreshed — using rotated token");
       return fresh;
     }
@@ -188,6 +192,9 @@ export async function requireAuth(
 
     // Refresh failed. If the existing token is still valid (not yet expired),
     // continue with it — graceful degradation per the plan. Otherwise bail.
+    if (forced) {
+      outputError(ctx, refreshed.code, refreshed.error, refreshed.status === 403 ? ExitCodes.FORBIDDEN : refreshed.status === 401 ? ExitCodes.AUTH_REQUIRED : ExitCodes.ERROR);
+    }
     if (!freshExpired) {
       verbose(ctx, `refresh failed (${refreshed.code}) — using existing token`);
       return fresh;

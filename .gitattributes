@@ -1,0 +1,2 @@
+# The OpenAPI generator emits LF; --check compares its output byte-for-byte.
+src/generated/api-types.ts text eol=lf

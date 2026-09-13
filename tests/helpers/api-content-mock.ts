@@ -15,6 +15,8 @@ import { mock } from "bun:test";
 import type { ApiResult } from "../../src/lib/api-client";
 import type {
   ArtifactResponse,
+  CourseDiscovery,
+  ReleaseSelection,
   CatalogResponse,
   HealthResponse,
   LessonBundle,
@@ -24,6 +26,13 @@ import type {
 
 const real = await import("../../src/lib/api-content");
 const realFetchCatalog = real.fetchCatalog;
+const realFetchCourses = real.fetchCourses;
+const realValidateCourseDiscovery = real.validateCourseDiscovery;
+export function v3DiscoveryFixture(): ApiResult<CourseDiscovery> {
+  return { ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data: { courses: [{ id: "10xdevs-3", slug: "10xdevs3", title: "10xDevs 3", edition: 3, available: true }], defaultCourse: "10xdevs3" } };
+}
+const realCatalogRelease = real.catalogRelease;
+const realFetchMigrationMap = real.fetchMigrationMap;
 const realFetchModules = real.fetchModules;
 const realFetchModuleDetail = real.fetchModuleDetail;
 const realFetchLesson = real.fetchLesson;
@@ -34,6 +43,7 @@ const realApiBaseUrl = real.apiBaseUrl;
 type HealthOutcome = ApiResult<HealthResponse> & { latencyMs: number };
 
 export interface ApiContentMockState {
+  fetchCoursesImpl: null | ((token: string) => Promise<ApiResult<CourseDiscovery>> | ApiResult<CourseDiscovery>);
   fetchCatalogImpl:
     | null
     | ((course: string, token: string) => Promise<ApiResult<CatalogResponse>> | ApiResult<CatalogResponse>);
@@ -53,7 +63,7 @@ export interface ApiContentMockState {
         course: string,
         lessonId: string,
         token: string,
-        options?: { lang?: string; tool?: string },
+        options?: { lang?: string; tool?: string; release?: ReleaseSelection },
       ) => Promise<ApiResult<LessonBundle>> | ApiResult<LessonBundle>);
   fetchArtifactImpl:
     | null
@@ -64,13 +74,14 @@ export interface ApiContentMockState {
         name: string,
         tool: string,
         token: string,
-        options?: { lang?: string },
+        options?: { lang?: string; release?: ReleaseSelection },
       ) => Promise<ApiResult<ArtifactResponse>> | ApiResult<ArtifactResponse>);
   fetchHealthImpl: null | (() => Promise<HealthOutcome> | HealthOutcome);
   apiBaseUrlImpl: null | (() => string);
 }
 
 export const apiContentMockState: ApiContentMockState = {
+  fetchCoursesImpl: v3DiscoveryFixture,
   fetchCatalogImpl: null,
   fetchModulesImpl: null,
   fetchModuleDetailImpl: null,
@@ -81,11 +92,15 @@ export const apiContentMockState: ApiContentMockState = {
 };
 
 mock.module("../../src/lib/api-content", () => ({
-  fetchCatalog: (course: string, token: string, options?: { signal?: AbortSignal }) =>
+  validateCourseDiscovery: realValidateCourseDiscovery,
+  fetchCourses: (token: string) => apiContentMockState.fetchCoursesImpl ? Promise.resolve(apiContentMockState.fetchCoursesImpl(token)) : realFetchCourses(token),
+  catalogRelease: realCatalogRelease,
+  fetchMigrationMap: realFetchMigrationMap,
+  fetchCatalog: (course: string, token: string, options?: { signal?: AbortSignal; release?: ReleaseSelection }) =>
     apiContentMockState.fetchCatalogImpl
       ? Promise.resolve(apiContentMockState.fetchCatalogImpl(course, token))
       : realFetchCatalog(course, token, options),
-  fetchModules: (course: string, token: string, options?: { signal?: AbortSignal }) =>
+  fetchModules: (course: string, token: string, options?: { signal?: AbortSignal; release?: ReleaseSelection }) =>
     apiContentMockState.fetchModulesImpl
       ? Promise.resolve(apiContentMockState.fetchModulesImpl(course, token))
       : realFetchModules(course, token, options),
@@ -93,7 +108,7 @@ mock.module("../../src/lib/api-content", () => ({
     course: string,
     module: number,
     token: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; release?: ReleaseSelection },
   ) =>
     apiContentMockState.fetchModuleDetailImpl
       ? Promise.resolve(apiContentMockState.fetchModuleDetailImpl(course, module, token))
@@ -102,7 +117,7 @@ mock.module("../../src/lib/api-content", () => ({
     course: string,
     lessonId: string,
     token: string,
-    options?: { signal?: AbortSignal; lang?: string; tool?: string },
+    options?: { signal?: AbortSignal; lang?: string; tool?: string; release?: ReleaseSelection },
   ) =>
     apiContentMockState.fetchLessonImpl
       ? Promise.resolve(apiContentMockState.fetchLessonImpl(course, lessonId, token, options))
@@ -114,7 +129,7 @@ mock.module("../../src/lib/api-content", () => ({
     name: string,
     tool: string,
     token: string,
-    options?: { signal?: AbortSignal; lang?: string },
+    options?: { signal?: AbortSignal; lang?: string; release?: ReleaseSelection },
   ) =>
     apiContentMockState.fetchArtifactImpl
       ? Promise.resolve(apiContentMockState.fetchArtifactImpl(course, lessonId, type, name, tool, token, options))
@@ -128,6 +143,7 @@ mock.module("../../src/lib/api-content", () => ({
 }));
 
 export function resetApiContentMock(): void {
+  apiContentMockState.fetchCoursesImpl = v3DiscoveryFixture;
   apiContentMockState.fetchCatalogImpl = null;
   apiContentMockState.fetchModulesImpl = null;
   apiContentMockState.fetchModuleDetailImpl = null;

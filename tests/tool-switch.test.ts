@@ -20,6 +20,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CLI_PACKAGE_NAME,
+  contentHash,
+  readManifest,
   MANIFEST_FILENAME,
   type CliManifest,
 } from "../src/lib/manifest";
@@ -56,17 +58,17 @@ function seedOrphan(opts: {
   const prompts = opts.prompts ?? [];
   const configs = opts.configs ?? [];
   const skillsRecord = Object.fromEntries(
-    skills.map((s) => [s, { files: ["SKILL.md"] }]),
+    skills.map((s) => [s, { files: ["SKILL.md"], contentHashes: { "SKILL.md": contentHash(`# ${s}\n`) } }]),
   );
   const manifest: CliManifest = {
     package: CLI_PACKAGE_NAME,
     version: "0.5.0",
-    manifestVersion: 2,
+    manifestVersion: 3,
     lastApplied: "2026-04-18T00:00:00Z",
     lessonId: "m1l1",
-    course: "10xDevs",
+    course: "10xdevs3",
     tool: oldProfile.toolId,
-    files: { skills: skillsRecord, prompts, configs },
+    files: { skills: skillsRecord, prompts, configs, promptHashes: Object.fromEntries(prompts.map((p) => [p, contentHash(`prompt ${p.replace(/\.md$/, "")}\n`)])), configHashes: Object.fromEntries(configs.map((c) => [c, contentHash(`config ${c}\n`)])) },
   };
   for (const s of skills) {
     writeAt(oldProfile.skillPath(s), `# ${s}\n`);
@@ -77,6 +79,11 @@ function seedOrphan(opts: {
   }
   for (const c of configs) {
     writeAt(oldProfile.configPath(c), `config ${c}\n`);
+  }
+  if (opts.rulesFileContent) {
+    const start = opts.rulesFileContent.indexOf(SENTINEL_BEGIN);
+    const end = opts.rulesFileContent.indexOf(SENTINEL_END) + SENTINEL_END.length;
+    manifest.managedRules = { path: oldProfile.rulesFile, begin: SENTINEL_BEGIN, end: SENTINEL_END, upstreamHash: contentHash(opts.rulesFileContent.slice(start, end)) };
   }
   const manifestPath = writeAt(
     join(oldProfile.manifestDir, MANIFEST_FILENAME),
@@ -149,14 +156,14 @@ describe("migrateArtifacts", () => {
     expect(updated).not.toContain("10x rules");
   });
 
-  it("deletes the old rules file when it becomes empty after sentinel removal", () => {
+  it("preserves the trailing bytes outside a removed rules block", () => {
     const rules = `${SENTINEL_BEGIN}\n\nrules only\n\n${SENTINEL_END}\n`;
     const orphan = seedOrphan({ skills: ["code-review"], rulesFileContent: rules });
 
     const summary = migrateArtifacts(tmp, orphan, newProfile);
 
     expect(summary.sentinelStripped).toBe(true);
-    expect(existsSync(join(tmp, oldProfile.rulesFile))).toBe(false);
+    expect(readFileSync(join(tmp, oldProfile.rulesFile), "utf8")).toBe("\n");
   });
 
   it("deletes the old manifest file", () => {
@@ -179,54 +186,23 @@ describe("migrateArtifacts", () => {
     expect(existsSync(join(tmp, oldProfile.manifestDir))).toBe(true);
   });
 
-  it("rejects unsafe manifest entries into summary.skipped and never touches the filesystem", () => {
-    // Seed a manifest with a path-traversal entry; the fixture files are NOT
-    // created under the malicious path, so a successful move would have to
-    // reach outside the project root — which is exactly what we're blocking.
+  it("rejects unsafe manifest paths before any transfer", () => {
     const orphan = seedOrphan({ skills: ["ok-skill"] });
     orphan.manifest.files.skills["../../etc/passwd"] = { files: ["SKILL.md"] };
-    orphan.manifest.files.prompts.push("../evil.md");
-    orphan.manifest.files.configs.push("../evil.json");
-
-    const summary = migrateArtifacts(tmp, orphan, newProfile);
-
-    expect(summary.skipped).toEqual(
-      expect.arrayContaining([
-        { path: "../../etc/passwd", reason: "unsafe name in manifest" },
-        { path: "../evil.md", reason: "unsafe name in manifest" },
-        { path: "../evil.json", reason: "unsafe name in manifest" },
-      ]),
-    );
-    // The safe entry still migrated
-    expect(summary.movedOrRemoved.skills).toEqual(["ok-skill"]);
-    // Sanity: nothing materialized at or outside the attacker-chosen locations
-    expect(existsSync(join(tmp, newProfile.skillPath("../../etc/passwd")))).toBe(false);
+    expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow(/unsafe/);
+    expect(readFileSync(join(tmp, oldProfile.skillPath("ok-skill")), "utf8")).toBe("# ok-skill\n");
+    expect(existsSync(join(tmp, newProfile.skillPath("ok-skill")))).toBe(false);
   });
 
-  it("refuses to migrate a symlinked source and records it as skipped", () => {
-    const orphan = seedOrphan({});
-    orphan.manifest.files.skills["code-review"] = { files: ["SKILL.md"] };
-    // Create a real target file that the symlink will point to
+  it("rejects a symlinked source before any transfer", () => {
+    const orphan = seedOrphan({ skills: ["code-review"] });
     const realTarget = writeAt("real-skill.md", "# real target\n");
-    // Replace the fixture skill path with a symlink to realTarget
     const linkPath = join(tmp, oldProfile.skillPath("code-review"));
-    mkdirSync(join(linkPath, ".."), { recursive: true });
+    rmSync(linkPath);
     symlinkSync(realTarget, linkPath);
-    expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
-
-    const summary = migrateArtifacts(tmp, orphan, newProfile);
-
-    expect(summary.movedOrRemoved.skills).toEqual([]);
-    expect(summary.skipped).toEqual(
-      expect.arrayContaining([
-        { path: linkPath, reason: "source is a symlink" },
-      ]),
-    );
-    // Symlink and its target both survive
-    expect(existsSync(linkPath)).toBe(true);
+    expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow(/Unsafe/);
     expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
     expect(readFileSync(realTarget, "utf8")).toBe("# real target\n");
-    // Destination was not written
     expect(existsSync(join(tmp, newProfile.skillPath("code-review")))).toBe(false);
   });
 
@@ -286,7 +262,7 @@ describe("migrateArtifacts", () => {
       expect.arrayContaining([
         expect.objectContaining({
           path: join(tmp, oldProfile.skillPath("code-review")),
-          reason: "copied to destination but could not remove source",
+          reason: expect.stringContaining("copied to destination but could not remove source"),
         }),
       ]),
     );
@@ -344,7 +320,7 @@ describe("migrateArtifacts", () => {
     const orphan = seedOrphan({ skills: ["code-review"] });
     const sourcePath = join(tmp, oldProfile.skillPath("code-review"));
     const destPath = join(tmp, newProfile.skillPath("code-review"));
-    const tmpPath = `${destPath}.tmp`;
+
     const realRename = fs.renameSync;
     const renameSpy = spyOn(fs, "renameSync").mockImplementation(((from: string, to: string) => {
       if (from === sourcePath && to === destPath) {
@@ -361,7 +337,7 @@ describe("migrateArtifacts", () => {
       data: string | NodeJS.ArrayBufferView,
       opts?: fs.WriteFileOptions,
     ) => {
-      if (path === tmpPath) {
+      if (typeof path === "string" && path.startsWith(`${destPath}.`) && path.endsWith(".tmp")) {
         const err: NodeJS.ErrnoException = new Error("ENOSPC");
         err.code = "ENOSPC";
         throw err;
@@ -434,10 +410,10 @@ describe("deleteArtifacts", () => {
       manifestVersion: 2,
       lastApplied: "2026-04-18T00:00:00Z",
       lessonId: "m1l1",
-      course: "10xDevs",
+      course: "10xdevs3",
       tool: copilotProfile.toolId,
       files: {
-        skills: { [skillName]: { files: ["SKILL.md"] } },
+        skills: { [skillName]: { files: ["SKILL.md"], contentHashes: { "SKILL.md": contentHash(`# ${skillName}\n`) } } },
         prompts: [],
         configs: [],
       },
@@ -475,7 +451,8 @@ describe("deleteArtifacts", () => {
 
     expect(summary.movedOrRemoved.skills).toEqual(["a", "b"]);
     expect(summary.movedOrRemoved.prompts).toEqual(["p.md"]);
-    expect(summary.movedOrRemoved.configs).toEqual(["settings.json"]);
+    expect(summary.movedOrRemoved.configs).toEqual([]);
+    expect(summary.skipped).toEqual(expect.arrayContaining([expect.objectContaining({ reason: "preserved_local: config_template" })]));
   });
 
   it("is idempotent — a second call is a no-op because the manifest is gone", () => {
@@ -490,17 +467,190 @@ describe("deleteArtifacts", () => {
     expect(existsSync(join(tmp, oldProfile.manifestDir))).toBe(false);
   });
 
-  it("rejects unsafe manifest entries instead of deleting outside manifestDir", () => {
+  it("rejects unsafe manifest entries before deleting anything", () => {
     const orphan = seedOrphan({ skills: ["ok"] });
     orphan.manifest.files.skills["../../etc/passwd"] = { files: ["SKILL.md"] };
+    expect(() => deleteArtifacts(tmp, orphan)).toThrow(/unsafe/);
+    expect(existsSync(join(tmp, oldProfile.skillPath("ok")))).toBe(true);
+  });
+});
 
+describe("profile ownership under conflicts and I/O failures", () => {
+  it("retains source ownership for skipped files and creates only successful destination claims", () => {
+    const orphan = seedOrphan({ skills: ["a", "b"] });
+    writeAt(newProfile.skillPath("b"), "local destination");
+    migrateArtifacts(tmp, orphan, newProfile);
+    const source = readManifest(join(tmp, oldProfile.manifestDir))!;
+    const destination = readManifest(join(tmp, newProfile.manifestDir))!;
+    expect(Object.keys(source.files.skills)).toEqual(["b"]);
+    expect(Object.keys(destination.files.skills)).toEqual(["a"]);
+    expect(source.course).toBe("10xdevs3");
+    expect(destination.course).toBe("10xdevs3");
+    expect(destination.files.skills.a!.contentHashes!["SKILL.md"]).toBe(contentHash("# a\n"));
+  });
+  it("keeps both ledgers when source deletion fails after destination delivery", () => {
+    const orphan = seedOrphan({ skills: ["a"] });
+    const sourcePath = join(tmp, oldProfile.skillPath("a"));
+    const original = fs.rmSync;
+    const spy = spyOn(fs, "rmSync").mockImplementation(((path, options) => {
+      if (path === sourcePath) throw new Error("injected EBUSY");
+      return original(path, options);
+    }) as typeof fs.rmSync);
+    try { migrateArtifacts(tmp, orphan, newProfile); } finally { spy.mockRestore(); }
+    expect(readManifest(join(tmp, oldProfile.manifestDir))!.files.skills.a).toBeDefined();
+    expect(readManifest(join(tmp, newProfile.manifestDir))!.files.skills.a).toBeDefined();
+    expect(readFileSync(sourcePath, "utf8")).toBe("# a\n");
+    expect(readFileSync(join(tmp, newProfile.skillPath("a")), "utf8")).toBe("# a\n");
+  });
+  it("earlier transfers keep truthful ledgers if a later destination write fails", () => {
+    const orphan = seedOrphan({ skills: ["a", "b"] });
+    const original = fs.writeFileSync;
+    const spy = spyOn(fs, "writeFileSync").mockImplementation(((path, data, options) => {
+      if (typeof path === "string" && path.startsWith(`${join(tmp, newProfile.skillPath("b"))}.`) && path.endsWith(".tmp")) throw new Error("injected ENOSPC");
+      return original(path, data, options);
+    }) as typeof fs.writeFileSync);
+    try { expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow("ENOSPC"); } finally { spy.mockRestore(); }
+    expect(Object.keys(readManifest(join(tmp, oldProfile.manifestDir))!.files.skills)).toEqual(["b"]);
+    expect(Object.keys(readManifest(join(tmp, newProfile.manifestDir))!.files.skills)).toEqual(["a"]);
+    expect(existsSync(join(tmp, newProfile.skillPath("b")))).toBe(false);
+  });
+  it("blocks a different-course destination before changing bytes", () => {
+    const orphan = seedOrphan({ skills: ["a"] });
+    const conflict = { ...orphan.manifest, course: "10xdevs4", tool: newProfile.toolId };
+    const path = writeAt(join(newProfile.manifestDir, MANIFEST_FILENAME), JSON.stringify(conflict));
+    const before = readFileSync(path);
+    expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow(/disagree/);
+    expect(readFileSync(path)).toEqual(before);
+    expect(readFileSync(join(tmp, oldProfile.skillPath("a")), "utf8")).toBe("# a\n");
+    expect(existsSync(join(tmp, ".10x-cli.json"))).toBe(false);
+  });
+  it("legacy no-hash cleanup preserves local files and removes their managed claim", () => {
+    const orphan = seedOrphan({ skills: ["a"] });
+    delete orphan.manifest.files.skills.a!.contentHashes;
     const summary = deleteArtifacts(tmp, orphan);
+    expect(summary.movedOrRemoved.skills).toEqual([]);
+    expect(summary.skipped[0]?.reason).toBe("preserved_local: missing_baseline");
+    expect(readFileSync(join(tmp, oldProfile.skillPath("a")), "utf8")).toBe("# a\n");
+    expect(readManifest(join(tmp, oldProfile.manifestDir))).toBeNull();
+  });
+});
 
-    expect(summary.movedOrRemoved.skills).toEqual(["ok"]);
-    expect(summary.skipped).toEqual(
-      expect.arrayContaining([
-        { path: "../../etc/passwd", reason: "unsafe name in manifest" },
-      ]),
-    );
+describe("profile migration shared rules", () => {
+  it("moves ownership between profiles sharing AGENTS.md without deleting the sentinel", async () => {
+    const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
+    const source = PROFILES.codex!;
+    const destination = PROFILES.generic!;
+    const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [{ name: "a", files: [{ path: "SKILL.md", content: "A" }] }], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
+    await applyBundle(bundle, tmp, { profile: source });
+    const before = readFileSync(join(tmp, "AGENTS.md"));
+    const orphan = findOrphanedManifests(tmp, destination).find((entry) => entry.profile.toolId === source.toolId)!;
+    migrateArtifacts(tmp, orphan, destination);
+    expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
+    expect(readManifest(join(tmp, source.manifestDir))).toBeNull();
+    expect(readManifest(join(tmp, destination.manifestDir))!.managedRules?.upstreamHash).toBe(orphan.manifest.managedRules?.upstreamHash);
+  });
+  it("cleanup releases one shared owner without stripping the other profile's rules", async () => {
+    const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
+    const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
+    await applyBundle(bundle, tmp, { profile: PROFILES.codex! });
+    await applyBundle(bundle, tmp, { profile: PROFILES.generic!, onConflict: async () => "overwrite" });
+    const before = readFileSync(join(tmp, "AGENTS.md"));
+    const orphan = findOrphanedManifests(tmp, PROFILES.generic!).find((entry) => entry.profile.toolId === "codex")!;
+    const result = deleteArtifacts(tmp, orphan);
+    expect(result.sentinelStripped).toBe(false);
+    expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
+    expect(readManifest(join(tmp, ".ai"))!.managedRules).toBeDefined();
+  });
+  it("retains unresolved source rules and their ledger instead of adopting a local edit", () => {
+    const text = `${SENTINEL_BEGIN}\n\ntrusted\n\n${SENTINEL_END}\n`;
+    const orphan = seedOrphan({ skills: ["a"], rulesFileContent: text });
+    writeAt(oldProfile.rulesFile, text.replace("trusted", "local"));
+    const result = migrateArtifacts(tmp, orphan, newProfile);
+    expect(result.skipped).toEqual(expect.arrayContaining([expect.objectContaining({ reason: expect.stringContaining("explicit resolution") })]));
+    const remaining = readManifest(join(tmp, oldProfile.manifestDir))!;
+    expect(remaining.managedRules?.upstreamHash).toBe(orphan.manifest.managedRules?.upstreamHash);
+    expect(readFileSync(join(tmp, oldProfile.rulesFile), "utf8")).toContain("local");
+    expect(existsSync(join(tmp, newProfile.rulesFile))).toBe(false);
+  });
+});
+
+describe("source rule retirement commits", () => {
+  for (const operation of ["migration", "cleanup"] as const) it(`${operation} restores exact source bytes when source manifest deletion fails`, () => {
+    const rules = `  project notes\r\n\r\n${SENTINEL_BEGIN}\n\ntrusted rules\n\n${SENTINEL_END}\r\nvaluable trailer  `;
+    const orphan = seedOrphan({ rulesFileContent: rules });
+    const sourceRules = join(tmp, oldProfile.rulesFile);
+    const sourceBefore = readFileSync(sourceRules);
+    const ledgerBefore = readFileSync(orphan.manifestPath);
+    const original = fs.rmSync;
+    const spy = spyOn(fs, "rmSync").mockImplementation(((path, options) => {
+      if (path === orphan.manifestPath) throw Object.assign(new Error("injected EACCES"), { code: "EACCES" });
+      return original(path, options);
+    }) as typeof fs.rmSync);
+    try {
+      expect(() => operation === "migration" ? migrateArtifacts(tmp, orphan, newProfile) : deleteArtifacts(tmp, orphan)).toThrow("EACCES");
+    } finally { spy.mockRestore(); }
+    expect(readFileSync(sourceRules)).toEqual(sourceBefore);
+    expect(readFileSync(orphan.manifestPath)).toEqual(ledgerBefore);
+    expect(readManifest(join(tmp, oldProfile.manifestDir))!.managedRules).toEqual(orphan.manifest.managedRules);
+    if (operation === "migration") {
+      const destinationRules = `${SENTINEL_BEGIN}\n\ntrusted rules\n\n${SENTINEL_END}\n`;
+      expect(readFileSync(join(tmp, newProfile.rulesFile), "utf8")).toBe(destinationRules);
+      const destination = readManifest(join(tmp, newProfile.manifestDir))!;
+      expect(destination.managedRules).toEqual({ path: newProfile.rulesFile, begin: SENTINEL_BEGIN, end: SENTINEL_END, upstreamHash: contentHash(destinationRules.slice(0, -1)) });
+      expect(destination.course).toBe("10xdevs3");
+    } else expect(readManifest(join(tmp, newProfile.manifestDir))).toBeNull();
+    // The restored claim is also retryable once the I/O failure is gone.
+    const retried = operation === "migration" ? migrateArtifacts(tmp, orphan, newProfile) : deleteArtifacts(tmp, orphan);
+    expect(retried.sentinelStripped).toBe(true);
+    expect(readManifest(join(tmp, oldProfile.manifestDir))).toBeNull();
+    expect(readFileSync(sourceRules, "utf8")).toBe("  project notes\r\n\r\n\r\nvaluable trailer  ");
+  });
+});
+
+describe("owned transfer temporaries", () => {
+  for (const failure of ["partial-write", "chmod", "rename"] as const) it(`cleans its temporary after ${failure} failure and retries without touching an unowned .tmp`, () => {
+    const orphan = seedOrphan({ skills: ["a"] });
+    const sourcePath = join(tmp, oldProfile.skillPath("a"));
+    const destinationPath = join(tmp, newProfile.skillPath("a"));
+    const unownedPath = writeAt(`${newProfile.skillPath("a")}.tmp`, "student temporary");
+    const ledgerBefore = readFileSync(orphan.manifestPath);
+    const isTransferTemporary = (path: unknown): path is string => typeof path === "string" && path.startsWith(`${destinationPath}.`) && path.endsWith(".tmp") && path !== unownedPath;
+    const originalWrite = fs.writeFileSync;
+    const originalChmod = fs.chmodSync;
+    const originalRename = fs.renameSync;
+    let ownedPath: string | undefined;
+    const writeSpy = spyOn(fs, "writeFileSync").mockImplementation(((path, data, options) => {
+      if (isTransferTemporary(path)) {
+        ownedPath = path;
+        if (failure === "partial-write") {
+          originalWrite(path, "partial bytes");
+          throw new Error("injected partial-write failure");
+        }
+      }
+      return originalWrite(path, data, options);
+    }) as typeof fs.writeFileSync);
+    const chmodSpy = spyOn(fs, "chmodSync").mockImplementation(((path, mode) => {
+      if (isTransferTemporary(path) && failure === "chmod") throw new Error("injected chmod failure");
+      return originalChmod(path, mode);
+    }) as typeof fs.chmodSync);
+    const renameSpy = spyOn(fs, "renameSync").mockImplementation(((from, to) => {
+      if (isTransferTemporary(from) && failure === "rename") throw new Error("injected rename failure");
+      return originalRename(from, to);
+    }) as typeof fs.renameSync);
+    try { expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow(`injected ${failure} failure`); }
+    finally { writeSpy.mockRestore(); chmodSpy.mockRestore(); renameSpy.mockRestore(); }
+    expect(ownedPath).toBeDefined();
+    expect(existsSync(ownedPath!)).toBe(false);
+    expect(existsSync(destinationPath)).toBe(false);
+    expect(readFileSync(sourcePath, "utf8")).toBe("# a\n");
+    expect(readFileSync(orphan.manifestPath)).toEqual(ledgerBefore);
+    expect(readManifest(join(tmp, newProfile.manifestDir))).toBeNull();
+    expect(readFileSync(unownedPath, "utf8")).toBe("student temporary");
+    migrateArtifacts(tmp, orphan, newProfile);
+    expect(readFileSync(destinationPath, "utf8")).toBe("# a\n");
+    expect(readManifest(join(tmp, newProfile.manifestDir))!.files.skills.a!.contentHashes!["SKILL.md"]).toBe(contentHash("# a\n"));
+    expect(readManifest(join(tmp, oldProfile.manifestDir))).toBeNull();
+    expect(existsSync(sourcePath)).toBe(false);
+    expect(readFileSync(unownedPath, "utf8")).toBe("student temporary");
   });
 });
