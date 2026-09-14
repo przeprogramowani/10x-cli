@@ -50,6 +50,24 @@ Do not print `auth.json`, discard stderr, truncate doctor JSON or erase config t
 repair an unknown problem. An explicit course/tool/language in this journey takes
 precedence over saved defaults for that command.
 
+## Session management
+
+When login is needed, let the user choose the delivery channel and complete it:
+
+```bash
+10x_cli auth                  # Interactive: choose email or Circle
+10x_cli auth --method email   # Email magic link; default for piped/JSON output
+10x_cli auth --method circle  # One-time approval link delivered in Circle
+10x_cli auth --status
+10x_cli auth --logout
+```
+
+Circle is useful when the email does not arrive. The approval link expires after
+15 minutes; the CLI does not resend it automatically. In non-interactive mode,
+provide the user's email with `--email` and choose `--method circle` explicitly.
+Do not send a login message until the user requests authentication. Sessions
+refresh transparently; re-login is needed only when refresh cannot recover them.
+
 ## Download
 
 The launch exercise follows lesson 1, “Od pomysłu do PRD”, using its existing
@@ -85,8 +103,9 @@ source minimum, not permission to discard extra files from a published bundle.
 Also inspect `.claude/.10x-cli-manifest.json` for all three canonical direct owners
 and `.10x-cli.json` for the project edition, course and release context.
 
-Source membership puts init/shape/prd in v4 m1l1 under its access/module gate.
-This is candidate evidence, not proof of a published named endpoint or PL bundle.
+CLI 1.21.0 is published with v4 and named downloads; production m1l1 EN/PL
+contains init/shape/prd and their references. These revised helpers are a separate
+source change, not proof that their course copies have been published.
 Verify all three names against the actual selected release. If any name, schema,
 owner or release is missing/mismatched, preserve the precise error and stop the
 exercise; never silently substitute a whole lesson, another course or filtered get.
@@ -211,6 +230,10 @@ visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 | Symptom | Next step |
 |---|---|
 | Missing/expired auth | Inspect auth status and live-access result; let the user complete login through setup. Login may send email. |
+| No email received | Offer `10x_cli auth --method circle`; let the user request the message. |
+| `circle_login_disabled` | Circle is unavailable; use `10x_cli auth --method email`. |
+| `dm_rejected` | Enable Circle direct messages or use email login. |
+| `circle_login_expired` | Ask for a fresh Circle login or use email; never auto-resend. |
 | Denied course access | Confirm selected course and membership; changing tool/reinstalling does not grant access. |
 | Locked or unpublished v4 | Inspect module availability/release evidence; do not bypass the gate or fall back to v3. |
 | Unsupported name/missing index | Verify exact CLI package and content release; preserve the error for the release owner. |

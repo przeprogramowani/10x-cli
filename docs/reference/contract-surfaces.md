@@ -33,3 +33,9 @@
 - **Canonical definition**: 10x-cli/scripts/release-identity.mjs:99, releaseManifest; scripts/release-assets.mjs writes it into the retained release-package artifact before registry/tag mutations.
 - **Owners / Consumers**: CLI publication workflow, exact binary selection, Toolkit completion verifier via the related published-result.json, and manual partial-release operators.
 - **Breaking-change checklist**: Keep exact source/version/tag, pinned npm version, run/attempt/evidence identity, expected pack SHA-512, five binary artifact IDs/hashes and version-preparation provenance aligned. Directory publication is accepted only after actual registry gitHead and downloaded bytes match; mismatch or missing GitHub assets leaves an incomplete release. Never republish an existing npm version or rebuild artifacts for manual completion.
+
+## version-preparation.json workflowSha / inputHead / preparedHead
+
+- **Canonical definition**: scripts/prepare-version.mjs, validatePreparationRecord and loadPreparationForMerge; schemaVersion 1.
+- **Owners / Consumers**: .github/workflows/prepare-version.yml producer, scripts/prepare-version.mjs retained-record consumer, scripts/release-preflight.mjs release validation.
+- **Breaking-change checklist**: Keep execution SHA distinct from event candidate and prepared version child. Update producer, event-aware run/PR/base binding, exact attempt/artifact/job checks and merged-source/baseline regressions together. PRtarget binds execution to canonical master base and input to associated candidate; master events bind execution to run head. Never drop equality without an independently verified replacement binding.

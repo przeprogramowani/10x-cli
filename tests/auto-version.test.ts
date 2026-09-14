@@ -61,7 +61,7 @@ describe("deterministic same-PR numbering", () => {
     const baseline = { version: "1.0.0", tag: "v1.0.0", sha: sha("c"), gitHead: sha("c") };
     const record = { schemaVersion: 1, repository: "przeprogramowani/10x-cli", kind: "bootstrap", runId: "1", runAttempt: 1, workflowSha: sha("a"), prNumber: 42, inputHead: sha("a"), preparedHead: sha("a"), baseSha: sha("b"), baseline, version: "1.1.0" };
     const repo = { full_name: "przeprogramowani/10x-cli" };
-    const io = { sourceSha: sha("d"), packageVersion: "1.1.0", get: async (path: string) => path.startsWith("git/commits/") ? { parents: [{ sha: sha("b") }] } : ({ merged: true, state: "closed", merge_commit_sha: sha("d"), head: { sha: sha("a"), repo }, base: { ref: "master", repo } }), baseline, recalculate: async ({ head }: any) => { expect(head).toBe(sha("a")); return { version: "1.1.0" }; }, readPackage: async () => '{"version":"1.1.0"}' };
+    const io = { sourceSha: sha("d"), packageVersion: "1.1.0", get: async (path: string) => path.startsWith("git/commits/") ? { parents: [{ sha: sha("b") }] } : ({ number: 42, merged: true, state: "closed", merge_commit_sha: sha("d"), head: { sha: sha("a"), repo }, base: { ref: "master", repo } }), baseline, recalculate: async ({ head }: any) => { expect(head).toBe(sha("a")); return { version: "1.1.0" }; }, readPackage: async () => '{"version":"1.1.0"}' };
     expect(await verifyMergedPreparation(record, io)).toEqual(record);
     await expect(verifyMergedPreparation(record, { ...io, baseline: { ...baseline, version: "1.0.1" } })).rejects.toThrow();
   });

@@ -112,6 +112,13 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   membership_revoked: "Your course membership has been revoked.",
   rate_limited: "Too many requests. Please slow down and try again shortly.",
   email_send_failed: "Could not send the login email. Try again in a moment.",
+  // Auth — Circle login
+  circle_login_disabled: "Circle login is currently unavailable. Run `10x auth --method email` instead.",
+  dm_rejected: "Circle refused to deliver the login message. Check your Circle direct-message settings or run `10x auth --method email`.",
+  access_denied: "This account is not allowed to sign in. Check your course access.",
+  expired_or_used: "This Circle login link has expired or was already used. Run `10x auth --method circle` again.",
+  slow_down: "Polling too fast. The CLI will wait longer between checks.",
+  auth_cancelled: "Authentication was cancelled before it completed.",
   // Admin
   admin_access_required: "This action requires admin access.",
   // Upstream

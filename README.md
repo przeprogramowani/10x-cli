@@ -79,6 +79,7 @@ checking named capability and content availability:
 
 ```bash
 10x_cli auth --status
+# If login is needed: 10x_cli auth (email or Circle); see auth commands below.
 10x_cli list --course 10xdevs4
 10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
 10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
@@ -99,9 +100,9 @@ Read all three installed skill trees; PRD requires the sibling
 `.claude/skills/10x-shape/references/prd-schema.md`. Preserve existing outputs and
 follow the skills' collision choices. `CLAUDE-m1l1` is a separate lesson rule;
 see the guide for prerequisite checks without a full-get fallback. `10x-plan`
-is not available for this launch demonstration. The source contract is a
-candidate; verify each named endpoint, complete PL references and actual release
-before the walkthrough. A download alone is not successful skill use.
+is not available for this launch demonstration. CLI 1.21.0 and v4 m1 EN/PL are
+published; these revised helpers remain a separate source change. Verify each
+named preview and complete PL references before the walkthrough. A download alone is not successful skill use.
 Inspect sync conflicts even on exit 0; never apply automatic `--force`. A missing
 tool directory before first get can explain that doctor check; other failures
 remain visible. Full lesson downloads and other commands remain available below.
@@ -111,6 +112,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 | Command | Description |
 |---------|-------------|
 | `10x auth` | Magic-link login with your Circle-registered email |
+| `10x auth --method circle` | No email received? Get the approval link as a Circle message instead |
 | `10x list` | Browse modules and lessons in your course |
 | `10x get <ref>` | Fetch a lesson and apply artifacts to your workspace |
 | `10x sync` | Bulk-download / refresh lessons and report what changed upstream |

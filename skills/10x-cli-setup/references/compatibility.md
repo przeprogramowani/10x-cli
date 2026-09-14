@@ -19,8 +19,12 @@ not automatically update the others.
 
 The research snapshot on 2026-09-13 found npm `1.20.0` without named get. This is
 historical evidence, not a current-version recommendation or a minimum-version
-comparison. No next version number is promised here. A local source build can
-also carry an old version label; do not identify features from that label alone.
+comparison. On 2026-09-14, CLI `1.21.0` was published with v4, named downloads
+and Circle login; production m1 EN/PL and sync were verified. Its npm `gitHead`
+is `2cc510fe690ba820937602d702564985087ded46`. These revised helpers have their
+own source/content identity and are not implied by installing CLI 1.21.0. A local
+source build can carry an old version label; do not identify features from that
+label alone.
 
 For a known installed version, read its npm metadata (replace the shell variable
 with the observed version) and use the matching source revision for documentation:

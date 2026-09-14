@@ -28,6 +28,15 @@ describe("release workflow trust and ordering", () => {
     expect(workflow.jobs["wake-coordinator"].if).toContain("'push'");
     expect(workflow.jobs["wake-coordinator"].if).toContain("refs/heads/master");
   });
+  it("requires private evidence only for master release dispatch, not ordinary PRs", () => {
+    const condition = workflow.jobs.coordinated.if;
+    const allows = (event: string, ref: string) => Function("github", `return (${condition})`)({ event_name: event, ref });
+    expect(allows("pull_request", "refs/pull/42/merge")).toBe(false);
+    expect(allows("push", "refs/heads/master")).toBe(false);
+    expect(allows("workflow_dispatch", "refs/heads/topic")).toBe(false);
+    expect(allows("workflow_dispatch", "refs/heads/master")).toBe(true);
+    expect(workflow.jobs.version.needs).toContain("coordinated");
+  });
   it("pins npm, keeps credentials and pack outside payload, and publishes a directory without hooks", () => {
     const job = workflow.jobs["publish-npm"];
     const setup = job.steps[0];

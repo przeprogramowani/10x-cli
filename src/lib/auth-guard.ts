@@ -185,6 +185,9 @@ export async function requireAuth(
         refresh_token: refreshed.data.refresh_token,
         expires_at: refreshed.data.expires_at,
         created_at: fresh.created_at,
+        // Preserve how the user logged in — dropping it here would erase
+        // `method` on the first refresh (W07).
+        ...(fresh.method !== undefined ? { method: fresh.method } : {}),
       };
       persist(next);
       return next;
