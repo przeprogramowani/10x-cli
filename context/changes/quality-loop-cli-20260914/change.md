@@ -1,7 +1,7 @@
 ---
 id: quality-loop-cli-20260914
 title: Integrate the shared offline quality gate in CLI
-status: in-progress
+status: implemented
 owner: night-quality-loop
 ---
 

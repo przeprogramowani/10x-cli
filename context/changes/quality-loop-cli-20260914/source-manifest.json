@@ -23,5 +23,6 @@
     "configure.mjs",
     "codex-exec.template.mjs"
   ],
-  "delivery": "controlled copy; canonical source pending integration, not a permanent master pin"
+  "delivery": "controlled copy; canonical source pending integration, not a permanent master pin",
+  "preparedSourceCommit": "7864a61970cfa2da268c28f87e368e14927efc25"
 }

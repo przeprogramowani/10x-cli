@@ -14,6 +14,20 @@ Baseline: `a704a86311c318f9d649000a97521da1bf94503a`, fresh CLI origin/master, v
 
 ## Complete gates
 
-Full local gate and final PR checks are pending at this implementation commit. Existing GitHub credentials reject changes to workflow files (missing workflow scope), so this integration preserves the workflow and includes adapter regressions through its existing top-level Bun suite; no credential change or fallback is needed. The operator gave the EDU runtime correction priority for the shared serial gate. Raw local logs and receipts remain under ignored `.quality-local/`. Terminal results will be added after that window is released.
+`node .quality/run.mjs gate` passed on clean implementation HEAD `396dbd92764810ac6ecde355e963b74f5e065442`: exit 0, 125.856 seconds. It ran under the shared serial gate after the prioritized EDU verification and pre-push finished.
 
-No live auth/email checks, private coordinated release, model generation, npm publication, merge, or production deployment is part of this validation. Existing release checks remain separately required.
+| Check | Result |
+| --- | --- |
+| Toolchain | Node 22.14.0, Bun 1.3.8, npm 11.12.1 |
+| Types / lint / helper validation | PASS |
+| Unit + integration | 793 passed, 0 failed; includes the wrapper asserting four adapter regressions |
+| Node build / standalone binary | PASS |
+| Binary + package smoke | 31 passed, 0 failed |
+
+Sanitized receipt: [local-gate.json](local-gate.json). Raw logs stay under ignored `.quality-local/`. CLI has no installed commit/pre-push hook; normal Git commit/push ran without bypass settings. The canonical Toolkit source passed its actual Husky lint/format hook and is retained as local commit `7864a61970cfa2da268c28f87e368e14927efc25`, with a separately delivered patch; no Toolkit push occurred.
+
+The existing repository automation subsequently prepared version 1.22.1 in commit `33f862af21dfaf8105e23645329d0dfbb0f6c023`. That is a package metadata change, not a publication. Subsequent changes in this PR record evidence only. Existing workflow files remain byte-identical to baseline, and their top-level Bun suite exercises the runner's four regressions through `tests/quality-loop.test.ts`.
+
+Hosted terminal checks belong to the exact current head of [PR #47](https://github.com/przeprogramowani/10x-cli/pull/47); do not substitute this earlier local receipt for current-head hosted results. The PR is made ready only after both native Linux and Windows CI finish successfully.
+
+Risk mode was explicitly tested: exit 1 with unavailable private release evidence and no checks invoked. No live auth/email, private coordinated release, model generation, npm publication, merge, or production deployment is part of this validation. Existing release evidence remains separately required.
