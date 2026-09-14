@@ -100,16 +100,50 @@ jobs:
         env:
           CLI_SHA: ${{ inputs.cli_sha }}
       - name: Tag the published source
+        # The tag may already exist (pushed by hand, or a previous attempt).
+        # Peel it to its commit: an annotated tag's ref SHA is the tag object,
+        # not the commit, so comparing ref SHAs alone reports a false mismatch.
         run: |
+          set -eu
           VERSION=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).version')
-          EXISTING=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v${VERSION}" --jq .object.sha 2>/dev/null || true)
+          TAG="v${VERSION}"
+          git fetch --quiet origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
+          EXISTING=$(git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}" || true)
           if [ -z "$EXISTING" ]; then
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/v${VERSION}" -f sha="${{ inputs.cli_sha }}"
-          elif [ "$EXISTING" != "${{ inputs.cli_sha }}" ]; then
-            echo "::error::Tag v${VERSION} exists at a different SHA"; exit 1
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${TAG}" -f sha="${CLI_SHA}" > /dev/null
+            echo "Created tag ${TAG} at ${CLI_SHA}"
+          elif [ "$EXISTING" != "${CLI_SHA}" ]; then
+            echo "::error::Tag ${TAG} exists at ${EXISTING}, not the published source ${CLI_SHA}"; exit 1
+          else
+            echo "Tag ${TAG} already points at ${CLI_SHA}"
           fi
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
         env:
           GH_TOKEN: ${{ github.token }}
+          CLI_SHA: ${{ inputs.cli_sha }}
+      - name: Create the GitHub Release with the verified tarball
+        # Idempotent: an existing release for the tag is left untouched.
+        run: |
+          set -eu
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release ${TAG} already exists; not modified"; exit 0
+          fi
+          FILE=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).filename')
+          INTEGRITY=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/published-result.json","utf8")).registryIntegrity')
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          {
+            echo "Published on npm from commit \`${CLI_SHA}\`: https://www.npmjs.com/package/@przeprogramowani/10x-cli/v/${TAG#v}"
+            echo
+            echo "Tarball integrity: \`${INTEGRITY}\` (the attached tarball is byte-identical to the registry artifact)."
+            echo
+          } > "$NOTES"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --target "$CLI_SHA" \
+            --title "$TAG" --notes-file "$NOTES" --generate-notes \
+            "$OUT/$FILE#npm package tarball (${TAG#v})"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,assets --jq '{url,tagName,assets:[.assets[].name]}'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLI_SHA: ${{ inputs.cli_sha }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
