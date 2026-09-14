@@ -77,10 +77,30 @@ describe("event-aware retained version preparation provenance", () => {
     ["head repository URL", (f: any) => { f.run.pull_requests[0].head.repo.url += "/evil"; }],
     ["base repository id", (f: any) => { f.run.pull_requests[0].base.repo.id = 7; }],
     ["base repository URL", (f: any) => { f.run.pull_requests[0].base.repo.url += "/evil"; }],
-    ["missing run association", (f: any) => { f.run.pull_requests = []; }],
+    ["missing association field", (f: any) => { delete f.run.pull_requests; }],
     ["duplicate run association", (f: any) => { f.run.pull_requests.push(structuredClone(f.run.pull_requests[0])); }],
   ])("rejects forged PRtarget %s binding", async (_label, mutate) => {
     const f = fixture(); mutate(f.values); f.refreshArchive(); await expect(f.load()).rejects.toThrow();
+  });
+
+  it.each([candidate, prepared])("accepts an empty run association only with independently verified merged context (%s)", async (head) => {
+    // Real PR40 producer 34780650325/1 returns pull_requests: [] after merge.
+    // These ZIPs remain synthetic; the live replay uses the retained actual digest.
+    const f = fixture("pull_request_target", head);
+    f.values.run.pull_requests = [];
+    expect(await f.load()).toMatchObject({ prNumber: 41, preparedHead: head });
+  });
+
+  it.each([
+    ["wrong PR", (f: any) => { f.livePr = { ...f.mergedPr, number: 42 }; }],
+    ["wrong merge parent", (f: any) => { f.mergeCommit = { parents: [{ sha: sha("e") }] }; }],
+    ["wrong prepared head", (f: any) => { f.livePr = { ...f.mergedPr, head: { ...f.mergedPr.head, sha: sha("e") } }; }],
+    ["unmerged PR", (f: any) => { f.livePr = { ...f.mergedPr, merged: false }; }],
+    ["wrong trusted base", (f: any) => { f.record.baseSha = sha("e"); }],
+  ])("rejects an empty association with %s", async (_label, mutate) => {
+    const f = fixture(); f.values.run.pull_requests = [];
+    mutate(f.values); f.refreshArchive();
+    await expect(f.load()).rejects.toThrow();
   });
 
   it.each(["push", "workflow_run"] as const)("rejects non-master or stale %s execution", async (mode) => {

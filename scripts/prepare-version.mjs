@@ -69,7 +69,7 @@ function sameRunIdentity(actual, selected) {
     actual.head_repository.id === selected.head_repository?.id &&
     actual.status === "completed" && actual.conclusion === "success";
 }
-function bindPreparationRun(record, run) {
+function bindPreparationRun(record, run, mergedContextVerified = false) {
   if (!sameRunIdentity(run, run)) throw new Error("Canonical successful preparation producer required");
   if (record.runId !== String(run.id) || record.runAttempt !== run.run_attempt) throw new Error("Preparation run attempt identity mismatch");
   if (record.kind === "bootstrap") {
@@ -78,11 +78,15 @@ function bindPreparationRun(record, run) {
   }
   if (run.event === "pull_request_target") {
     const associated = run.pull_requests;
-    if (!Array.isArray(associated) || associated.length !== 1 || associated[0]?.number !== record.prNumber ||
+    // GitHub can return [] for a retained PRtarget run after merge. Only the
+    // merged loader may accept that absence, after checking the actual PR and
+    // merge parent independently. Nonempty conflicting associations still fail.
+    if (!Array.isArray(associated) || associated.length > 1 || (associated.length === 0 && !mergedContextVerified) ||
+        (associated.length === 1 && (associated[0]?.number !== record.prNumber ||
         associated[0]?.head?.sha !== record.inputHead || associated[0]?.head?.repo?.id !== run.head_repository.id ||
         associated[0]?.head?.repo?.url !== run.head_repository.url || associated[0]?.base?.ref !== "master" ||
         associated[0]?.base?.sha !== record.baseSha || associated[0]?.base?.repo?.id !== run.repository.id ||
-        associated[0]?.base?.repo?.url !== run.repository.url || run.head_sha !== record.inputHead ||
+        associated[0]?.base?.repo?.url !== run.repository.url)) || run.head_sha !== record.inputHead ||
         record.workflowSha !== record.baseSha) throw new Error("Pull request target preparation identity mismatch");
     return;
   }
@@ -92,7 +96,7 @@ function bindPreparationRun(record, run) {
 export async function verifyMergedPreparation(record, { sourceSha, packageVersion, get, baseline, recalculate, readPackage }) {
   validatePreparationRecord(record);
   const pr = await get(`pulls/${record.prNumber}`);
-  if (!pr?.merged || pr.state !== "closed" || pr.merge_commit_sha !== sourceSha || pr.head?.sha !== record.preparedHead || pr.head?.repo?.full_name !== CLI_REPOSITORY || pr.base?.repo?.full_name !== CLI_REPOSITORY || pr.base?.ref !== "master" || packageVersion !== record.version || JSON.stringify(baseline) !== JSON.stringify(record.baseline)) throw new Error("Merged source has stale or unrelated version preparation");
+  if (!pr?.merged || pr.number !== record.prNumber || pr.state !== "closed" || pr.merge_commit_sha !== sourceSha || pr.head?.sha !== record.preparedHead || pr.head?.repo?.full_name !== CLI_REPOSITORY || pr.base?.repo?.full_name !== CLI_REPOSITORY || pr.base?.ref !== "master" || packageVersion !== record.version || JSON.stringify(baseline) !== JSON.stringify(record.baseline)) throw new Error("Merged source has stale or unrelated version preparation");
   const mergeCommit = await get(`git/commits/${sourceSha}`);
   if (mergeCommit?.parents?.[0]?.sha !== record.baseSha) throw new Error("Prepared base advanced before merge");
   if (record.kind === "bootstrap") {
@@ -124,10 +128,11 @@ export async function loadPreparationForMerge(sourceSha, { get, download, baseli
       const record = readReceiptArchive(await download(selected[0]), selected[0], "version-preparation.json");
       validatePreparationRecord(record);
       if (record.runId !== String(run.id) || record.runAttempt !== attempt || record.kind !== kind || record.prNumber !== matches[0].number || record.preparedHead !== matches[0].head.sha) continue;
-      bindPreparationRun(record, run);
+      await verifyMergedPreparation(record, { sourceSha, packageVersion, get, baseline, recalculate, readPackage });
+      bindPreparationRun(record, run, true);
       const selectedAttempt = await get(`actions/runs/${run.id}/attempts/${attempt}`);
       if (!sameRunIdentity(selectedAttempt, run)) throw new Error("Preparation attempt identity changed");
-      bindPreparationRun(record, selectedAttempt);
+      bindPreparationRun(record, selectedAttempt, true);
       if (kind === "trusted" && (await get(`compare/${record.workflowSha}...${sourceSha}`))?.merge_base_commit?.sha !== record.workflowSha) throw new Error("Version writer did not execute trusted master history");
       const currentArtifacts = await get(`actions/runs/${run.id}/artifacts?per_page=100`);
       const currentSelected = currentArtifacts?.artifacts?.filter((a) => a.name === name) ?? [];
@@ -138,8 +143,8 @@ export async function loadPreparationForMerge(sourceSha, { get, download, baseli
       const current = await get(`actions/runs/${run.id}`);
       const currentAttempt = await get(`actions/runs/${run.id}/attempts/${attempt}`);
       if (!sameRunIdentity(current, run) || !sameRunIdentity(currentAttempt, run)) throw new Error("Preparation producer changed");
-      bindPreparationRun(record, current);
-      bindPreparationRun(record, currentAttempt);
+      bindPreparationRun(record, current, true);
+      bindPreparationRun(record, currentAttempt, true);
       await verifyMergedPreparation(record, { sourceSha, packageVersion, get, baseline, recalculate, readPackage });
       return { ...record, artifactId: String(selected[0].id) };
     }
