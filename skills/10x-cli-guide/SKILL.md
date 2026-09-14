@@ -1,273 +1,255 @@
 ---
 name: 10x-cli-guide
-description: "Invoke this skill when the user asks how to USE the 10x-cli day-to-day — fetching lessons, listing modules, switching AI tools, troubleshooting errors, understanding where artifacts land, checking the 10xBench model leaderboard, or working on a specific OS (Windows, Linux, macOS). Covers commands (get, list, doctor, auth --status/--logout, bench), tool profiles, artifact locations, common errors, and platform-specific tips. Excludes: first-time installation and onboarding (use 10x-cli-setup instead), developing or contributing to 10x-cli source code, and general programming help."
+description: "Use when the user wants to download, use or update 10xDevs CLI skills, choose a helper installation channel, inspect course content, switch tool profiles or troubleshoot CLI/auth/content conflicts. Guides filtered get → an actual agent task → sync while preserving local work and course/tool/language context. For first installation or authentication preparation, use an available 10x-cli-setup copy. Does not implement CLI runtime or grant course access."
 ---
 
-# 10x-cli Daily Usage Guide
+# 10x-cli: download, use, update
 
-This skill helps users work with `@przeprogramowani/10x-cli` after it is already installed and authenticated. If the user has not installed or authenticated yet, hand off to the **10x-cli-setup** skill instead.
+Read the bundled [compatibility and channel reference](references/compatibility.md)
+before issuing commands. It contains the pinned runner setup, version checks, both
+helper channels and ownership safeguards. Commands use the released lesson-scoped
+skill filter; verify the actual selected package and content before using it. A local
+build or source membership is not proof that a feature has shipped.
 
-## Step 1: Detect the user's environment
+## Environment
 
-Before giving any guidance, gather context silently — run these checks and remember the results. Do not print raw output to the user.
+Reuse the setup handoff: project root, course, tool, language, runner/version,
+auth/access status, update method and helper channel/path. If anything is absent,
+inspect only that item. A working installed CLI needs no reinstall. If setup is
+needed, locate its actual SKILL.md and references or install that helper through
+the public channel; do not invoke a missing sibling by name.
 
-### Operating system
+The guided acceptance context is macOS/zsh, Claude Code, 10xdevs4 and Polish.
+Determine the actual OS and shell from the environment, not a POSIX command that
+labels every failure Windows. Select the intended project root before any write.
+For v4, retain an existing v3 project and use a separate directory; ordinary get,
+sync and profile changes do not migrate editions. Preserve `.10x-cli.json` and
+all manifests if their versions/courses conflict.
 
-```bash
-echo "$OSTYPE" 2>/dev/null || echo "win32"
-```
-
-Use the result to tailor path separators, shell syntax, and clipboard commands throughout your answers:
-
-| OS | Shell | Home var | Clipboard | Temp dir |
-|----|-------|----------|-----------|----------|
-| macOS (`darwin*`) | zsh / bash | `$HOME` | `pbcopy` | `$TMPDIR` |
-| Linux (`linux-gnu*`) | bash / zsh | `$HOME` | `xclip -selection clipboard` or `xsel --clipboard` | `/tmp` |
-| Windows (`win32` / MSYS / Git Bash) | PowerShell / cmd | `%USERPROFILE%` | `clip.exe` | `%TEMP%` |
-
-### Active AI tool
-
-```bash
-10x doctor --json 2>/dev/null | head -1
-```
-
-Also check which tool profile is configured:
+Use the verified `10x_cli` runner defined in the reference, or the user's exact
+verified global/standalone executable:
 
 ```bash
-cat ~/.config/10x-cli/config.json 2>/dev/null || cat "$APPDATA/10x-cli/config.json" 2>/dev/null || echo "{}"
+10x_cli --version
+10x_cli get --help
+10x_cli sync --help
+10x_cli auth --status
+10x_cli list --course 10xdevs4
 ```
 
-If the config contains a `"tool"` key, that is the active profile. If not, the default is `claude-code`.
+Check source/release evidence for lesson reference, skill filter and lesson-scoped sync, then use the
+filtered preview below to check the endpoint. Do not treat a successful help exit as
+capability proof. Keep unsupported CLI syntax, unpublished/missing content, locked
+module, membership denial and network failure distinct. Missing final release
+evidence need not block preparing the public helpers or the exercise files.
 
-### CLI version
+Read only needed nonsecret preferences from `config.json`. On macOS/Linux its
+base is nonempty `$XDG_CONFIG_HOME`, otherwise `~/.config`; on Windows it is
+`%APPDATA%`, otherwise the user's `AppData/Roaming`. Append `10x-cli/config.json`.
+Do not print `auth.json`, discard stderr, truncate doctor JSON or erase config to
+repair an unknown problem. An explicit course/tool/language in this journey takes
+precedence over saved defaults for that command.
+
+## Session management
+
+When login is needed, let the user choose the delivery channel and complete it:
 
 ```bash
-10x --version
+10x_cli auth                  # Interactive: choose email or Circle
+10x_cli auth --method email   # Email magic link; default for piped/JSON output
+10x_cli auth --method circle  # One-time approval link delivered in Circle
+10x_cli auth --status
+10x_cli auth --logout
 ```
 
-## Step 2: Answer the user's question using the reference below
+Circle is useful when the email does not arrive. The approval link expires after
+15 minutes; the CLI does not resend it automatically. In non-interactive mode,
+provide the user's email with `--email` and choose `--method circle` explicitly.
+Do not send a login message until the user requests authentication. Sessions
+refresh transparently; re-login is needed only when refresh cannot recover them.
 
-Use the environment context from Step 1 to personalize every answer. Always use the OS-appropriate shell syntax, paths, and commands. Never show macOS-specific commands to a Windows user or vice versa.
+## Download
 
----
-
-## Command Reference
-
-### `10x get <ref>` — Fetch and apply lesson artifacts
-
-The primary daily command. Fetches a lesson bundle from the API and writes skills, prompts, rules, and config templates to the project directory.
+The launch exercise follows lesson 1, “Od pomysłu do PRD”, using its existing
+10xCards example. `10x-plan` is not part of this launch demonstration.
+After checking each name's capability and availability, download three separate
+complete selected skill trees. Inspect each dry-run before its corresponding write:
 
 ```bash
-10x get m1l1              # Fetch module 1, lesson 1
-10x get m2l3              # Fetch module 2, lesson 3
-10x get m1l1 --dry-run    # Preview what would be written
-10x get m1l1 --tool cursor  # Use a different AI tool profile
-10x get m1l1 --lang pl    # Fetch Polish content
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-**Filtering artifacts:**
+Inspect each report and the complete supporting tree, not just SKILL.md. In the
+chosen macOS/zsh exercise directory, each of these checks must succeed before use
+(stop on any failure; do not infer success from the last check alone):
 
 ```bash
-10x get m1l1 --type skills                     # Only skills
-10x get m1l1 --type skills --name code-review  # One specific skill
-10x get m1l1 --print --type skills --name code-review  # Print to stdout
+test -s .claude/skills/10x-init/SKILL.md
+test -s .claude/skills/10x-shape/SKILL.md
+test -s .claude/skills/10x-shape/references/prd-schema.md
+test -s .claude/skills/10x-prd/SKILL.md
+test -s .claude/skills/10x-prd/../10x-shape/references/prd-schema.md
 ```
 
-**Where artifacts land** (depends on the active tool profile):
+The PRD entrypoint resolves `../10x-shape/references/prd-schema.md` relative to its
+own directory. A standalone PRD tree is insufficient. Read all installed
+entrypoints and every reference they require; the paths above are the known
+source minimum, not permission to discard extra files from a published bundle.
+Also inspect `.claude/.10x-cli-manifest.json`: `lessons.m1l1.skills` must include
+all three names, with file hashes in `files.skills`. These are lesson-owned
+partial downloads, not independent owners. Inspect `.10x-cli.json` for the course
+binding; partial downloads do not establish a complete lesson release identity.
 
-| Tool | Skills | Prompts | Rules file | Config templates |
-|------|--------|---------|------------|------------------|
-| Claude Code | `.claude/skills/<name>/SKILL.md` | `.claude/prompts/<name>.md` | `CLAUDE.md` | `.claude/config-templates/<name>` |
-| Cursor | `.cursor/skills/<name>/SKILL.md` | `.cursor/prompts/<name>.md` | `.cursor/rules/10x-course.mdc` | `.cursor/config-templates/<name>` |
-| GitHub Copilot | `.github/skills/<name>/SKILL.md` | `.github/prompts/<name>.md` | `.github/copilot-instructions.md` | `.github/config-templates/<name>` |
-| Codex CLI | `.agents/skills/<name>/SKILL.md` | `.agents/prompts/<name>.md` | `AGENTS.md` | `.agents/config-templates/<name>` |
-| Devin Desktop | `.devin/skills/<name>/SKILL.md` | `.devin/prompts/<name>.md` | `AGENTS.md` | `.devin/config-templates/<name>` |
-| Generic | `.ai/skills/<name>/SKILL.md` | `.ai/prompts/<name>.md` | `AGENTS.md` | `.ai/config-templates/<name>` |
+CLI 1.21.0 is published with v4 and filtered skill downloads; production m1l1 EN/PL
+contains init/shape/prd and their references. These revised helpers are a separate
+source change, not proof that their course copies have been published.
+Verify all three names against the actual selected release. If any name, schema,
+owner or release is missing/mismatched, preserve the precise error and stop the
+exercise; never silently substitute a whole lesson, another course or filtered get.
 
-**Re-applying a lesson** updates clean managed files and preserves local edits unless explicitly resolved. Config templates are create-only. Course rules with local edits or an unknown baseline require explicit resolution, even with `--force` or when opting out. Text outside the managed markers stays intact.
+`CLAUDE-m1l1` is a separate lesson rule, not delivered by these filtered skill gets.
+The inspected init/shape/prd sources do not require that rule to run this chain.
+This does not establish that every step of the full lesson works without it.
+Use the learner's existing lesson 1 inputs and instructions: if they require the
+rule, inspect the existing project rule and its provenance. If absent, report the
+missing prerequisite and obtain the supported route from the lesson/release owner
+before that step. Do not invent a rule command or download a full lesson to bypass
+it. Do not overwrite an existing project rule.
 
-**Switching lessons** accumulates downloaded artifacts. Cleanup is scoped to the lesson being updated and removes only unchanged files with known hashes and no remaining owner. User files, modified files and files without a baseline are preserved.
+For browsing use `10x_cli list m1 --course 10xdevs4`. The commands above filter
+one lesson by skill name; `get 10x-init` is not supported. `--print` is inspection:
+TTY Markdown can contain only SKILL.md; non-TTY output is a JSON envelope. Never
+redirect print output into SKILL.md as a package installation.
 
-### `10x list [module]` — Browse available content
+## Use: 10xCards, from idea to PRD
+
+Downloading the trees is only preparation. Use the existing 10xCards example and
+the learner's actual answers from lesson 1. If those inputs are absent, ask for
+them; do not invent product requirements, a replacement task.md or a ready-made
+plan. Keep private lesson text out of public fixtures and transcripts.
+Do not assume native slash/$ discovery or automatic activation from npm install.
+Give the agent explicit local paths and work through these steps separately:
+
+1. Read `.claude/skills/10x-init/SKILL.md` and follow it in the chosen project.
+   Inspect the create-if-absent context/changes, context/archive and
+   context/foundation directories and their READMEs. Preserve existing files.
+2. Read `.claude/skills/10x-shape/SKILL.md` and
+   `.claude/skills/10x-shape/references/prd-schema.md`. Follow the skill's discovery
+   with the learner's 10xCards inputs. Let the learner answer and approve the
+   checkpoint; do not answer for them. Inspect
+   `context/foundation/shape-notes.md` against those answers before proceeding.
+3. Read `.claude/skills/10x-prd/SKILL.md` and its sibling schema, then generate the
+   draft from the actual `context/foundation/shape-notes.md`. Inspect
+   `context/foundation/prd.md` against that input and the installed schema;
+   unresolved domain choices stay open. Respect the skill's existing-file
+   collision choice (a versioned file may be the appropriate result).
+
+Success requires the learner's notes and a schema-conformant PRD, with gaps
+explicit and original project work preserved. A transcript of downloads alone
+is insufficient. Stop after reviewing the PRD; do not chain into stack selection,
+bootstrap or implementation. If a different global/local skill copy was read,
+correct the path before accepting the result. Record the actual agent, profile,
+language, output paths and checks; use a fresh isolated exercise directory for the
+two canonical output filenames instead of forcing an overwrite.
+
+## Update
+
+Use the same runner, directory, course, tool and language. Sync updates entire
+downloaded lessons, including m1l1 after these filtered gets. Its preview may
+include other skills, prompts, configs and course rules. Inspect that expanded
+scope and apply only when the user accepts it; to update only one skill, repeat
+its filtered preview/get instead. Do not use sync as a hidden rule prerequisite
+workaround:
 
 ```bash
-10x list       # Show all modules with lock state
-10x list m1    # Show lessons in module 1
+10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Locked modules show their unlock date. Use this to see what is available before fetching.
+Normal sync refreshes the full lessons recorded in the manifest, not just the
+three selected skills. `--all` broadens scope to unlocked lessons and is not needed
+for this exercise. Missing managed files should be repaired; local edits should
+remain visible as conflicts or preserved files. Read all report outcomes and
+resource counts even if exit is 0: skipped conflicts alone are not process errors.
+Do not equate an unchanged remote digest with intact local files.
 
-### `10x doctor` — Diagnose problems
+For one conflicting skill, inspect the diff and back up local work before retrying
+its filtered get in an interactive terminal with the same course/tool/lang. Preserve
+the user's resolution choice. If a CLI hint omits context, restore these flags in
+your proposed command. Never run automatic `--force`; it can overwrite local
+skill/prompt edits and does not bypass protected rules or safe removal. Config
+templates remain create-only. Cleanup preserves modified/untracked files and
+files owned elsewhere; do not manually sweep a skill directory after sync.
 
-Runs 5 checks: Auth status, API connectivity, Config directory, CLI version, and tool directory presence.
+Three updates are independent: changing the npm/binary version updates the CLI;
+repeating pinned public `skills add` with a deliberately chosen new retained SHA
+updates a public helper; CLI sync updates CLI-owned course skills. It does not
+update the executable or public installer-owned helper copies.
 
-```bash
-10x doctor          # Human-readable output
-10x doctor --json   # Machine-readable for scripting
-```
+## Channels: both helpers are available through two routes
 
-Exit code 78 means at least one check failed.
+The public on-demand route works before CLI/auth and installs one project helper
+at a selected source SHA. The CLI route uses authenticated filtered get once helper
+content is published and m1l1 is accessible. Follow the exact commands and guards
+in the reference for `10x-cli-setup` and `10x-cli-guide`; install only what is needed.
+Both routes deliver each helper's own `references/compatibility.md`.
 
-### `10x auth` — Session management
+Use one owner per installed copy. Inspect destination paths/symlinks, CLI manifest
+and the public installer's project registration before writing. If a helper is
+already CLI-owned, use that copy and sync. For a public→CLI takeover, back up the
+whole helper and metadata outside managed trees, unregister only that helper using
+the original pinned installer's project/agent remove flow, verify registration and
+destination are absent, then filtered get. Merge local edits consciously from backup.
+If either owner remains, stop the takeover. CLI→public has no verified per-skill
+unregister contract: use a new isolated project instead of hand-editing manifests.
 
-```bash
-10x auth                    # Interactive: choose email magic link or Circle message
-10x auth --method email     # Magic-link login (default when piped / --json)
-10x auth --method circle    # Approval link sent as a Circle message — use when no email arrives
-10x auth --status           # Check current session (shows the login method when known)
-10x auth --logout           # Clear credentials
-```
+## Profiles and troubleshooting
 
-`--method circle` sends a direct message in Circle with a one-time approval link; open it in Circle on any device and the terminal signs in within a few seconds. The link expires after 15 minutes and the CLI never resends it by itself — run the command again for a fresh message, or fall back to `--method email`. In non-interactive mode (`--json` or piped output) pass `--email` and an explicit `--method circle`; the CLI never prompts there.
+Full skill trees land under the selected profile's `skills/<canonical-name>/`:
 
-Sessions refresh transparently — if a token is near expiry, the next command refreshes it automatically. You only need to re-auth manually if the session has fully expired.
+| Profile | Tool directory | Rules file for full lesson delivery |
+|---|---|---|
+| claude-code | `.claude/` | `CLAUDE.md` |
+| cursor | `.cursor/` | `.cursor/rules/10x-course.mdc` |
+| copilot | `.github/` | `.github/copilot-instructions.md` |
+| codex | `.agents/` | `AGENTS.md` |
+| devin-desktop | `.devin/` | `AGENTS.md` |
+| gemini | `.gemini/` | `GEMINI.md` |
+| generic | `.ai/` | `AGENTS.md` |
 
-### `10x bench` — 10xBench model leaderboard
+Profile changes may offer migrate, delete eligible managed files, or keep both;
+none means deleting arbitrary user content or switching the course edition.
+Legacy windsurf aliases and orphan handling should follow the selected version's
+help/output. These path mappings are not evidence of a completed Windows or
+other-agent walkthrough. Translate shell syntax to the user's actual shell.
 
-```bash
-10x bench             # Top 10 AI models with color-coded score bars
-10x bench --limit 5   # Just the top 5
-10x bench --json      # Machine-readable envelope (also when piped)
-```
+Run `10x_cli doctor --json` when diagnosis is useful; inspect its complete
+`data.overall` and `data.checks` as well as exit status. It checks the configured
+profile, not a `--tool` or `--course` argument. Before first get, a missing tool
+directory can be expected; explain only that failure and keep other failures
+visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 
-Shows the live leaderboard from [10xbench.ai](https://10xbench.ai) — AI models
-benchmarked on vibe-coding the Przeprogramowani.pl website. Each row has the
-average score, number of runs, cost per run where measured, and the agent
-harness used. **No authentication needed** — this works before `10x auth`.
-Data updates when new benchmark results are published; superseded model
-versions are already filtered out upstream. If it reports the leaderboard as
-unavailable, the site may be mid-deploy — retry in a few minutes.
+| Symptom | Next step |
+|---|---|
+| Missing/expired auth | Inspect auth status and live-access result; let the user complete login through setup. Login may send email. |
+| No email received | Offer `10x_cli auth --method circle`; let the user request the message. |
+| `circle_login_disabled` | Circle is unavailable; use `10x_cli auth --method email`. |
+| `dm_rejected` | Enable Circle direct messages or use email login. |
+| `circle_login_expired` | Ask for a fresh Circle login or use email; never auto-resend. |
+| Denied course access | Confirm selected course and membership; changing tool/reinstalling does not grant access. |
+| Locked or unpublished v4 | Inspect module availability/release evidence; do not bypass the gate or fall back to v3. |
+| Unsupported name/missing index | Verify exact CLI package and content release; preserve the error for the release owner. |
+| Network/API failure | Keep diagnostics, retry the same context when service returns; no config reset. |
+| Wrong directory/profile | Recheck cwd and explicit flags; a fresh project may legitimately have no tool directory. |
+| Signature/release mismatch | Preserve failure and source identity; do not disable verification or reuse unrelated bytes. |
+| Edition/manifest conflict | Preserve binding and manifests for repair; use a separate v4 project rather than deleting them. |
+| File conflict or permission failure | Inspect affected paths and local edits, retain backup and resolve the specific issue. No broad chmod/reset/force. |
 
----
-
-## Switching Tools
-
-To change your AI tool (e.g., from Claude Code to Cursor):
-
-```bash
-10x get m1l1 --tool cursor
-```
-
-The CLI will detect that artifacts from the old tool exist and offer three options:
-
-1. **Migrate** (default) — transfer eligible managed files to the new profile, preserving modified or conflicting source files and their ownership.
-2. **Delete** — remove only unchanged managed files with known hashes and no other owner; preserve user files and edits.
-3. **Keep both** — retain the existing profile and dismiss its repeated orphan prompt.
-
-Tool switching cannot change a project's course edition. If profiles disagree about the course or a manifest is corrupt, preserve the files and resolve that conflict before writing.
-
-The tool choice is saved in the config file (`~/.config/10x-cli/config.json` on macOS/Linux, `%APPDATA%/10x-cli/config.json` on Windows). Future `get` commands will use the new tool without needing `--tool` again.
-
----
-
-## Platform-Specific Tips
-
-### Windows
-
-- **Use PowerShell** (not cmd.exe). The CLI outputs ANSI colors and Unicode symbols that render correctly in Windows Terminal + PowerShell but may garble in legacy cmd.
-- **npx works fine**: `npx @przeprogramowani/10x-cli get m1l1` — no global install needed. Node 20+ is the only prerequisite.
-- **Clipboard**: Skills that copy to clipboard use `clip.exe` on Windows. If a skill outputs a clipboard command, it will fall back silently if `clip.exe` is unavailable.
-- **Config location**: `%APPDATA%\10x-cli\config.json` and `%APPDATA%\10x-cli\auth.json`. The CLI creates these automatically.
-- **Path separators**: The CLI uses Node's `path.join()` internally, so forward slashes in command output (like `.claude/skills/code-review/SKILL.md`) work fine on Windows — no need to convert them.
-
-### Linux
-
-- **Clipboard**: Skills use `xclip -selection clipboard` or `xsel --clipboard`. If neither is installed, clipboard operations fail silently. Install with `sudo apt install xclip` (Debian/Ubuntu) or `sudo dnf install xclip` (Fedora).
-- **Config location**: `~/.config/10x-cli/` (respects `$XDG_CONFIG_HOME` if set).
-
-### macOS
-
-- **Clipboard**: Skills use `pbcopy` — works out of the box.
-- **Config location**: `~/.config/10x-cli/`.
-
----
-
-## Troubleshooting
-
-When the user reports a problem, follow this sequence:
-
-### 1. Run doctor first
-
-```bash
-10x doctor
-```
-
-This catches the most common issues. Read the output and address each failing check.
-
-### 2. Common problems and fixes
-
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| "You're not signed in" | No auth or expired session | `10x auth` |
-| "Session expired" | Token past expiry and auto-refresh failed | `10x auth` (re-login) |
-| No email received after `10x auth` | Magic link filtered or delayed | `10x auth --method circle` — approval link arrives as a Circle message |
-| "Circle login is currently unavailable" (`circle_login_disabled`) | Circle channel switched off server-side | `10x auth --method email` |
-| "Circle refused to deliver the login message" (`dm_rejected`) | Direct messages disabled in Circle settings | Enable DMs in Circle, or `10x auth --method email` |
-| "The Circle login expired" (`circle_login_expired`) | Approval link not opened within 15 minutes | `10x auth --method circle` again, or `10x auth --method email` |
-| API unreachable / timeout | Network issue or API outage | Check internet; retry in a few minutes |
-| "Module is locked" | Content not yet released | `10x list` to see unlock date |
-| `.claude/` not found (doctor fail) | Running from wrong directory or wrong tool profile | `cd` to project root; check `10x doctor --json` for which tool is configured |
-| "403 Forbidden" on `10x get` | Module locked or no membership | Check `10x list` for module state; verify enrollment |
-| Orphaned artifact prompt on `get` | Switching tools mid-lesson | Choose "migrate" to move files, or "delete" to clean up |
-| Permission denied writing files | Directory not writable | Check directory permissions; on POSIX: `chmod u+w <dir>` |
-
-### 3. Verbose mode for deeper debugging
-
-```bash
-10x get m1l1 --verbose
-10x doctor --verbose
-```
-
-This prints request/response diagnostics to stderr, useful for diagnosing API or network issues.
-
-### 4. Nuclear reset
-
-If config is corrupted:
-
-On macOS/Linux:
-```bash
-rm -rf ~/.config/10x-cli
-10x auth
-```
-
-On Windows (PowerShell):
-```powershell
-Remove-Item -Recurse -Force "$env:APPDATA\10x-cli"
-10x auth
-```
-
-This clears auth and tool preference. The next `10x auth` recreates everything.
-
----
-
-## Important Principles
-
-- **Answer with the user's OS and tool in mind.** Never show `pbcopy` to a Windows user. Never show `%APPDATA%` to a macOS user.
-- **Run `10x doctor` before speculating.** It catches 80% of issues.
-- **Don't guess command syntax from memory.** If unsure about a flag or behavior, fetch the latest README: `https://raw.githubusercontent.com/przeprogramowani/10x-cli/refs/heads/master/README.md`
-- **Distinguish tool profile issues from CLI issues.** If artifacts land in the wrong directory, it is a tool profile question. If the command itself fails, it is a CLI/auth/network question.
-
-## Course selection and project edition
-
-`get`, `list`, and `sync` select the explicit `--course` first, then the project's edition, then the live API recommendation. A new project with only v3 access selects v3, with only v4 selects v4, and with both selects published, available v4. An unpublished v4 can leave v3 as the recommendation; network or backend failures are reported instead of falling back. Output includes the course and selection reason.
-
-The first validated write records `{ "version": 1, "course": "10xdevs4" }` (or `10xdevs3`) in the root `.10x-cli.json`, shared across AI tool profiles. Existing supported v2/v3 manifests preserve their recorded edition. All profiles, including legacy Windsurf, must agree. Corrupt, unknown-version, or conflicting manifests block writes and must be preserved for repair. Artifact names never infer an edition.
-
-Ordinary `get` and `sync` cannot change a bound project's edition. Start v4 in a separate directory while retaining the v3 project. Read-only inspection of another entitled edition is allowed with `--course`. Do not delete the binding or manifests to bypass an edition conflict. Course edition and manifest schema version are separate concepts.
-
-`list`, `get --print`, `get --dry-run`, `sync --dry-run`, and `doctor` preserve project files and tool/language preferences, including interactive tool choices. Auth token rotation may update only the credential store. Failed download, signature, course, or path validation leaves a new project unbound. Once writing starts, its binding remains even if an I/O operation fails, so retry stays on the same edition. `auth --status` and `doctor` distinguish token expiry from live course access.
-
-
-## v3 compatibility and v4 rollout
-
-Upgrade the CLI to use v4 capabilities. Existing v3 users can continue `auth`,
-`list`, `get` and `sync` without compulsory course flags or project migration.
-A new v4 purchase does not switch a bound v3 project; create a separate directory
-for v4. Complete skill directories are installed, including references and scripts;
-`--print` in human mode shows only `SKILL.md` and explains how to download the rest.
-
-The first v4 delivery release does not include a course-edition migration command.
-Do not recommend deleting a binding or manifest to force another edition. Warnings
-about using old binaries on edition-migrated projects belong to the later migration
-release. If v4 is unavailable, distinguish its publication/unlock state from course
-membership; do not claim that reinstalling or changing a tool grants access.
+Use `--verbose` only when needed, and redact credentials before sharing diagnostics.
+For unrelated day-to-day commands such as `bench`, inspect this runner's matching
+help; do not fetch arbitrary master README as an authority for an older binary.

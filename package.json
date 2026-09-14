@@ -1,6 +1,6 @@
 {
   "name": "@przeprogramowani/10x-cli",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "description": "Open-source CLI for 10xDevs course content",
   "repository": {
     "type": "git",
@@ -27,7 +27,8 @@
     "generate-types": "bun run scripts/generate-types.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "bun run --bun node_modules/oxlint/bin/oxlint ."
+    "lint": "bun run --bun node_modules/oxlint/bin/oxlint .",
+    "validate:cli-skills": "node scripts/validate-cli-skills.mjs"
   },
   "dependencies": {
     "@clack/prompts": "0.9.1",
