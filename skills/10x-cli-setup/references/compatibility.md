@@ -1,7 +1,7 @@
 # CLI compatibility, channels and command context
 
 This reference is packaged inside each helper. Both copies must have identical
-bytes in the authoring repository. It defines the guided named-download contract;
+bytes in the authoring repository. It defines the guided filtered-download contract;
 verify the selected published CLI and live content before executing that path.
 
 ## Version and capability check
@@ -17,9 +17,9 @@ not automatically update the others.
 | Full helper commit retained on public CLI master | Reproducible public helper source | Installation in this project or course publication |
 | Successful named download and complete local tree/manifest | Actual package/API/content behavior for this context | A successful agent task or another profile/language |
 
-The research snapshot on 2026-09-13 found npm `1.20.0` without named get. This is
-historical evidence, not a current-version recommendation or a minimum-version
-comparison. On 2026-09-14, CLI `1.21.0` was published with v4, named downloads
+The earlier planning shorthand `get SKILL_NAME` was incorrect. Released CLI
+uses a lesson reference plus `--type skills --name NAME`; there is no standalone
+skill-name positional command or independent skill-owner sync contract. On 2026-09-14, CLI `1.21.0` was published with v4, filtered skill downloads
 and Circle login; production m1 EN/PL and sync were verified. Its npm `gitHead`
 is `2cc510fe690ba820937602d702564985087ded46`. These revised helpers have their
 own source/content identity and are not implied by installing CLI 1.21.0. A local
@@ -42,11 +42,11 @@ invent a source SHA if metadata is absent. The installed help wins for supported
 flags; a help/README mismatch must remain visible and be checked against matching
 source, not resolved by fetching arbitrary master instructions.
 
-Before the named journey, verify `get --help` and matching source/release evidence
-for skill-name input and direct-owner sync. A successful `--help` exit alone does
-not prove named support. If support or release evidence is missing, prepare the
-public helpers and handoff, but pause named commands with a precise explanation.
-Once supported, a named dry-run verifies the actual API/content selection before
+Before the filtered-download journey, verify `get --help` and matching source/release evidence
+for `get m1l1 --type skills --name NAME` and lesson-scoped sync. A successful `--help` exit alone does
+not prove skill-filter support. If support or release evidence is missing, prepare the
+public helpers and handoff, but pause filtered commands with a precise explanation.
+Once supported, a filtered dry-run verifies the actual API/content selection before
 writing. Report unsupported reference, missing skill/index, locked module, denied
 access and network errors separately; do not silently use a lesson or v3 instead.
 
@@ -123,7 +123,7 @@ already managed by CLI should be used/updated through CLI, not overwritten here.
 
 ### CLI channel
 
-Use this channel after setup/auth and only with verified named support and
+Use this channel after setup/auth and only with verified skill-filter support and
 available v4 content. These helpers and the launch chain `10x-init`, `10x-shape`, `10x-prd` belong to m1l1
 and inherit course membership and module availability. Their source membership
 does not prove that the content has been published or unlocked.
@@ -132,18 +132,18 @@ In a separate project from the public copies, or after the explicit takeover
 below, use the same verified `10x_cli` runner:
 
 ```bash
-10x_cli get 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Each successful full named download should materialize
+Each successful filtered skill download should materialize
 `.claude/skills/<canonical-name>/SKILL.md` and
-`.claude/skills/<canonical-name>/references/compatibility.md`, with a direct owner
-in `.claude/.10x-cli-manifest.json`. Confirm that complete tree and owner from the
-actual output/files; an alias must resolve to the canonical name. No full lesson
-or course rules are needed for this helper download.
+`.claude/skills/<canonical-name>/references/compatibility.md`, under lesson ownership
+`lessons.m1l1.skills` in `.claude/.10x-cli-manifest.json`, with hashes in
+`files.skills`. Confirm that complete tree and owner from actual output/files.
+This filter writes only the selected skill, not course rules or the whole lesson.
 
 ### Changing the owner deliberately
 
@@ -153,7 +153,7 @@ recovery. Use the original pinned installer's `remove --help` and `remove` flow 
 unregister only the selected helper at project scope for the selected agent.
 Verify that both its registration and destination path/symlink are gone. If
 anything remains or another owner is present, stop the takeover and preserve it.
-Then use a full named download and inspect its complete tree/direct owner. Merge
+Then use a filtered skill download and inspect its complete tree and lesson ownership. Merge
 desired local edits consciously from the backup; do not automatically force them
 over the downloaded copy. Reopen/read the installed helper after replacement.
 
@@ -168,12 +168,12 @@ The launch example is lesson 1's existing 10xCards: init → shape → PRD.
 content checks for each name, inspect each preview before its corresponding write:
 
 ```bash
-10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl
 ```
 
 Require the complete three trees and inspect each installed entrypoint/reference.
@@ -189,12 +189,13 @@ test -s .claude/skills/10x-prd/../10x-shape/references/prd-schema.md
 
 PRD reads `../10x-shape/references/prd-schema.md` relative to its SKILL.md;
 isolated PRD download is insufficient. These are the source minimum: preserve
-additional supporting files in the selected release. Inspect all three canonical
-direct owners in `.claude/.10x-cli-manifest.json` and the project edition binding.
-Membership in source is candidate evidence; actual named availability, full PL
+additional supporting files in the selected release. Inspect all three names in
+`lessons.m1l1.skills`, their hashes in `files.skills`, and the project edition
+binding. Partial downloads do not establish complete lesson freshness/release identity.
+Membership in source is candidate evidence; actual filtered availability, full PL
 references and release identity still need verification for all three names.
 
-`CLAUDE-m1l1` is a separate lesson rule and is not included in these named gets.
+`CLAUDE-m1l1` is a separate lesson rule and is not included in these filtered gets.
 The inspected three skill sources do not require it for the chain. This is not
 proof that the entire lesson needs no rule: if the learner's lesson instructions
 require it, inspect an existing rule's provenance, or report the missing
@@ -213,20 +214,24 @@ work. Stop at PRD, without stack selection or implementation. Download alone is
 not use; native slash/$ discovery needs separate agent evidence. Keep private
 lesson text out of public fixtures. The guide supplies the detailed agent steps.
 
+Sync below refreshes entire recorded lessons, not only the three skill filters.
+Preview may include other skills, prompts, configs and course rules; apply only
+when the user accepts that scope. For a narrow update, repeat the selected skill
+filter instead. Never use sync to silently bypass a missing lesson-rule prerequisite.
+
 ```bash
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Normal sync refreshes downloaded owners, including full named skills in a
-compatible named release. Avoid `--all` for this small journey. Inspect updated,
+Normal sync refreshes downloaded owners, including the full lessons that own previously downloaded skills. Avoid `--all` for this small journey. Inspect updated,
 unchanged, conflict/preserved and error outcomes even when exit is 0. Preserve
 local edits; do not use automatic `--force`. Recovery commands must retain the
 same runner/course/tool/lang, even if an older report omits that context.
 
-Filtered lesson get (`--type skills --name ...`) is a separate operation; it does
-not establish the complete direct-owner contract of full named get. Do not use
-it as a silent fallback or promise equivalent sync ownership. `--print` is an
+Filtered lesson get (`m1l1 --type skills --name ...`) is the supported command
+used throughout this guide. It preserves other previously downloaded artifacts
+through partial writes; normal sync later operates at lesson scope. `--print` is an
 inspection surface, not installation: human TTY output can show only SKILL.md,
 while non-TTY output is JSON. Never redirect it into SKILL.md as a full package.
 
@@ -236,7 +241,7 @@ while non-TTY output is JSON. Never redirect it into SKILL.md as a full package.
 | Global npm CLI | `npm install -g "@przeprogramowani/10x-cli@$CLI_VERSION"` after selecting/verifying the version |
 | Standalone CLI | Replace through its verified release asset procedure, then check the actual executable |
 | Public helper copy | Inspect local changes/ownership; rerun its selected `skills add` command with a deliberate new full source SHA |
-| CLI-owned helper or exercise skill | `sync` with the same course/tool/lang; inspect conflicts |
+| CLI-owned helper or exercise skill | Repeat its filtered get for a narrow update; `sync` refreshes full recorded lessons after preview |
 
 `skills update` is not a substitute for proving an exact selected helper revision;
 it may follow a different ref/latest. npm install includes helper source files in

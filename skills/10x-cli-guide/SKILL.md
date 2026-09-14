@@ -1,14 +1,14 @@
 ---
 name: 10x-cli-guide
-description: "Use when the user wants to download, use or update 10xDevs CLI skills, choose a helper installation channel, inspect course content, switch tool profiles or troubleshoot CLI/auth/content conflicts. Guides named get → an actual agent task → sync while preserving local work and course/tool/language context. For first installation or authentication preparation, use an available 10x-cli-setup copy. Does not implement CLI runtime or grant course access."
+description: "Use when the user wants to download, use or update 10xDevs CLI skills, choose a helper installation channel, inspect course content, switch tool profiles or troubleshoot CLI/auth/content conflicts. Guides filtered get → an actual agent task → sync while preserving local work and course/tool/language context. For first installation or authentication preparation, use an available 10x-cli-setup copy. Does not implement CLI runtime or grant course access."
 ---
 
 # 10x-cli: download, use, update
 
 Read the bundled [compatibility and channel reference](references/compatibility.md)
 before issuing commands. It contains the pinned runner setup, version checks, both
-helper channels and ownership safeguards. Instructions describe the intended named
-contract; verify the actual selected package and content before using it. A local
+helper channels and ownership safeguards. Commands use the released lesson-scoped
+skill filter; verify the actual selected package and content before using it. A local
 build or source membership is not proof that a feature has shipped.
 
 ## Environment
@@ -37,8 +37,8 @@ verified global/standalone executable:
 10x_cli list --course 10xdevs4
 ```
 
-Check source/release evidence for named input and direct-owner sync, then use the
-named preview below to check the endpoint. Do not treat a successful help exit as
+Check source/release evidence for lesson reference, skill filter and lesson-scoped sync, then use the
+filtered preview below to check the endpoint. Do not treat a successful help exit as
 capability proof. Keep unsupported CLI syntax, unpublished/missing content, locked
 module, membership denial and network failure distinct. Missing final release
 evidence need not block preparing the public helpers or the exercise files.
@@ -73,15 +73,15 @@ refresh transparently; re-login is needed only when refresh cannot recover them.
 The launch exercise follows lesson 1, “Od pomysłu do PRD”, using its existing
 10xCards example. `10x-plan` is not part of this launch demonstration.
 After checking each name's capability and availability, download three separate
-full named skill trees. Inspect each dry-run before its corresponding write:
+complete selected skill trees. Inspect each dry-run before its corresponding write:
 
 ```bash
-10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl
 ```
 
 Inspect each report and the complete supporting tree, not just SKILL.md. In the
@@ -100,17 +100,19 @@ The PRD entrypoint resolves `../10x-shape/references/prd-schema.md` relative to 
 own directory. A standalone PRD tree is insufficient. Read all installed
 entrypoints and every reference they require; the paths above are the known
 source minimum, not permission to discard extra files from a published bundle.
-Also inspect `.claude/.10x-cli-manifest.json` for all three canonical direct owners
-and `.10x-cli.json` for the project edition, course and release context.
+Also inspect `.claude/.10x-cli-manifest.json`: `lessons.m1l1.skills` must include
+all three names, with file hashes in `files.skills`. These are lesson-owned
+partial downloads, not independent owners. Inspect `.10x-cli.json` for the course
+binding; partial downloads do not establish a complete lesson release identity.
 
-CLI 1.21.0 is published with v4 and named downloads; production m1l1 EN/PL
+CLI 1.21.0 is published with v4 and filtered skill downloads; production m1l1 EN/PL
 contains init/shape/prd and their references. These revised helpers are a separate
 source change, not proof that their course copies have been published.
 Verify all three names against the actual selected release. If any name, schema,
 owner or release is missing/mismatched, preserve the precise error and stop the
 exercise; never silently substitute a whole lesson, another course or filtered get.
 
-`CLAUDE-m1l1` is a separate lesson rule, not delivered by these named skill gets.
+`CLAUDE-m1l1` is a separate lesson rule, not delivered by these filtered skill gets.
 The inspected init/shape/prd sources do not require that rule to run this chain.
 This does not establish that every step of the full lesson works without it.
 Use the learner's existing lesson 1 inputs and instructions: if they require the
@@ -119,8 +121,8 @@ missing prerequisite and obtain the supported route from the lesson/release owne
 before that step. Do not invent a rule command or download a full lesson to bypass
 it. Do not overwrite an existing project rule.
 
-For browsing use `10x_cli list m1 --course 10xdevs4`. Filtered lesson get is a
-separate operation, not equivalent direct-owner sync. `--print` is inspection:
+For browsing use `10x_cli list m1 --course 10xdevs4`. The commands above filter
+one lesson by skill name; `get 10x-init` is not supported. `--print` is inspection:
 TTY Markdown can contain only SKILL.md; non-TTY output is a JSON envelope. Never
 redirect print output into SKILL.md as a package installation.
 
@@ -157,22 +159,27 @@ two canonical output filenames instead of forcing an overwrite.
 
 ## Update
 
-Use the same runner, directory, course, tool and language:
+Use the same runner, directory, course, tool and language. Sync updates entire
+downloaded lessons, including m1l1 after these filtered gets. Its preview may
+include other skills, prompts, configs and course rules. Inspect that expanded
+scope and apply only when the user accepts it; to update only one skill, repeat
+its filtered preview/get instead. Do not use sync as a hidden rule prerequisite
+workaround:
 
 ```bash
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Normal sync refreshes already downloaded owners, including direct named owners in
-compatible releases. `--all` broadens scope to unlocked lessons and is not needed
+Normal sync refreshes the full lessons recorded in the manifest, not just the
+three selected skills. `--all` broadens scope to unlocked lessons and is not needed
 for this exercise. Missing managed files should be repaired; local edits should
 remain visible as conflicts or preserved files. Read all report outcomes and
 resource counts even if exit is 0: skipped conflicts alone are not process errors.
 Do not equate an unchanged remote digest with intact local files.
 
 For one conflicting skill, inspect the diff and back up local work before retrying
-its named get in an interactive terminal with the same course/tool/lang. Preserve
+its filtered get in an interactive terminal with the same course/tool/lang. Preserve
 the user's resolution choice. If a CLI hint omits context, restore these flags in
 your proposed command. Never run automatic `--force`; it can overwrite local
 skill/prompt edits and does not bypass protected rules or safe removal. Config
@@ -187,7 +194,7 @@ update the executable or public installer-owned helper copies.
 ## Channels: both helpers are available through two routes
 
 The public on-demand route works before CLI/auth and installs one project helper
-at a selected source SHA. The CLI route uses authenticated named get once helper
+at a selected source SHA. The CLI route uses authenticated filtered get once helper
 content is published and m1l1 is accessible. Follow the exact commands and guards
 in the reference for `10x-cli-setup` and `10x-cli-guide`; install only what is needed.
 Both routes deliver each helper's own `references/compatibility.md`.
@@ -197,7 +204,7 @@ and the public installer's project registration before writing. If a helper is
 already CLI-owned, use that copy and sync. For a public→CLI takeover, back up the
 whole helper and metadata outside managed trees, unregister only that helper using
 the original pinned installer's project/agent remove flow, verify registration and
-destination are absent, then named get. Merge local edits consciously from backup.
+destination are absent, then filtered get. Merge local edits consciously from backup.
 If either owner remains, stop the takeover. CLI→public has no verified per-skill
 unregister contract: use a new isolated project instead of hand-editing manifests.
 

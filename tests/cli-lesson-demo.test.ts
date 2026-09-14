@@ -19,10 +19,10 @@ const docs = [
 ];
 const flags = "--course 10xdevs4 --tool claude-code --lang pl";
 const expectedGets = names.flatMap((name) => [
-  `10x_cli get ${name} ${flags} --dry-run`, `10x_cli get ${name} ${flags}`,
+  `10x_cli get m1l1 --type skills --name ${name} ${flags} --dry-run`, `10x_cli get m1l1 --type skills --name ${name} ${flags}`,
 ]);
 function demoGets(text: string) {
-  return text.split(/\r?\n/).filter((line) => /^10x_cli get (?!10x-cli-|--)/.test(line));
+  return text.split(/\r?\n/).filter((line) => /^10x_cli get m1l1 --type skills --name 10x-(?:init|shape|prd) /.test(line));
 }
 function preflightPaths(text: string) {
   return text.split(/\r?\n/).filter((line) => line.startsWith("test -s ")).map((line) => line.slice(8));
@@ -40,13 +40,10 @@ function fixture(name: string): LessonBundle {
   return { lessonId: "m1l1", module: 1, lesson: 1, title: "Offline fixture", summary: "Not lesson content",
     skills: [{ name, files }], prompts: [], rules: [], configs: [] };
 }
-// The current HEAD writer takes lesson bundles. Materialize the combined file
-// inventory in one source fixture; sequential partial lesson writes would prune
-// previous lesson-owned skills and must not masquerade as named downloads.
+// Match get --type skills --name: each partial apply preserves earlier skills
+// under the same lesson owner. Network and command parsing have separate tests.
 async function materialize(names: string[]) {
-  const bundle = fixture(names[0]!);
-  bundle.skills = names.flatMap((name) => fixture(name).skills);
-  return applyBundle(bundle, root);
+  for (const name of names) await applyBundle(fixture(name), root, { partial: true });
 }
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "cli-lesson-demo-")); });
@@ -66,7 +63,7 @@ describe.each(["\n", "\r\n"])("launch journey and complete supporting trees with
     for (const path of docs) expect(preflightPaths(read(path))).toEqual(required);
   });
   it("materializes the three documented trees with the real writer and resolves the PRD sibling schema", async () => {
-    // Source writer fixtures do not simulate named direct ownership or HTTP.
+    // Actual sequential partial writer, without an HTTP or learner-use claim.
     await materialize(names);
     for (const path of docs) expect(missingPaths(root, preflightPaths(read(path)))).toEqual([]);
     const prd = join(root, ".claude/skills/10x-prd/SKILL.md");

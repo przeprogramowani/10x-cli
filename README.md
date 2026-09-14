@@ -43,7 +43,7 @@ These are project copies. Installer prompts remain enabled; `npx --yes` only
 accepts running the pinned tool. Inspect the actual installed paths and ask the
 agent to read that SKILL.md and its references. No automatic discovery is assumed.
 
-Both helpers can also be downloaded through the CLI once named get is supported
+Both helpers can also be downloaded through the CLI once filtered get is supported
 by your verified release and v4 m1l1 content is published and accessible. In a
 separate project from public copies, after setup/auth:
 
@@ -52,13 +52,13 @@ separate project from public copies, after setup/auth:
 10x_cli() { npx --yes "@przeprogramowani/10x-cli@$CLI_VERSION" "$@"; }
 10x_cli --version
 10x_cli get --help
-10x_cli get 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl
 ```
 
-Source membership does not prove publication. Confirm named support and direct
+Source membership does not prove publication. Confirm skill-filter support and direct
 sync against the actual package and content; do not infer it from a version label
 or silently replace the name with a full lesson. CLI-owned copies update through
 sync; public copies update through a deliberate new source SHA and pinned add.
@@ -67,7 +67,7 @@ The CLI executable has its own npm/binary update procedure.
 Keep one updater per copy. Before either route, inspect destination paths/symlinks
 and CLI/installer ownership. For public→CLI takeover, back up the whole helper
 outside managed trees, unregister only that helper through the original installer,
-verify its destination and registration are gone, then named get. Preserve local
+verify its destination and registration are gone, then filtered get. Preserve local
 edits for conscious merging. For CLI→public use a new project; no verified CLI
 per-skill unregister is promised. See the compatibility reference for details.
 
@@ -75,18 +75,20 @@ per-skill unregister is promised. See the compatibility reference for details.
 
 Use an existing verified global/standalone `10x`, or the pinned `10x_cli` runner
 above. Retain your v3 project and use a separate v4 exercise directory. After
-checking named capability and content availability:
+checking skill-filter capability and content availability. Sync later refreshes
+whole downloaded lessons, so inspect its preview and accept any additional
+artifacts/rules before applying; repeat a skill filter for a narrow update:
 
 ```bash
 10x_cli auth --status
 # If login is needed: 10x_cli auth (email or Circle); see auth commands below.
 10x_cli list --course 10xdevs4
-10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-init --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-shape --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get 10x-prd --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl
 # Follow the guide: read each installed SKILL.md and references, then
 # init → shape with the learner’s 10xCards inputs → PRD from approved notes.
 10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
@@ -102,7 +104,7 @@ follow the skills' collision choices. `CLAUDE-m1l1` is a separate lesson rule;
 see the guide for prerequisite checks without a full-get fallback. `10x-plan`
 is not available for this launch demonstration. CLI 1.21.0 and v4 m1 EN/PL are
 published; these revised helpers remain a separate source change. Verify each
-named preview and complete PL references before the walkthrough. A download alone is not successful skill use.
+filtered preview and complete PL references before the walkthrough. A download alone is not successful skill use.
 Inspect sync conflicts even on exit 0; never apply automatic `--force`. A missing
 tool directory before first get can explain that doctor check; other failures
 remain visible. Full lesson downloads and other commands remain available below.

@@ -41,9 +41,10 @@ conflicting bindings/manifests for diagnosis; do not delete them to force access
 ## 2. Select a compatible runner, then install only if needed
 
 Follow **Version and capability check** in the local reference. Record the actual
-package version, source revision and supported syntax. Named downloads require
-both a released CLI that accepts skill names and the corresponding API/content.
-Neither a local build nor a higher version number proves both. If named support
+package version, source revision and supported syntax. The released syntax is
+`get m1l1 --type skills --name NAME`; the positional argument is a lesson reference,
+not a skill name. Verify the corresponding lesson and skill in the content.
+Neither a local build nor a higher version number proves both. If skill-filter support
 is unavailable, continue preparing the project and public helpers, and report the
 specific pending capability before download. Do not substitute a full lesson or
 another course without the user's choice.
@@ -70,8 +71,8 @@ Keep the error when access could not be checked.
 
 Only when login is required, have the user run the verified `auth` command in an
 interactive terminal and complete its displayed flow. The inspected version uses
-a magic link sent to their Circle-registered email; follow the selected release's
-help if that flow changes. Do not request email, open magic links or perform login
+a magic link sent by email or a Circle message (`--method email` /
+`--method circle`); follow the selected release's help. Do not request email, open magic links or perform login
 on the user's behalf without their authorization. Never read out `auth.json`,
 tokens, magic-link URLs or email contents. Summarize only session/access state.
 
