@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "repo": "10x-cli",
+  "nodeMajors": [
+    22
+  ],
+  "units": [],
+  "checks": [
+    {
+      "id": "toolchain",
+      "command": [
+        "node",
+        ".quality/native.mjs",
+        "toolchain"
+      ],
+      "levels": [
+        "affected",
+        "gate"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "config-changed",
+      "command": [
+        "node",
+        ".quality/builtin.mjs",
+        "syntax"
+      ],
+      "levels": [
+        "fast"
+      ],
+      "filePattern": "\\.json$",
+      "appendFiles": true,
+      "timeoutMs": 30000
+    },
+    {
+      "id": "lint-changed",
+      "command": [
+        "bun",
+        "run",
+        "--bun",
+        "node_modules/oxlint/bin/oxlint"
+      ],
+      "cwd": ".",
+      "levels": [
+        "fast"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check.",
+      "filePattern": "\\.(?:[cm]?[jt]sx?)$",
+      "appendFiles": true
+    },
+    {
+      "id": "types",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit"
+      ],
+      "cwd": ".",
+      "levels": [
+        "affected",
+        "gate"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check."
+    },
+    {
+      "id": "lint",
+      "command": [
+        "bun",
+        "run",
+        "lint"
+      ],
+      "cwd": ".",
+      "levels": [
+        "affected",
+        "gate"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check."
+    },
+    {
+      "id": "cli-skills",
+      "command": [
+        "bun",
+        "run",
+        "validate:cli-skills"
+      ],
+      "levels": [
+        "affected",
+        "gate"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "unit",
+      "command": [
+        "node",
+        ".quality/native.mjs",
+        "unit"
+      ],
+      "cwd": ".",
+      "levels": [
+        "affected",
+        "gate"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check.",
+      "test": true,
+      "countPattern": "^\\s*(\\d+) pass$"
+    },
+    {
+      "id": "build",
+      "command": [
+        "bun",
+        "run",
+        "build"
+      ],
+      "cwd": ".",
+      "levels": [
+        "gate"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check."
+    },
+    {
+      "id": "binary",
+      "command": [
+        "bun",
+        "run",
+        "build:binary"
+      ],
+      "cwd": ".",
+      "levels": [
+        "gate"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check."
+    },
+    {
+      "id": "smoke",
+      "command": [
+        "bun",
+        "test",
+        "tests/smoke/"
+      ],
+      "cwd": ".",
+      "levels": [
+        "gate"
+      ],
+      "timeoutMs": 120000,
+      "next": "Fix the reported diagnostics and rerun this check.",
+      "test": true,
+      "countPattern": "^\\s*(\\d+) pass$"
+    }
+  ],
+  "coverage": [
+    {
+      "area": "formatter",
+      "status": "not_applicable",
+      "reason": "No existing formatter; retain repository oxlint rules."
+    },
+    {
+      "area": "live-auth-e2e",
+      "status": "unavailable",
+      "reason": "Private CLI/API release evidence is a separate existing workflow_dispatch gate. Offline checks never call production or send email.",
+      "levels": [
+        "risk"
+      ]
+    }
+  ]
+}

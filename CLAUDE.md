@@ -24,7 +24,7 @@ bun run generate-types     # refetch /openapi.json → src/generated/api-types.t
 
 `generate-types` hits the production delivery API by default. To regenerate against a local backend: `API_BASE_URL=http://localhost:8787 bun run generate-types`. The same env var is read at CLI runtime by `resolveApiBase()` to point the CLI at a non-production API. **The allowlist is strict**: only the exact production host or `http://localhost` / `http://127.0.0.1` (any port) are accepted — any other URL throws and exits 2. If you need a staging host, add it explicitly to `PROD_HOSTNAME` / `DEV_HOSTNAMES` in `src/lib/api-client.ts`.
 
-CI (`.github/workflows/ci.yml`) runs typecheck → lint → test → build → build:binary on every PR. Anything that breaks one of those steps will block merge.
+CI (`.github/workflows/ci.yml`) retains typecheck, lint, helper validation, unit/integration tests, both builds and smoke on every PR. The Linux unit suite also exercises the shared runner regressions; Windows retains native checks. Use `bun run quality:fast` after edits, `bun run quality:affected --base <SHA>` for branch changes, and `bun run quality:gate` for the complete matching offline scope; see `.quality/README.md`.
 
 ## Architecture
 

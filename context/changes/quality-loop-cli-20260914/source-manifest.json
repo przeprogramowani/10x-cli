@@ -1,0 +1,27 @@
+{
+  "repository": "przeprogramowani/10x-toolkit",
+  "sourceCommit": "591aeaac2240026c17a5d495b8aa26fac4d729ef",
+  "sourceStatus": "",
+  "files": [
+    {
+      "path": "packages/quality-loop/run.mjs",
+      "sha256": "24b84b9df60a043d3683b59c9d4e75d02cbfc6cf6d26df3493702fb22173af35",
+      "gitBlob": "37cb1eb2e5663bcbf941f0b1da58c62f7a12228a"
+    },
+    {
+      "path": "packages/quality-loop/hook.mjs",
+      "sha256": "5b29bc88b42d1b9ed0c8008a24a3c27a275101f088a034e9e64cff894229e908",
+      "gitBlob": "81fac4c06f988ba312ffeaf2c503eedb7bd61607"
+    },
+    {
+      "path": "packages/quality-loop/builtin.mjs",
+      "sha256": "1469de4e8c662bc376c1ae117e18367c007b677751b9d0d4a2ba0178f8c87c86",
+      "gitBlob": "db806774da87405bb6d5883b5f6fb19c60f26ae5"
+    }
+  ],
+  "excluded": [
+    "configure.mjs",
+    "codex-exec.template.mjs"
+  ],
+  "delivery": "controlled copy; canonical source pending integration, not a permanent master pin"
+}
