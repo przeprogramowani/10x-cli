@@ -11,6 +11,13 @@ version, installing a helper, or running a course command. Use the actual runner
 help and its matching published source; a moving master README does not establish
 what the installed CLI supports.
 
+The next CLI release also provides project-only bundled installation through
+`10x helpers install --tool <chosen-profile>`. This command is **unreleased** and
+absent from the 1.21.0/1.22.0 master baselines: check the actual runner's
+`helpers --help` first. Follow **Bundled public copies** in the local reference
+for complete files, explicit targets and conflict handling; keep the existing
+pinned public route when the runner does not support it.
+
 ## 1. Establish the project and existing installation
 
 Use the user's request and existing session context. Identify the intended project

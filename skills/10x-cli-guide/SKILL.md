@@ -11,6 +11,13 @@ helper channels and ownership safeguards. Commands use the released lesson-scope
 skill filter; verify the actual selected package and content before using it. A local
 build or source membership is not proof that a feature has shipped.
 
+The next CLI release also provides project-only bundled installation through
+`10x helpers install --tool <chosen-profile>`. This command is **unreleased** and
+absent from the 1.21.0/1.22.0 master baselines: check the actual runner's
+`helpers --help` first. Follow **Bundled public copies** in the local reference
+for complete files, explicit targets and conflict handling; keep the existing
+pinned public route when the runner does not support it.
+
 ## Environment
 
 Reuse the setup handoff: project root, course, tool, language, runner/version,
