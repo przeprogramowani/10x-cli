@@ -111,10 +111,14 @@ Exit code 78 means at least one check failed.
 ### `10x auth` — Session management
 
 ```bash
-10x auth             # Start magic-link login
-10x auth --status    # Check current session
-10x auth --logout    # Clear credentials
+10x auth                    # Interactive: choose email magic link or Circle message
+10x auth --method email     # Magic-link login (default when piped / --json)
+10x auth --method circle    # Approval link sent as a Circle message — use when no email arrives
+10x auth --status           # Check current session (shows the login method when known)
+10x auth --logout           # Clear credentials
 ```
+
+`--method circle` sends a direct message in Circle with a one-time approval link; open it in Circle on any device and the terminal signs in within a few seconds. The link expires after 15 minutes and the CLI never resends it by itself — run the command again for a fresh message, or fall back to `--method email`. In non-interactive mode (`--json` or piped output) pass `--email` and an explicit `--method circle`; the CLI never prompts there.
 
 Sessions refresh transparently — if a token is near expiry, the next command refreshes it automatically. You only need to re-auth manually if the session has fully expired.
 
@@ -196,6 +200,10 @@ This catches the most common issues. Read the output and address each failing ch
 |---------|-------------|-----|
 | "You're not signed in" | No auth or expired session | `10x auth` |
 | "Session expired" | Token past expiry and auto-refresh failed | `10x auth` (re-login) |
+| No email received after `10x auth` | Magic link filtered or delayed | `10x auth --method circle` — approval link arrives as a Circle message |
+| "Circle login is currently unavailable" (`circle_login_disabled`) | Circle channel switched off server-side | `10x auth --method email` |
+| "Circle refused to deliver the login message" (`dm_rejected`) | Direct messages disabled in Circle settings | Enable DMs in Circle, or `10x auth --method email` |
+| "The Circle login expired" (`circle_login_expired`) | Approval link not opened within 15 minutes | `10x auth --method circle` again, or `10x auth --method email` |
 | API unreachable / timeout | Network issue or API outage | Check internet; retry in a few minutes |
 | "Module is locked" | Content not yet released | `10x list` to see unlock date |
 | `.claude/` not found (doctor fail) | Running from wrong directory or wrong tool profile | `cd` to project root; check `10x doctor --json` for which tool is configured |

@@ -23,3 +23,10 @@
 - **Problem**: Pure-function mocks passed while production entry points silently skipped symlinked paths, clean jobs imported missing build dependencies, a writer token lacked Actions read, invalid workflow contexts prevented startup, and mutation404 was mistaken for a successful missing read.
 - **Rule**: Validate workflow syntax and run the actual no-dependency entry path under the intended runtime; test production adapters with the exact read/write credential roles, not just synthetic state transitions. Cover failed mutations and invocation validation before lease adoption; exercise Git/npm fixtures on both hosted OSes and never represent local green tests or secret-name presence as hosted capability proof.
 - **Applies to**: research, plan, implement, impl-review
+
+## Bind workflow execution and candidate commits by event
+
+- **Context**: GitHub Actions trusted version preparation and retained provenance consumed after squash.
+- **Problem**: pull_request_target REST run/artifact head identifies the candidate while the trusted record workflowSha identifies master; generic equality discards legitimate records and generic ancestry checks the wrong commit.
+- **Rule**: Bind execution and candidate identities separately using verified event-specific repository/PR/base metadata. Preserve exact attempt, artifact, merged head/base and baseline checks; reject stale event/live preparation races rather than substituting equivalent trees or an unbound payload SHA.
+- **Applies to**: research, plan, plan-review, implement, impl-review
