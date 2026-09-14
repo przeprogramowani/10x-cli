@@ -126,7 +126,8 @@ jobs:
         run: bun test tests/smoke/
 
   coordinated:
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
+    # PRs validate the CLI locally on both OSes. Exact private evidence gates publication.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
     name: Verified private CLI/API evidence
     needs: [check, check-windows]
     runs-on: ubuntu-latest
