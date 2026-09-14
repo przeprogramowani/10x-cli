@@ -1,0 +1,62 @@
+{
+  "time": "2026-09-14T10:17:20.283482+00:00",
+  "results": [
+    {
+      "command": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "lint"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "validate:cli-skills"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "tests/*.test.ts (expanded file list)"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "build"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "build:binary"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "tests/smoke/"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "scope": "isolated local HOME/APPDATA/XDG/cache; no production auth or upstream installer"
+}

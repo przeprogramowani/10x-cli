@@ -21,6 +21,51 @@ npm install -g @przeprogramowani/10x-cli
 # https://github.com/przeprogramowani/10x-cli/releases
 ```
 
+## Install the bundled CLI helpers (unreleased)
+
+`10x helpers install` is implemented on this branch for the next CLI release;
+it is **not available in 1.21.0 or the 1.22.0 master baseline**. A checkout build
+may still print 1.22.0 until the release process assigns a version. Check
+`10x helpers --help` on your actual executable before using this command; do not
+assume that installing today's npm version includes it.
+
+Once your release includes it, run from the intended project directory:
+
+```bash
+10x helpers install --tool copilot --dry-run
+10x helpers install --tool copilot
+```
+
+This installs **both** `10x-cli-setup` and `10x-cli-guide`, each with its complete
+`SKILL.md` and `references/compatibility.md`, into `.github/skills/`. Use
+`--tool claude-code`, `cursor`, `codex`, `devin-desktop`, `gemini`, or `generic`
+when that is your intended tool. The target must be explicit; installation is
+project-only. There is no `--global`, automatic agent detection, `skills`/npx
+subprocess, authentication, or network access. The helper bytes come from the
+same CLI build, including the standalone binary; fetching the npm CLI itself
+still requires npm/network in the usual way.
+
+Identical existing files are unchanged; missing files are created. If any existing
+helper file differs, neither helper is written and the command exits 1. Keep the
+existing copy or back up your changes outside managed skill directories before
+replacing it deliberately. Files managed by course `10x get`/`sync` remain under
+that channel; this command does not register or take over a course manifest.
+It never deletes extra local files. A filesystem failure also exits 1; any files
+already created remain, and rerunning safely checks them again. `--dry-run`
+performs the same path/conflict checks without writes. Invalid/missing targets or
+unsupported flags exit 2 in both human and JSON use.
+
+For Copilot CLI, run `/skills reload`, then `/skills info 10x-cli-setup` and
+`/skills info 10x-cli-guide` in the same project. Installing helpers does not
+execute them or authenticate the course CLI. VS Code Copilot also reads project
+`.github/skills`; open the same project there.
+
+To try the **unreleased source checkout** without changing a global installation:
+run `bun run /absolute/path/to/10x-cli/src/index.ts helpers install --tool copilot`
+from a disposable project, with dependencies already installed in the checkout.
+The public `skills` route below remains available for older CLI releases. Its
+Copilot agent ID is `github-copilot`, whereas this CLI uses `--tool copilot`.
+
 ## Agentic Installation
 
 The [`10x-cli-setup`](skills/10x-cli-setup/SKILL.md) helper prepares the CLI and

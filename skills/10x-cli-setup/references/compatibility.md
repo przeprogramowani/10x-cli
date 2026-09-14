@@ -101,6 +101,44 @@ installer's project registration/lock. Do not infer ownership solely from a
 directory name. If ownership is mixed or unknown, preserve local files and
 resolve it before writing; use a separate project to try the other channel.
 
+### Bundled public copies (unreleased command)
+
+The next CLI release adds `10x helpers install --tool copilot` (use the user's
+chosen profile). This command is absent from the 1.21.0 and 1.22.0 master
+baselines. Verify `10x helpers --help` on the actual runner; a source build may
+still report the baseline version. Do not claim npm availability from this text.
+
+When supported, run from the intended project:
+
+```bash
+10x helpers install --tool copilot --dry-run
+10x helpers install --tool copilot
+```
+
+Both helpers and their own compatibility references are embedded in the same npm
+bundle/standalone executable. No auth, network, external skills installer or
+global installation is involved. `--tool` is required; Copilot writes to
+`.github/skills/`, Claude Code to `.claude/skills/`, and other profiles follow the
+CLI profile table. Do not carry `--agent github-copilot` from the external
+installer into this command.
+
+Existing identical files are unchanged; missing files are created. Any differing
+helper file blocks the entire preflight with exit 1, preserving both helpers and
+local extras. Never remove a user's files merely to make a retry pass. Keep an
+existing copy, or let the user deliberately back it up outside managed trees
+before replacement. Course-owned copies stay with get/sync; this command writes
+no course manifest or binding. Filesystem errors also exit 1 and report that
+already created files remain; unsupported options/targets exit 2. Preview uses
+the same checks without writes. This is a public bundled snapshot, not an
+automatic updater; another CLI version may contain different helper bytes and
+will preserve differing installed files as conflicts. Neither npm installation
+alone nor running this command activates the helpers in the agent.
+
+For older CLI releases use the pinned public installer below with an explicit
+agent and Project scope. For Copilot that is `--agent github-copilot --copy`,
+which `skills@1.5.26` places in project `.agents/skills/`. Do not add `-g` or
+`--all`. Confirm the complete tree and the actual source selected by Copilot.
+
 ### Public on-demand channel
 
 This channel can bootstrap before CLI installation or course authentication.
