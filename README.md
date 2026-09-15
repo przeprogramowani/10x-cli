@@ -128,6 +128,8 @@ artifacts/rules before applying; repeat a skill filter for a narrow update:
 10x_cli auth --status
 # If login is needed: 10x_cli auth (email or Circle); see auth commands below.
 10x_cli list --course 10xdevs4
+10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl
 10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
 10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
 10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
@@ -143,7 +145,9 @@ artifacts/rules before applying; repeat a skill filter for a narrow update:
 
 The guide uses lesson 1's existing 10xCards example and produces
 `context/foundation/shape-notes.md`, then `context/foundation/prd.md`.
-Read all three installed skill trees; PRD requires the sibling
+Lesson setup installs all four skill trees. Use `10x-idea-check` and its references
+first when you want to assess an idea; it is optional before init → shape → PRD.
+Read the installed entrypoints and their references; PRD requires the sibling
 `.claude/skills/10x-shape/references/prd-schema.md`. Preserve existing outputs and
 follow the skills' collision choices. `CLAUDE-m1l1` is a separate lesson rule;
 see the guide for prerequisite checks without a full-get fallback. `10x-plan`
