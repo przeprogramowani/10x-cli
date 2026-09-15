@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "package": "@przeprogramowani/quality-loop",
+  "version": "1.0.0",
+  "files": {
+    "run.mjs": "24b84b9df60a043d3683b59c9d4e75d02cbfc6cf6d26df3493702fb22173af35",
+    "hook.mjs": "5b29bc88b42d1b9ed0c8008a24a3c27a275101f088a034e9e64cff894229e908",
+    "builtin.mjs": "1469de4e8c662bc376c1ae117e18367c007b677751b9d0d4a2ba0178f8c87c86"
+  }
+}

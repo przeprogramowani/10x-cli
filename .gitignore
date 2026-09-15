@@ -8,3 +8,4 @@ coverage/
 tests/e2e/.env.test
 .vitest-cache/
 .claude/
+.quality-local/
