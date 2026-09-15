@@ -125,8 +125,14 @@ Auth: valid / login required / unknown; live course access and module state
 Setup helper: actual path, public or CLI owner, observed source ref if known
 Guide helper: actual path, owner and source ref if known; full reference present
 Readiness: verified checks; remaining release/network/access issues, if any
-Next task: guide's download → use → sync journey, retaining this context
+Next task: guide's lesson setup (idea-check/init/shape/prd) → use → sync journey, or the user's narrower request
 ```
+
+For lesson 1 setup, carry forward all four skills in the handoff:
+`10x-idea-check`, `10x-init`, `10x-shape` and `10x-prd`, with their references.
+Idea assessment is optional to run, not a reason to omit its files during lesson
+setup. A request for one specific skill remains a narrower download. Verify
+materialized files separately from native slash-command discovery.
 
 Once ready, continue in guide without rerunning installation or asking the user
 to repeat choices already supplied. Report remaining blockers precisely if the

@@ -694,9 +694,10 @@ describe("10x get — course rules opt-out", () => {
 
 
 describe("helper launch commands match the released lesson filter", () => {
-  it("executes the documented preview/write sequence and retains all three lesson-owned trees", async () => {
+  it("executes the documented preview/write sequence and retains all four lesson-owned trees", async () => {
     writeValidAuth();
-    const names = ["10x-init", "10x-shape", "10x-prd"];
+    const names = ["10x-idea-check", "10x-init", "10x-shape", "10x-prd"];
+    const ideaCheckReferences = ["examples.md", "assessment-guide.md", "10xdevs-4-dates.md", "10xdevs-4-certification.md"];
     const release = { course: "10xdevs4", releaseId: `r-${"a".repeat(64)}`, releaseManifestHash: "b".repeat(64) };
     apiContentMockState.fetchCoursesImpl = () => ({ ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data: {
       courses: [{ id: "10xdevs-4", slug: "10xdevs4", title: "Synthetic v4", edition: 4, available: true }], defaultCourse: "10xdevs4",
@@ -705,6 +706,9 @@ describe("helper launch commands match the released lesson filter", () => {
     const bundle = makeBundle({ ...release, skills: names.map((name) => ({ name, files: [
       { path: "SKILL.md", content: name === "10x-prd" ? "Read ../10x-shape/references/prd-schema.md" : `Synthetic ${name}` },
       ...(name === "10x-shape" ? [{ path: "references/prd-schema.md", content: "Synthetic schema" }] : []),
+      ...(name === "10x-idea-check" ? ideaCheckReferences.map((reference) => ({
+        path: `references/${reference}`, content: `Synthetic ${reference}`,
+      })) : []),
     ] })) });
     let fetches = 0;
     apiContentMockState.fetchLessonImpl = (course, lesson, _token, options) => {
@@ -714,11 +718,18 @@ describe("helper launch commands match the released lesson filter", () => {
     };
     const guide = readFileSync(new URL("../skills/10x-cli-guide/SKILL.md", import.meta.url), "utf8");
     const commands = guide.split(/\r?\n/).filter((line) => /^10x_cli get (?!-)/.test(line));
-    expect(commands).toHaveLength(6);
+    expect(commands).toHaveLength(8);
     for (const [index, command] of commands.entries()) {
       const name = names[Math.floor(index / 2)]!;
       const target = join(projectRoot, `.claude/skills/${name}/SKILL.md`);
-      if (index % 2 === 0) expect(existsSync(target)).toBe(false);
+      if (index % 2 === 0) {
+        expect(existsSync(target)).toBe(false);
+        if (name === "10x-idea-check") {
+          for (const reference of ideaCheckReferences) {
+            expect(existsSync(join(projectRoot, `.claude/skills/10x-idea-check/references/${reference}`))).toBe(false);
+          }
+        }
+      }
       const result = await runGet(command.split(/\s+/).slice(1));
       // Let this existing capture harness restore streams before the next invocation.
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -728,16 +739,21 @@ describe("helper launch commands match the released lesson filter", () => {
         for (const prior of names.slice(0, Math.floor(index / 2) + 1)) expect(existsSync(join(projectRoot, `.claude/skills/${prior}/SKILL.md`))).toBe(true);
       }
     }
-    expect(fetches).toBe(6);
+    expect(fetches).toBe(8);
     const manifest = readManifest(join(projectRoot, ".claude"))!;
     expect(Object.keys(manifest.lessons!)).toEqual(["m1l1"]);
     expect(Object.keys(manifest.lessons!.m1l1!.skills)).toEqual(names);
     expect(manifest.lessons!.m1l1!.representation).toBeUndefined();
+    for (const reference of ideaCheckReferences) {
+      expect(readFileSync(join(projectRoot, `.claude/skills/10x-idea-check/references/${reference}`), "utf8"))
+        .toBe(`Synthetic ${reference}`);
+      expect(manifest.lessons!.m1l1!.skills["10x-idea-check"]!.files).toContain(`references/${reference}`);
+    }
     expect(readFileSync(join(projectRoot, ".claude/skills/10x-prd/../10x-shape/references/prd-schema.md"), "utf8")).toBe("Synthetic schema");
     expect(existsSync(join(projectRoot, "CLAUDE.md"))).toBe(false);
     expect(manifest.files.prompts).toEqual([]); expect(manifest.files.configs).toEqual([]);
     const invalid = await runGet(["get", "10x-init", "--course", "10xdevs4"]);
     expect(invalid.exitCode).toBe(2); parseErr(invalid.stdout, "invalid_lesson_ref");
-    expect(fetches).toBe(6);
+    expect(fetches).toBe(8);
   });
 });
