@@ -7,6 +7,12 @@ import { Bumper } from "conventional-recommended-bump";
 const sha = (s) => typeof s === "string" && /^[a-f0-9]{40}$/.test(s);
 export const stableVersion = (s) => typeof s === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(s);
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
+export class BranchUpdateRequiredError extends Error {
+  constructor() {
+    super("Branch update required: integrate current master before version preparation; no record was prepared.");
+    this.name = "BranchUpdateRequiredError";
+  }
+}
 export function validateBaseline(baseline, { cwd = process.cwd(), master }) {
   if (!baseline || !stableVersion(baseline.version) || baseline.tag !== `v${baseline.version}` || !sha(baseline.sha) || baseline.gitHead !== baseline.sha || !sha(master)) throw new Error("Verified published baseline required");
   if (git(cwd, "rev-parse", `${baseline.tag}^{commit}`) !== baseline.sha) throw new Error("Published tag changed");
@@ -23,8 +29,13 @@ export function packageFilesChanged(cwd, from, to) {
 export async function calculateVersion({ cwd = process.cwd(), head, master, baseline }) {
   if (!sha(head)) throw new Error("Exact candidate head required");
   validateBaseline(baseline, { cwd, master });
+  try {
+    git(cwd, "merge-base", "--is-ancestor", master, head);
+  } catch (error) {
+    if (error.status === 1) throw new BranchUpdateRequiredError();
+    throw error;
+  }
   git(cwd, "merge-base", "--is-ancestor", baseline.sha, head);
-  git(cwd, "merge-base", "--is-ancestor", master, head);
   if (!packageFilesChanged(cwd, baseline.sha, head)) return null;
   const reader = new Bumper(cwd).loadPreset("angular").tag(baseline.tag).commits({ from: baseline.sha, to: head }, {});
   const initial = await reader.bump();
