@@ -67,37 +67,29 @@ jobs:
           echo "OUT=$OUT" >> "$GITHUB_ENV"
         env:
           OUT: ${{ runner.temp }}/release-package
-      - name: Refuse a version that already exists on the registry
+      - name: Decide whether to publish or resume a matching registry copy
+        id: decide
+        run: node scripts/publish-npm-verify.mjs decide
+        env:
+          OUT: ${{ runner.temp }}/release-package
+          CLI_SHA: ${{ inputs.cli_sha }}
+      - name: Publish the exact directory once
+        if: steps.decide.outputs.action == 'publish'
         run: |
+          set -eu
           VERSION=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).version')
           if npm view "@przeprogramowani/10x-cli@$VERSION" version >/dev/null 2>&1; then
             echo "::error::@przeprogramowani/10x-cli@$VERSION already published; never republish"; exit 1
           fi
-      - name: Publish the exact directory once
-        run: |
-          set -eu
           node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=" + process.env.NPM_TOKEN + "\n", { mode: 0o600 })'
           npm publish . --ignore-scripts --access public
         env:
           NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/release-npmrc
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify actual registry bytes against the pack
-        run: |
-          set -eu
-          node -e '
-            const fs = require("fs"), crypto = require("crypto");
-            const c = JSON.parse(fs.readFileSync(process.env.OUT + "/candidate.json", "utf8"));
-            (async () => {
-              const meta = await (await fetch(`https://registry.npmjs.org/@przeprogramowani%2f10x-cli/${c.version}`)).json();
-              const bytes = Buffer.from(await (await fetch(meta.dist.tarball)).arrayBuffer());
-              const integrity = "sha512-" + crypto.createHash("sha512").update(bytes).digest("base64");
-              const result = { version: meta.version, gitHead: meta.gitHead, expectedIntegrity: c.integrity, registryIntegrity: meta.dist.integrity, actualIntegrity: integrity, sourceSha: process.env.CLI_SHA };
-              console.log(JSON.stringify(result));
-              fs.writeFileSync(process.env.OUT + "/published-result.json", JSON.stringify(result));
-              if (meta.gitHead !== process.env.CLI_SHA || meta.dist.integrity !== c.integrity || integrity !== c.integrity) throw new Error("Published package differs from the pack; release incomplete, never republish");
-            })().catch((e) => { console.error(e.message); process.exit(1); });
-          '
+        run: node scripts/publish-npm-verify.mjs verify
         env:
+          OUT: ${{ runner.temp }}/release-package
           CLI_SHA: ${{ inputs.cli_sha }}
       - name: Tag the published source
         # The tag may already exist (pushed by hand, or a previous attempt).
