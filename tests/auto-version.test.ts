@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calculateVersion, packageWithVersion } from "../scripts/auto-version.mjs";
+import { BranchUpdateRequiredError, calculateVersion, packageWithVersion } from "../scripts/auto-version.mjs";
 import { preparePullRequest, validatePullRequest, verifyMergedPreparation, reconcileVersionEvent } from "../scripts/prepare-version.mjs";
 const sha = (c: string) => c.repeat(40);
 function fixture() {
@@ -128,6 +128,67 @@ describe("generated version filtering uses content, never commit scope", () => {
       mkdirSync(join(f.cwd, "skills")); writeFileSync(join(f.cwd, "skills/SKILL.md"), "changed public skill contract");
       f.git("add", "."); f.git("commit", "-qm", "chore(release): replace public skill contract\n\nBREAKING CHANGE: the packaged skill interface changed");
       expect((await calculateVersion({ cwd: f.cwd, head: f.git("rev-parse", "HEAD"), master: f.base, baseline: f.baseline }))?.version).toBe("2.0.0");
+    } finally { f.cleanup(); }
+  }, 30000);
+});
+
+describe("stale PR version preparation", () => {
+  it("classifies unrebased open PRs, writes nothing, and lets reconcile skip them while preparing current PRs", async () => {
+    const f = fixture();
+    try {
+      f.git("checkout", "-qb", "candidate");
+      mkdirSync(join(f.cwd, "skills")); writeFileSync(join(f.cwd, "skills/SKILL.md"), "helper\n");
+      f.git("add", "."); f.git("commit", "-qm", "feat: helper candidate");
+      let staleHead = f.git("rev-parse", "HEAD");
+      f.git("checkout", "-qb", "current-master", f.base);
+      writeFileSync(join(f.cwd, "src/index.ts"), "export const value = 2;\n");
+      f.git("add", "."); f.git("commit", "-qm", "feat: merged sibling"); f.git("tag", "v1.1.0");
+      const master = f.git("rev-parse", "HEAD"), repo = { full_name: "przeprogramowani/10x-cli" };
+      f.git("checkout", "-qb", "current-candidate", master);
+      writeFileSync(join(f.cwd, "src/index.ts"), "export const value = 3;\n");
+      f.git("add", "."); f.git("commit", "-qm", "fix: current open candidate");
+      const currentHead = f.git("rev-parse", "HEAD");
+      let baseline = f.baseline;
+      const stale = { number: 47, state: "open", head: { sha: staleHead, ref: "candidate", repo }, base: { sha: f.base, ref: "master", repo } };
+      const current = { number: 49, state: "open", head: { sha: currentHead, ref: "current-candidate", repo }, base: { sha: master, ref: "master", repo } };
+      const writes: Array<{ path: string; method: string }> = [];
+      const get = async (path: string, method = "GET"): Promise<any> => {
+        if (method !== "GET") { writes.push({ path, method }); return { sha: sha("d") }; }
+        if (path === "pulls/47") return stale;
+        if (path === "pulls/49") return current;
+        if (path === "pulls?state=open&base=master&per_page=100") return [stale, current];
+        if (path === "git/ref/heads/master") return { object: { sha: master } };
+        return { tree: { sha: sha("c") } };
+      };
+      const prepareHint = (hint: { number: number }) => preparePullRequest({ number: hint.number, runId: "201", runAttempt: 1, workflowSha: master }, {
+        get, calculate: (input: any) => calculateVersion({ cwd: f.cwd, ...input }),
+        readPackage: async (value: string) => f.git("show", `${value}:package.json`), baseline: async () => baseline,
+      });
+      await expect(prepareHint(stale)).rejects.toMatchObject({ name: "BranchUpdateRequiredError" });
+      expect(writes).toEqual([]);
+      stale.base.sha = master;
+      await expect(prepareHint(stale)).rejects.toMatchObject({ name: "BranchUpdateRequiredError" });
+      expect(writes).toEqual([]);
+      for (const input of [{ head: staleHead, baseline: { ...baseline, gitHead: sha("f") } }, { head: sha("f"), baseline }]) {
+        let error: any;
+        try { await calculateVersion({ cwd: f.cwd, master, ...input }); } catch (caught) { error = caught; }
+        expect(error).toBeDefined(); expect(error).not.toBeInstanceOf(BranchUpdateRequiredError);
+      }
+      stale.base.sha = f.base;
+      const env = { GITHUB_REPOSITORY: repo.full_name, GITHUB_REF: "refs/heads/master", GITHUB_EVENT_NAME: "push" };
+      const records = await reconcileVersionEvent({ env, event: {} }, { get, prepare: prepareHint, baseline: async () => baseline });
+      expect(records[0]).toBeNull();
+      expect(records[1]?.prNumber).toBe(49);
+      expect(records[1]?.version).toBe("1.1.0");
+      expect(records[1]?.inputHead).toBe(currentHead);
+      expect(writes.some((write) => write.path === "git/refs/heads/current-candidate" && write.method === "PATCH")).toBe(true);
+      expect(writes.some((write) => write.path.startsWith("git/refs/heads/candidate"))).toBe(false);
+      f.git("checkout", "-q", "candidate");
+      f.git("merge", "--no-edit", "current-master");
+      staleHead = f.git("rev-parse", "HEAD"); stale.head.sha = staleHead; stale.base.sha = master;
+      writes.length = 0;
+      const updated = await prepareHint(stale);
+      expect(updated?.baseSha).toBe(master); expect(updated?.inputHead).toBe(staleHead); expect(updated?.version).toBe("1.1.0");
     } finally { f.cleanup(); }
   }, 30000);
 });
