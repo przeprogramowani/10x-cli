@@ -1,0 +1,64 @@
+{
+  "checkedHead": "396dbd92764810ac6ecde355e963b74f5e065442",
+  "baseline": "a704a86311c318f9d649000a97521da1bf94503a",
+  "status": "passed",
+  "exitCode": 0,
+  "durationMs": 125856,
+  "toolchain": {
+    "node": "22.14.0",
+    "bun": "1.3.8",
+    "npm": "11.12.1"
+  },
+  "checks": [
+    {
+      "id": "toolchain",
+      "status": "passed",
+      "durationMs": 575,
+      "exitCode": 0
+    },
+    {
+      "id": "types",
+      "status": "passed",
+      "durationMs": 4487,
+      "exitCode": 0
+    },
+    {
+      "id": "lint",
+      "status": "passed",
+      "durationMs": 115,
+      "exitCode": 0
+    },
+    {
+      "id": "cli-skills",
+      "status": "passed",
+      "durationMs": 1296,
+      "exitCode": 0
+    },
+    {
+      "id": "unit",
+      "status": "passed",
+      "durationMs": 99861,
+      "exitCode": 0,
+      "testCount": 793
+    },
+    {
+      "id": "build",
+      "status": "passed",
+      "durationMs": 76,
+      "exitCode": 0
+    },
+    {
+      "id": "binary",
+      "status": "passed",
+      "durationMs": 167,
+      "exitCode": 0
+    },
+    {
+      "id": "smoke",
+      "status": "passed",
+      "durationMs": 18200,
+      "exitCode": 0,
+      "testCount": 31
+    }
+  ]
+}

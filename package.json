@@ -25,10 +25,14 @@
     "build": "bun build src/index.ts --outfile dist/index.mjs --target node",
     "build:binary": "bun build --compile --minify src/index.ts --outfile dist/10x",
     "generate-types": "bun run scripts/generate-types.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
     "lint": "bun run --bun node_modules/oxlint/bin/oxlint .",
-    "validate:cli-skills": "node scripts/validate-cli-skills.mjs"
+    "validate:cli-skills": "node scripts/validate-cli-skills.mjs",
+    "quality:fast": "node .quality/run.mjs fast",
+    "quality:affected": "node .quality/run.mjs affected",
+    "quality:gate": "node .quality/run.mjs gate",
+    "quality:risk": "node .quality/run.mjs risk"
   },
   "dependencies": {
     "@clack/prompts": "0.9.1",
