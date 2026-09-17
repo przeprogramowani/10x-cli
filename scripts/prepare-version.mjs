@@ -3,13 +3,14 @@ import { realpathSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { calculateVersion, packageWithVersion, stableVersion } from "./auto-version.mjs";
+import { BranchUpdateRequiredError, calculateVersion, packageWithVersion, stableVersion } from "./auto-version.mjs";
 import { CLI_REPOSITORY, fullSha, github, canonicalRun, successfulJobs } from "./release-github.mjs";
 import { readReceiptArchive } from "./verify-coordinated-receipt.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
 export function validatePullRequest(pr, expectedHead, expectedBase) {
-  if (!pr || pr.state !== "open" || pr.head?.repo?.full_name !== CLI_REPOSITORY || pr.base?.repo?.full_name !== CLI_REPOSITORY || pr.base?.ref !== "master" || pr.head.sha !== expectedHead || pr.base.sha !== expectedBase || !fullSha(expectedHead) || !fullSha(expectedBase) || !Number.isSafeInteger(pr.number) || !/^[a-zA-Z0-9_./-]+$/.test(pr.head.ref) || pr.head.ref === "master") throw new Error("Live exact same-repository PR and base required");
+  if (!pr || pr.state !== "open" || pr.head?.repo?.full_name !== CLI_REPOSITORY || pr.base?.repo?.full_name !== CLI_REPOSITORY || pr.base?.ref !== "master" || pr.head.sha !== expectedHead || !fullSha(pr.base.sha) || !fullSha(expectedHead) || !fullSha(expectedBase) || !Number.isSafeInteger(pr.number) || !/^[a-zA-Z0-9_./-]+$/.test(pr.head.ref) || pr.head.ref === "master") throw new Error("Live exact same-repository PR and base required");
+  if (pr.base.sha !== expectedBase) throw new BranchUpdateRequiredError();
   return pr;
 }
 export async function publishedBaseline(get, registry = async () => {
@@ -168,7 +169,16 @@ export async function reconcileVersionEvent({ env, event, bootstrap = false }, {
   for (const hint of prs) {
     if (hint.head?.repo?.full_name !== CLI_REPOSITORY) continue;
     if (!fullSha(hint.head.sha)) throw new Error("Exact head required");
-    records.push(await prepare(hint));
+    try {
+      records.push(await prepare(hint));
+    } catch (error) {
+      if (error instanceof BranchUpdateRequiredError) {
+        console.error(error.message);
+        records.push(null);
+        continue;
+      }
+      throw error;
+    }
   }
   return records;
 }
@@ -209,4 +219,4 @@ function isEntrypoint() {
     return false;
   }
 }
-if (isEntrypoint()) main().catch(() => { console.error("Trusted version preparation rejected; inspect exact head/base/baseline metadata."); process.exitCode = 1; });
+if (isEntrypoint()) main().catch((error) => { console.error(error instanceof BranchUpdateRequiredError ? error.message : (error instanceof Error && error.message) || "Trusted version preparation rejected; inspect exact head/base/baseline metadata."); process.exitCode = 1; });

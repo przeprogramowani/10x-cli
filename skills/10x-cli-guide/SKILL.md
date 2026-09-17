@@ -79,10 +79,15 @@ refresh transparently; re-login is needed only when refresh cannot recover them.
 
 The launch exercise follows lesson 1, “Od pomysłu do PRD”, using its existing
 10xCards example. `10x-plan` is not part of this launch demonstration.
-After checking each name's capability and availability, download three separate
-complete selected skill trees. Inspect each dry-run before its corresponding write:
+Prepare all four lesson skills: `10x-idea-check`, `10x-init`, `10x-shape` and
+`10x-prd`. Idea assessment is optional to run; its files should still be available
+when preparing lesson 1. If the user requested only a specific skill, retain that
+narrower scope. After checking each name's capability and availability, download
+four separate complete selected skill trees. Inspect each dry-run before its corresponding write:
 
 ```bash
+10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl
 10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
 10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
 10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
@@ -96,6 +101,11 @@ chosen macOS/zsh exercise directory, each of these checks must succeed before us
 (stop on any failure; do not infer success from the last check alone):
 
 ```bash
+test -s .claude/skills/10x-idea-check/SKILL.md
+test -s .claude/skills/10x-idea-check/references/examples.md
+test -s .claude/skills/10x-idea-check/references/assessment-guide.md
+test -s .claude/skills/10x-idea-check/references/10xdevs-4-dates.md
+test -s .claude/skills/10x-idea-check/references/10xdevs-4-certification.md
 test -s .claude/skills/10x-init/SKILL.md
 test -s .claude/skills/10x-shape/SKILL.md
 test -s .claude/skills/10x-shape/references/prd-schema.md
@@ -108,14 +118,14 @@ own directory. A standalone PRD tree is insufficient. Read all installed
 entrypoints and every reference they require; the paths above are the known
 source minimum, not permission to discard extra files from a published bundle.
 Also inspect `.claude/.10x-cli-manifest.json`: `lessons.m1l1.skills` must include
-all three names, with file hashes in `files.skills`. These are lesson-owned
+all four names, with file hashes in `files.skills`. These are lesson-owned
 partial downloads, not independent owners. Inspect `.10x-cli.json` for the course
 binding; partial downloads do not establish a complete lesson release identity.
 
 CLI 1.21.0 is published with v4 and filtered skill downloads; production m1l1 EN/PL
-contains init/shape/prd and their references. These revised helpers are a separate
+contains idea-check/init/shape/prd and their references. These revised helpers are a separate
 source change, not proof that their course copies have been published.
-Verify all three names against the actual selected release. If any name, schema,
+Verify all four names against the actual selected release. If any name, schema,
 owner or release is missing/mismatched, preserve the precise error and stop the
 exercise; never silently substitute a whole lesson, another course or filtered get.
 
@@ -140,7 +150,11 @@ the learner's actual answers from lesson 1. If those inputs are absent, ask for
 them; do not invent product requirements, a replacement task.md or a ready-made
 plan. Keep private lesson text out of public fixtures and transcripts.
 Do not assume native slash/$ discovery or automatic activation from npm install.
-Give the agent explicit local paths and work through these steps separately:
+Give the agent explicit local paths. If the learner wants to assess whether an
+idea fits their experience, time and course goals, first read
+`.claude/skills/10x-idea-check/SKILL.md` and its references and follow that skill.
+Do not make assessment a prerequisite when the learner is ready to shape.
+Then work through these steps separately:
 
 1. Read `.claude/skills/10x-init/SKILL.md` and follow it in the chosen project.
    Inspect the create-if-absent context/changes, context/archive and
@@ -179,7 +193,7 @@ workaround:
 ```
 
 Normal sync refreshes the full lessons recorded in the manifest, not just the
-three selected skills. `--all` broadens scope to unlocked lessons and is not needed
+four selected skills. `--all` broadens scope to unlocked lessons and is not needed
 for this exercise. Missing managed files should be repaired; local edits should
 remain visible as conflicts or preserved files. Read all report outcomes and
 resource counts even if exit is 0: skipped conflicts alone are not process errors.
@@ -252,6 +266,7 @@ visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 | Locked or unpublished v4 | Inspect module availability/release evidence; do not bypass the gate or fall back to v3. |
 | Unsupported name/missing index | Verify exact CLI package and content release; preserve the error for the release owner. |
 | Network/API failure | Keep diagnostics, retry the same context when service returns; no config reset. |
+| Missing `10x-idea-check` after setup | Older helper journeys selected only init/shape/prd. Check the actual commands, selected profile path and manifest; use the idea-check preview/get above to add its complete tree. If the files already exist, read that exact SKILL.md and check the agent's discovery/reload behavior before reinstalling. An absent slash command alone does not prove missing files. |
 | Wrong directory/profile | Recheck cwd and explicit flags; a fresh project may legitimately have no tool directory. |
 | Signature/release mismatch | Preserve failure and source identity; do not disable verification or reuse unrelated bytes. |
 | Edition/manifest conflict | Preserve binding and manifests for repair; use a separate v4 project rather than deleting them. |
