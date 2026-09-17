@@ -101,6 +101,23 @@ export const PROFILES: Record<string, ToolProfile> = {
     sentinelBegin: SENTINEL_BEGIN,
     sentinelEnd: SENTINEL_END,
   },
+  kiro: {
+    toolId: "kiro",
+    // No `kiro` transform exists in the delivery API; the generic variant is
+    // the agreed content representation until one does.
+    contentToolId: "generic",
+    displayName: "Kiro",
+    skillPath: (n) => `.kiro/skills/${n}/SKILL.md`,
+    skillDir: (n) => `.kiro/skills/${n}`,
+    promptPath: (n) => `.kiro/prompts/${n}.md`,
+    configPath: (n) => `.kiro/config-templates/${n}`,
+    // Kiro loads AGENTS.md as steering context, so it co-owns the root file
+    // with codex, devin-desktop and generic.
+    rulesFile: "AGENTS.md",
+    manifestDir: ".kiro",
+    sentinelBegin: SENTINEL_BEGIN,
+    sentinelEnd: SENTINEL_END,
+  },
   generic: {
     toolId: "generic",
     displayName: "Other / Generic",

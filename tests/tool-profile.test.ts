@@ -13,6 +13,7 @@ import {
   PROFILES,
   SENTINEL_BEGIN,
   SENTINEL_END,
+  contentToolId,
 } from "../src/lib/tool-profile";
 import { readToolConfig, saveToolConfig, toolConfigPath } from "../src/lib/config";
 import { prepareToolForWrite, resolveToolProfile } from "../src/lib/tool-prompt";
@@ -26,7 +27,7 @@ import { clackMockState, resetClackMock, type SelectOpts } from "./helpers/clack
 import { redirectConfigDir, restoreConfigDir } from "./helpers/config-isolation";
 
 // ---------------------------------------------------------------------------
-// Profile path tests — each of the 5 tool profiles
+// Profile path tests — one case per tool profile
 // ---------------------------------------------------------------------------
 
 describe("tool profiles — path generation", () => {
@@ -74,6 +75,17 @@ describe("tool profiles — path generation", () => {
     expect(p.configPath("settings.json")).toBe(".devin/config-templates/settings.json");
     expect(p.rulesFile).toBe("AGENTS.md");
     expect(p.manifestDir).toBe(".devin");
+  });
+
+  it("kiro profile produces .kiro/ paths and requests the generic content variant", () => {
+    const p = PROFILES["kiro"]!;
+    expect(p.displayName).toBe("Kiro");
+    expect(p.skillPath("code-review")).toBe(".kiro/skills/code-review/SKILL.md");
+    expect(p.promptPath("plan")).toBe(".kiro/prompts/plan.md");
+    expect(p.configPath("settings.json")).toBe(".kiro/config-templates/settings.json");
+    expect(p.rulesFile).toBe("AGENTS.md");
+    expect(p.manifestDir).toBe(".kiro");
+    expect(contentToolId(p)).toBe("generic");
   });
 
   it("generic profile produces .ai/ paths", () => {

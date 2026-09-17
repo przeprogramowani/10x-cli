@@ -561,6 +561,50 @@ describe("profile migration shared rules", () => {
     expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
     expect(readManifest(join(tmp, ".ai"))!.managedRules).toBeDefined();
   });
+  it("transfers AGENTS.md ownership from kiro to codex without rewriting the file", async () => {
+    const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
+    const source = PROFILES.kiro!;
+    const destination = PROFILES.codex!;
+    const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [{ name: "a", files: [{ path: "SKILL.md", content: "A" }] }], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
+    await applyBundle(bundle, tmp, { profile: source });
+    const before = readFileSync(join(tmp, "AGENTS.md"));
+    expect(before.toString()).toContain(SENTINEL_BEGIN);
+    const orphan = findOrphanedManifests(tmp, destination).find((entry) => entry.profile.toolId === "kiro")!;
+    const result = migrateArtifacts(tmp, orphan, destination);
+    expect(result.sentinelStripped).toBe(false);
+    expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
+    expect(readManifest(join(tmp, ".kiro"))).toBeNull();
+    expect(readManifest(join(tmp, ".agents"))!.managedRules?.upstreamHash).toBe(orphan.manifest.managedRules?.upstreamHash);
+    expect(existsSync(join(tmp, destination.skillPath("a")))).toBe(true);
+  });
+  it("blocks kiro from rewriting a codex-owned AGENTS.md block when the rules bytes differ", async () => {
+    // The migration/cleanup cases above deliberately use one shared body so the
+    // upstream hashes match. In production the co-owners request different
+    // content transforms (codex vs generic), so the hashes diverge and
+    // planManagedRules must fail closed rather than clobber the other owner.
+    const { applyBundle } = await import("../src/lib/writer");
+    const base = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [] };
+    await applyBundle({ ...base, rules: [{ name: "rules", content: "codex variant" }] }, tmp, { profile: PROFILES.codex! });
+    const before = readFileSync(join(tmp, "AGENTS.md"), "utf8");
+    const result = await applyBundle({ ...base, rules: [{ name: "rules", content: "kiro variant" }] }, tmp, { profile: PROFILES.kiro!, onConflict: async () => "overwrite" });
+    expect(result.rules.action).toBe("conflict_skipped");
+    expect(result.rules.reason).toBe("incompatible_shared_owner");
+    expect(readFileSync(join(tmp, "AGENTS.md"), "utf8")).toBe(before);
+    expect(readManifest(join(tmp, ".kiro"))?.managedRules).toBeUndefined();
+    expect(readManifest(join(tmp, ".agents"))!.managedRules).toBeDefined();
+  });
+  it("cleanup releases the kiro owner while codex keeps the shared AGENTS.md block", async () => {
+    const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
+    const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
+    await applyBundle(bundle, tmp, { profile: PROFILES.kiro! });
+    await applyBundle(bundle, tmp, { profile: PROFILES.codex!, onConflict: async () => "overwrite" });
+    const before = readFileSync(join(tmp, "AGENTS.md"));
+    const orphan = findOrphanedManifests(tmp, PROFILES.codex!).find((entry) => entry.profile.toolId === "kiro")!;
+    const result = deleteArtifacts(tmp, orphan);
+    expect(result.sentinelStripped).toBe(false);
+    expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
+    expect(readManifest(join(tmp, ".agents"))!.managedRules).toBeDefined();
+  });
   it("retains unresolved source rules and their ledger instead of adopting a local edit", () => {
     const text = `${SENTINEL_BEGIN}\n\ntrusted\n\n${SENTINEL_END}\n`;
     const orphan = seedOrphan({ skills: ["a"], rulesFileContent: text });

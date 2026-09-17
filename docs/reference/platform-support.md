@@ -63,6 +63,7 @@ The CLI writes artifacts to the correct directory for your AI coding tool:
 | GitHub Copilot | `.github/skills/` | `.github/copilot-instructions.md` | `.github/config-templates/` |
 | Codex CLI | `.agents/skills/` | `AGENTS.md` | `.agents/config-templates/` |
 | Devin Desktop | `.devin/skills/` | `AGENTS.md` | `.devin/config-templates/` |
+| Kiro | `.kiro/skills/` | `AGENTS.md` | `.kiro/config-templates/` |
 | Generic | `.ai/skills/` | `AGENTS.md` | `.ai/config-templates/` |
 
 The CLI auto-detects your tool from project markers on first run. Override anytime with `--tool`:
@@ -70,6 +71,23 @@ The CLI auto-detects your tool from project markers on first run. Override anyti
 ```
 10x get m1l1 --tool cursor
 ```
+
+Kiro reads the root `AGENTS.md` as steering context, so it writes to the same
+file as Codex CLI, Devin Desktop and Generic. Two profiles can hold the same
+sentinel block only when their course-rules content is byte-identical — for Kiro
+that means Generic. Installing Kiro alongside Codex CLI or Devin Desktop in one
+project leaves the first owner's block untouched and reports the rules as
+`conflict: skipped (incompatible_shared_owner)`; every other artifact still
+installs normally. Pick one of those profiles per project, or accept that only
+the first one to run keeps the course rules.
+
+Kiro is detected from `.kiro/steering/`, `.kiro/specs/`, `.kiro/hooks/`,
+`.kiro/settings/` or a bare `.kiro/` directory.
+
+`.kiro/prompts/` and `.kiro/config-templates/` are staging locations the CLI
+manages but Kiro does not read automatically — move any artifact you want Kiro
+to pick up to the place Kiro expects it (`.kiro/steering/` for always-on
+context, `.kiro/hooks/` for hooks).
 
 `windsurf` remains a backward-compatible alias for `devin-desktop`. New files
 use Devin Desktop's `.devin/` workspace convention; legacy `.windsurf/` markers

@@ -175,6 +175,79 @@ describe("detectTools", () => {
     expect(signals[0]!.profileId).toBe("devin-desktop");
     expect(signals[0]!.confidence).toBe("strong");
   });
+
+  it(".kiro manifest → kiro (strong)", () => {
+    writeManifestAt(".kiro");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it(".kiro/steering/ → kiro (strong)", () => {
+    touchDir(".kiro/steering");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it(".kiro/specs/ → kiro (strong)", () => {
+    touchDir(".kiro/specs");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it(".kiro/hooks/ → kiro (strong)", () => {
+    touchDir(".kiro/hooks");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+    expect(signals[0]!.reason).toBe(".kiro/hooks/ or .kiro/settings/");
+  });
+
+  it(".kiro/settings/ → kiro (strong)", () => {
+    touchDir(".kiro/settings");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+    expect(signals[0]!.reason).toBe(".kiro/hooks/ or .kiro/settings/");
+  });
+
+  it("bare .kiro/ directory → kiro (strong)", () => {
+    touchDir(".kiro");
+    const signals = detectTools(tmp);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+    expect(signals[0]!.reason).toBe(".kiro/ directory");
+  });
+
+  it(".kiro/steering/ + AGENTS.md → kiro (strong) outranks codex (medium)", () => {
+    touchDir(".kiro/steering");
+    touchFile("AGENTS.md", "# agents\n");
+    const signals = detectTools(tmp);
+    expect(signals[0]!.profileId).toBe("kiro");
+    expect(signals[0]!.confidence).toBe("strong");
+    expect(signals.slice(1).map((s) => s.profileId)).toEqual(["codex", "generic"]);
+  });
+
+  it("bare .kiro/ + AGENTS.md → kiro outranks codex on confidence", () => {
+    // `.kiro/` is Kiro-specific, so it never degrades to `medium` and cannot
+    // lose a PROFILE_ORDER tie to codex's AGENTS.md signal.
+    touchDir(".kiro");
+    touchFile("AGENTS.md", "# agents\n");
+    const signals = detectTools(tmp);
+    expect(signals.map((s) => [s.profileId, s.confidence])).toEqual([
+      ["kiro", "strong"],
+      ["codex", "medium"],
+      ["generic", "weak"],
+    ]);
+  });
 });
 
 describe("topDetectedProfile", () => {
@@ -187,5 +260,12 @@ describe("topDetectedProfile", () => {
     const signals = detectTools(tmp);
     const profile = topDetectedProfile(signals);
     expect(profile?.toolId).toBe("cursor");
+  });
+
+  it("resolves the Kiro profile from a .kiro/ signal", () => {
+    touchDir(".kiro/steering");
+    expect(topDetectedProfile(detectTools(tmp))?.toolId).toBe("kiro");
+    rmSync(join(tmp, ".kiro/steering"), { recursive: true, force: true });
+    expect(topDetectedProfile(detectTools(tmp))?.toolId).toBe("kiro");
   });
 });
