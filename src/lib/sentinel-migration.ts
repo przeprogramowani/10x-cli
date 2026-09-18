@@ -7,6 +7,13 @@ export interface RulesBlockResult { content: string; warnings: string[] }
 export interface RemoveRulesResult { content: string; removed: boolean }
 export interface RulesBlock { start: number; finish: number; text: string; body: string }
 
+export class RulesMarkerRepairError extends Error {
+  constructor(detail: string) {
+    super(`Rules markers need repair: ${detail}`);
+    this.name = "RulesMarkerRepairError";
+  }
+}
+
 export function inspectRulesBlock(content: string, begin: string, end: string): RulesBlock | null {
   const starts = content.split(begin).length - 1;
   const ends = content.split(end).length - 1;
@@ -14,7 +21,7 @@ export function inspectRulesBlock(content: string, begin: string, end: string): 
   const start = content.indexOf(begin);
   const stop = content.indexOf(end);
   if (starts !== 1 || ends !== 1 || stop < start) {
-    throw new Error("Rules markers need repair: orphan, duplicate, or out-of-order sentinel. Preserve the file and resolve its markers before continuing.");
+    throw new RulesMarkerRepairError("orphan, duplicate, or out-of-order sentinel. Preserve the file and resolve its markers before continuing.");
   }
   const finish = stop + end.length;
   return { start, finish, text: content.slice(start, finish), body: content.slice(start + begin.length, stop).trim() };
@@ -40,7 +47,7 @@ export function applyRulesBlockWithMarkers(existing: string, body: string, begin
   // This string helper performs explicit replacement. Writer first resolves
   // unknown baselines and shared owners; it never silently adopts a legacy block.
   const blocks = [current, legacy].filter((entry): entry is RulesBlock => entry !== null).sort((a, b) => a.start - b.start);
-  if (blocks.length > 1 && blocks[0]!.finish > blocks[1]!.start) throw new Error("Rules markers need repair: nested sentinel blocks.");
+  if (blocks.length > 1 && blocks[0]!.finish > blocks[1]!.start) throw new RulesMarkerRepairError("nested sentinel blocks.");
   if (!blocks.length) return { content: `${existing}${existing && !existing.endsWith("\n") ? "\n" : ""}${fresh}\n`, warnings: [] };
   let content = existing;
   for (let i = blocks.length - 1; i >= 0; i--) {

@@ -3,6 +3,7 @@ import { requireAuth } from "./auth-guard";
 import type { AuthData } from "./config";
 import { CourseBindingError, inspectProjectCourse, normalizeProjectCourse, type ProjectCourseState } from "./project-course";
 import { ExitCodes, outputError, type OutputContext } from "./output";
+import { RulesMarkerRepairError } from "./sentinel-migration";
 
 export type SelectionReason = "explicit" | "project_binding" | "legacy_manifest" | "backend_recommendation";
 export interface CourseSelection { course: string; courseId: string; reason: SelectionReason }
@@ -36,6 +37,15 @@ export function tokenLacksCourse(token: string, selection: CourseSelection): boo
 export function reportCourseError(ctx: OutputContext, error: unknown): never {
   if (error instanceof CourseBindingError || error instanceof CourseSelectionError) {
     outputError(ctx, error.code, error.message, error.code === "course_access_denied" ? ExitCodes.FORBIDDEN : error.code === "course_mismatch" ? ExitCodes.USAGE : ExitCodes.ERROR);
+  }
+  if (error instanceof RulesMarkerRepairError) {
+    outputError(
+      ctx,
+      "rules_markers_need_repair",
+      error.message,
+      ExitCodes.ERROR,
+      "Keep the file and leave exactly one BEGIN/END pair, in that order. Text before or after the block is allowed. To skip the course rules block and still apply the lesson, run '10x get <lesson> --no-course-rules'.",
+    );
   }
   throw error;
 }

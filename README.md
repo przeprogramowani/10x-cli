@@ -185,7 +185,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 | `--name <name>` | Filter by artifact name (requires `--type`) |
 | `--dry-run` | Show what would be written without touching the filesystem |
 | `--course <slug>` | Select an entitled course ID or slug; default is the project edition or API recommendation |
-| `--no-course-rules` | Skip the course rules block in your rules file (`CLAUDE.md`/`AGENTS.md`); removes an unchanged block whose ownership and baseline are known. Use `--course-rules` to re-enable. |
+| `--no-course-rules` | Skip the course rules block in your rules file (`CLAUDE.md`/`AGENTS.md`); removes an unchanged block whose ownership and baseline are known. Broken or duplicate markers are left untouched so skills and prompts can still apply. Use `--course-rules` to re-enable. |
 
 #### Examples
 
@@ -208,6 +208,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 
 # Skip the course rules block (use only your rules). Persisted across runs;
 # an unchanged block with a known baseline is removed. Re-enable later with --course-rules.
+# Also the recovery path when CLAUDE.md markers are broken (orphan/duplicate).
 10x get m1l1 --no-course-rules
 10x get m1l2 --course-rules
 

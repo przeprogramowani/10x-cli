@@ -674,6 +674,78 @@ describe("10x get — course rules opt-out", () => {
     expect(readManifest(join(projectRoot, ".claude"))!.managedRules).toEqual(baseline);
   });
 
+  it("--no-course-rules with orphan BEGIN still writes skills and leaves CLAUDE.md untouched", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle({ lessonId: "m1l5", lesson: 5, title: "Infra" }));
+    const path = join(projectRoot, "CLAUDE.md");
+    const broken = `${BEGIN}\nvaluable tail from /init\n`;
+    writeFileSync(path, broken);
+
+    const { stdout, stderr, exitCode } = await runGet(["get", "m1l5", "--no-course-rules", "--json"]);
+    expect(stderr).not.toContain("uncaught");
+    expect(exitCode ?? 0).toBe(0);
+
+    const data = parseOk<{ writes: { rules: { action: string; reason: string } } }>(stdout);
+    expect(data.writes.rules).toMatchObject({ action: "conflict_skipped", reason: "malformed_markers" });
+    expect(readFileSync(path, "utf8")).toBe(broken);
+    expect(readFileSync(join(projectRoot, ".claude/skills/code-review/SKILL.md"), "utf8")).toBe("skill md");
+    expect(readToolConfig()?.courseRules).toBe(false);
+  });
+
+  it("--no-course-rules with duplicated sentinel pairs still writes the lesson", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle({ lessonId: "m1l5", lesson: 5 }));
+    const path = join(projectRoot, "CLAUDE.md");
+    const duplicated = `# CLAUDE.md\nThis file has a block between\n${BEGIN}\nand\n${END}\n\n${BEGIN}\ncourse rules\n${END}\n`;
+    writeFileSync(path, duplicated);
+
+    const { stdout, exitCode } = await runGet(["get", "m1l5", "--no-course-rules", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    expect(parseOk<{ writes: { rules: { action: string; reason: string } } }>(stdout).writes.rules).toMatchObject({
+      action: "conflict_skipped",
+      reason: "malformed_markers",
+    });
+    expect(readFileSync(path, "utf8")).toBe(duplicated);
+    expect(existsSync(join(projectRoot, ".claude/skills/code-review/SKILL.md"))).toBe(true);
+  });
+
+  it("content before BEGIN and after END is not a marker defect", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    await applyBundle(makeBundle(), projectRoot);
+    const path = join(projectRoot, "CLAUDE.md");
+    const installed = readFileSync(path, "utf8");
+    writeFileSync(path, `# CLAUDE.md\n\nThis file provides guidance to Claude Code.\n\n${installed}\n## Local notes\n`);
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--json"]);
+    expect(exitCode ?? 0).toBe(0);
+    const data = parseOk<{ writes: { rules: { action: string } } }>(stdout);
+    expect(data.writes.rules.action).not.toBe("conflict_skipped");
+    const after = readFileSync(path, "utf8");
+    expect(after.startsWith("# CLAUDE.md")).toBe(true);
+    expect(after).toContain("## Local notes");
+    expect(after.split(BEGIN).length - 1).toBe(1);
+    expect(after.split(END).length - 1).toBe(1);
+  });
+
+  it("plain get with orphan markers returns a repair envelope instead of crashing", async () => {
+    writeValidAuth();
+    saveToolConfig({ tool: "claude-code" });
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle({ lessonId: "m1l5", lesson: 5 }));
+    writeFileSync(join(projectRoot, "CLAUDE.md"), `${BEGIN}\nvaluable tail\n`);
+
+    const { stdout, stderr, exitCode } = await runGet(["get", "m1l5", "--json"]);
+    expect(stderr).not.toContain("uncaught");
+    expect(exitCode).toBe(1);
+    const err = parseErr(stdout, "rules_markers_need_repair");
+    expect(err.message).toMatch(/need repair/);
+    expect(err.hint).toMatch(/--no-course-rules/);
+    expect(existsSync(join(projectRoot, ".claude/skills/code-review/SKILL.md"))).toBe(false);
+  });
+
   it("--course-rules (positive form) parses through CAC without a USAGE exit", async () => {
     writeValidAuth();
     saveToolConfig({ tool: "claude-code", courseRules: false });
