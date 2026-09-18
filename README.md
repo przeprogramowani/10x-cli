@@ -7,6 +7,10 @@ prompts, and configs directly into your workspace.
 
 - **Node 20+** — this is the only runtime dependency.
 
+Corporate firewall / proxy allowlist (for security and sysadmin teams):
+Polish [docs/wymagania-sieciowe.md](docs/wymagania-sieciowe.md),
+English [docs/network-requirements.md](docs/network-requirements.md).
+
 ## Install
 
 ```bash
