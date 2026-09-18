@@ -201,7 +201,8 @@ export interface ApplyOptions {
    * `@przeprogramowani/10x-cli` section) to the rules file. Defaults to
    * `true` so every existing caller keeps today's behavior. When `false`,
    * the block is not written and any existing one is stripped from the
-   * rules file (surrounding content preserved).
+   * rules file (surrounding content preserved). Malformed markers are
+   * left untouched so other artifacts can still apply.
    */
   applyCourseRules?: boolean;
   /**

@@ -122,6 +122,25 @@ describe("managed rule baselines", () => {
     expect(existsSync(skill())).toBe(false);
     expect(existsSync(join(root, ".10x-cli.json"))).toBe(false);
   });
+  it("opt-out preserves malformed markers and still writes other artifacts", async () => {
+    const text = `${NEW_BEGIN}\nvaluable tail\n`;
+    writeFileSync(join(root, "CLAUDE.md"), text);
+    const result = await applyBundle(bundle(), root, { applyCourseRules: false });
+    expect(result.rules).toMatchObject({ action: "conflict_skipped", reason: "malformed_markers" });
+    expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(text);
+    expect(readFileSync(skill(), "utf8")).toBe("upstream");
+    expect(manifest().managedRules).toBeUndefined();
+  });
+  it("duplicate sentinel pairs are malformed even with user text around the block", async () => {
+    const text = `# CLAUDE.md\n${NEW_BEGIN}\nand\n${NEW_END}\n${NEW_BEGIN}\nrules\n${NEW_END}\n`;
+    writeFileSync(join(root, "CLAUDE.md"), text);
+    expect(() => planBundle(bundle(), root)).toThrow(/need repair/);
+    expect(planBundle(bundle(), root, { applyCourseRules: false }).rules).toMatchObject({
+      action: "conflict_skipped",
+      reason: "malformed_markers",
+      isConflict: true,
+    });
+  });
   it("does not overwrite or remove another profile's shared root rules", async () => {
     const codex = PROFILES.codex!;
     const generic = PROFILES.generic!;

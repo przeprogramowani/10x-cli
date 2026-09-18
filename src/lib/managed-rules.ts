@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { contentHash, readManifest, type ManagedRules } from "./manifest";
 import { assertProjectFilePath } from "./project-course";
-import { applyRulesBlockWithMarkers, inspectRulesBlock, OLD_BEGIN, OLD_END, removeRulesBlockWithMarkers } from "./sentinel-migration";
+import { applyRulesBlockWithMarkers, inspectRulesBlock, OLD_BEGIN, OLD_END, removeRulesBlockWithMarkers, RulesMarkerRepairError, type RulesBlock } from "./sentinel-migration";
 import { LEGACY_PROFILES, PROFILES, type ToolProfile } from "./tool-profile";
 
 export interface ManagedRulesPlan {
@@ -27,13 +27,32 @@ export function otherRulesOwners(root: string, profile: ToolProfile): { profile:
   return owners;
 }
 
+function inspectExisting(content: string, begin: string, end: string): { malformed: boolean; block: RulesBlock | null } {
+  try {
+    return { malformed: false, block: inspectRulesBlock(content, begin, end) };
+  } catch {
+    return { malformed: true, block: null };
+  }
+}
+
 export function planManagedRules(root: string, profile: ToolProfile, body: string | undefined, enabled: boolean, baseline?: ManagedRules): ManagedRulesPlan {
   const path = join(root, profile.rulesFile);
   assertProjectFilePath(root, path);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const block = inspectRulesBlock(existing, profile.sentinelBegin, profile.sentinelEnd);
-  const legacy = inspectRulesBlock(existing, OLD_BEGIN, OLD_END);
-  if (block && legacy && Math.max(block.start, legacy.start) < Math.min(block.finish, legacy.finish)) throw new Error("Rules markers need repair: nested sentinel blocks.");
+  const current = inspectExisting(existing, profile.sentinelBegin, profile.sentinelEnd);
+  const legacyScan = inspectExisting(existing, OLD_BEGIN, OLD_END);
+  const block = current.block;
+  const legacy = legacyScan.block;
+  const nested = !!block && !!legacy && Math.max(block.start, legacy.start) < Math.min(block.finish, legacy.finish);
+  const malformed = current.malformed || legacyScan.malformed || nested;
+  if (malformed) {
+    // Opt-out and filtered applies must not block skills/prompts on a broken
+    // rules file. Default apply still fail-closes so we never truncate markers.
+    if (!enabled) return { action: "conflict_skipped", content: existing, isConflict: true, reason: "malformed_markers", next: baseline };
+    if (body === undefined) return { action: "unchanged", content: existing, isConflict: false, next: baseline };
+    if (nested) throw new RulesMarkerRepairError("nested sentinel blocks.");
+    inspectRulesBlock(existing, current.malformed ? profile.sentinelBegin : OLD_BEGIN, current.malformed ? profile.sentinelEnd : OLD_END);
+  }
   if (body === undefined && enabled) return { action: "unchanged", content: existing, isConflict: false, next: baseline };
   const validBaseline = baseline?.path === profile.rulesFile && baseline.begin === profile.sentinelBegin && baseline.end === profile.sentinelEnd ? baseline : undefined;
   const owners = otherRulesOwners(root, profile);
