@@ -1,7 +1,7 @@
 /**
- * Fails when src/ mentions a hostname that is not listed in
- * docs/network-allowlist.json. The JSON is the machine-readable source for
- * docs/wymagania-sieciowe.md — add the host there in the same change.
+ * Fails when src/ or the sysadmin docs mention a hostname that is not listed
+ * in docs/network-allowlist.json. Hosts with inDocs: true must appear in both
+ * the Polish and English documents.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -10,12 +10,31 @@ import { join, relative, resolve } from "node:path";
 const ROOT = resolve(import.meta.dir, "..");
 const SRC = join(ROOT, "src");
 const ALLOWLIST_PATH = join(ROOT, "docs/network-allowlist.json");
+const DOC_PATHS = [
+  "docs/wymagania-sieciowe.md",
+  "docs/network-requirements.md",
+] as const;
 const HOST_RE = /https?:\/\/([a-zA-Z0-9.-]+)/g;
 const LOOPBACK = new Set(["localhost", "127.0.0.1"]);
+/** Vendor documentation links in the AI-tool table — not 10x-cli destinations. */
+const VENDOR_DOC_HOSTS = new Set([
+  "docs.claude.com",
+  "cursor.com",
+  "docs.github.com",
+  "developers.openai.com",
+  "developers.google.com",
+  "kiro.dev",
+  "docs.devin.ai",
+]);
+
+interface AllowlistHost {
+  hostname: string;
+  inDocs?: boolean;
+}
 
 interface AllowlistFile {
   version: number;
-  hosts: { hostname: string }[];
+  hosts: AllowlistHost[];
 }
 
 function walkTsFiles(dir: string): string[] {
@@ -53,15 +72,23 @@ function stripComments(source: string): string {
     .join("\n");
 }
 
+function hostsInText(text: string): Set<string> {
+  const found = new Set<string>();
+  HOST_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = HOST_RE.exec(text)) !== null) {
+    const host = match[1]?.replace(/\.+$/, "");
+    if (host) found.add(host);
+  }
+  return found;
+}
+
 function hostsInSource(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   for (const file of walkTsFiles(SRC)) {
     const text = stripComments(readFileSync(file, "utf8"));
-    HOST_RE.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = HOST_RE.exec(text)) !== null) {
-      const host = match[1]?.replace(/\.+$/, "");
-      if (!host || LOOPBACK.has(host)) continue;
+    for (const host of hostsInText(text)) {
+      if (LOOPBACK.has(host)) continue;
       const rel = relative(ROOT, file);
       const list = found.get(host) ?? [];
       if (!list.includes(rel)) list.push(rel);
@@ -74,6 +101,10 @@ function hostsInSource(): Map<string, string[]> {
 describe("docs/network-allowlist.json", () => {
   const raw = JSON.parse(readFileSync(ALLOWLIST_PATH, "utf8")) as AllowlistFile;
   const listed = new Set(raw.hosts.map((h) => h.hostname));
+  const inDocs = raw.hosts.filter((h) => h.inDocs).map((h) => h.hostname);
+  const docTexts = Object.fromEntries(
+    DOC_PATHS.map((path) => [path, readFileSync(join(ROOT, path), "utf8")]),
+  );
 
   it("is a versioned host list", () => {
     expect(raw.version).toBe(1);
@@ -83,10 +114,32 @@ describe("docs/network-allowlist.json", () => {
   });
 
   it("lists every non-loopback hostname referenced from src/", () => {
-    const found = hostsInSource();
     const missing: string[] = [];
-    for (const [host, files] of found) {
+    for (const [host, files] of hostsInSource()) {
       if (!listed.has(host)) missing.push(`${host} (${files.join(", ")})`);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("lists every non-vendor hostname referenced from both sysadmin docs", () => {
+    const missing: string[] = [];
+    for (const path of DOC_PATHS) {
+      const text = docTexts[path] ?? "";
+      for (const host of hostsInText(text)) {
+        if (LOOPBACK.has(host) || VENDOR_DOC_HOSTS.has(host)) continue;
+        if (!listed.has(host)) missing.push(`${host} (${path})`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("requires inDocs hosts in both the Polish and English documents", () => {
+    const missing: string[] = [];
+    for (const path of DOC_PATHS) {
+      const text = docTexts[path] ?? "";
+      for (const host of inDocs) {
+        if (!text.includes(host)) missing.push(`${host} missing from ${path}`);
+      }
     }
     expect(missing).toEqual([]);
   });
