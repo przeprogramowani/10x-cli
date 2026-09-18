@@ -73,6 +73,8 @@ export interface BootstrapRequest {
   templateRef: string;
   templateSource: string;
   detectedBaseRepo: DetectedBaseRepo | null;
+  /** True with `--deep`: the base repo clone keeps full history (default: shallow). */
+  deepClone?: boolean;
   now: string;
 }
 
@@ -99,7 +101,14 @@ export interface BootstrapResponse {
   filesCopied?: number;
   baseRepo?: { name: string; url: string } | null;
   demoTasksPinned?: number;
-  baseRepoClone?: { name: string; url: string; rootDir: string; dest: string } | null;
+  baseRepoClone?: {
+    name: string;
+    url: string;
+    rootDir: string;
+    dest: string;
+    /** 1 = shallow (HEAD only); null/absent = full history. */
+    depth?: number | null;
+  } | null;
   runnerDeps?: "installed" | "failed" | "skipped";
   gitInitialized?: boolean;
   committed?: boolean;
@@ -112,6 +121,7 @@ interface BenchKitFlags extends GlobalFlags {
   templateVersion?: string;
   tool?: string;
   yes?: boolean;
+  deep?: boolean;
 }
 
 /**
@@ -130,9 +140,13 @@ export interface BenchKitDeps {
   runGit(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string; error: string }>;
   /** Detects the git repo containing `cwd` (null when absent or origin-less). */
   detectBaseRepo(cwd: string): Promise<Omit<DetectedBaseRepo, "httpsReachable"> | null>;
-  /** Clones the detected repo into `destDir` (local source, remote origin). */
+  /**
+   * Clones the detected repo into `destDir` (local source, remote origin).
+   * `depth` 1 means a shallow clone (HEAD only); null/absent means full
+   * history — the bootstrap decides, this only executes.
+   */
   cloneBaseRepo(
-    repo: { rootDir: string; url: string },
+    repo: { rootDir: string; url: string; depth?: number | null },
     destDir: string,
   ): Promise<{ ok: boolean; error: string }>;
   /** True when `git ls-remote` succeeds against `url` (https preference probe). */
@@ -155,8 +169,10 @@ export function registerBenchKitCommand(cli: CAC): void {
     .option("--template-version <tag>", "Template tag to install (default: latest)")
     .option("--tool <id>", `Agent tool for skill placement (${Object.keys(PROFILES).join(", ")})`)
     .option("--yes", "Run non-interactively, accepting defaults")
+    .option("--deep", "Clone the detected base repo with full history (default: shallow, HEAD only)")
     .example("10x bench-kit init my-benchmark")
     .example("10x bench-kit init my-benchmark --template-version v0.1.0")
+    .example("10x bench-kit init my-benchmark --deep")
     .example("10x bench-kit update")
     .action(async (action: string, dir: string | undefined, options: BenchKitFlags) => {
       const ctx = resolveContext(options);
@@ -235,6 +251,7 @@ export async function runBenchKitInit(
       templateRef: requestedRef ?? "latest",
       templateSource: TEMPLATE_REPO_URL,
       detectedBaseRepo,
+      ...(options.deep === true ? { deepClone: true } : {}),
       now: deps.now().toISOString(),
     };
     verbose(ctx, `running template bootstrap (${BOOTSTRAP_ENTRY})`);
@@ -256,7 +273,11 @@ export async function runBenchKitInit(
     let baseRepoClone: "cloned" | "failed" | "skipped" = "skipped";
     if (res.baseRepoClone != null) {
       const cloneDest = join(targetDir, res.baseRepoClone.dest);
-      verbose(ctx, `cloning base repo into ${res.baseRepoClone.dest}`);
+      const depth = res.baseRepoClone.depth ?? null;
+      verbose(
+        ctx,
+        `cloning base repo into ${res.baseRepoClone.dest}${depth === null ? "" : ` (depth ${depth})`}`,
+      );
       const cloned = await deps.cloneBaseRepo(res.baseRepoClone, cloneDest);
       if (cloned.ok) {
         baseRepoClone = "cloned";
@@ -289,11 +310,17 @@ export async function runBenchKitInit(
             : []),
           ...(baseRepoClone === "cloned" && res.baseRepoClone != null
             ? [
-                `Cloned '${res.baseRepoClone.name}' into ${res.baseRepoClone.dest}/ — local working copy for the authoring skills (gitignored).`,
+                `Cloned '${res.baseRepoClone.name}' into ${res.baseRepoClone.dest}/ — ${
+                (res.baseRepoClone.depth ?? null) === null
+                  ? "local working copy with full history"
+                  : "shallow local working copy (HEAD only; 'git fetch --unshallow' there when you need history)"
+              } for the authoring skills (gitignored).`,
               ]
             : baseRepoClone === "failed" && res.baseRepoClone != null
               ? [
-                  `Base repo clone failed — run 'git clone ${res.baseRepoClone.url} ${res.baseRepoClone.dest}' yourself.`,
+                  `Base repo clone failed — run 'git clone${
+                    (res.baseRepoClone.depth ?? null) === null ? "" : " --depth 1"
+                  } ${res.baseRepoClone.url} ${res.baseRepoClone.dest}' yourself.`,
                 ]
               : []),
           ...(res.runnerDeps === "failed"
@@ -672,10 +699,21 @@ const defaultDeps: BenchKitDeps = {
     return { rootDir, name: basename(rootDir), url, headCommit };
   },
   async cloneBaseRepo(repo, destDir) {
-    // Clone from the local working copy (instant, offline, full history),
-    // then point origin at the registered remote so `git fetch` behaves
-    // like in a network clone.
-    const clone = await run("git", ["clone", "--quiet", repo.rootDir, destDir]);
+    // Clone from the local working copy (instant, offline), then point
+    // origin at the registered remote so `git fetch` behaves like in a
+    // network clone. Depth comes from the bootstrap: 1 (the default —
+    // HEAD only, which is what the authoring skills read) or null (full
+    // history, `--deep`). `--depth` is silently IGNORED for a local path,
+    // so a shallow clone has to go through a `file://` URL — that gives
+    // up object hardlinking, which is exactly the point: a shallow clone
+    // copies one commit's worth of objects instead of the whole history.
+    const depth = repo.depth ?? null;
+    const source = depth === null ? repo.rootDir : `file://${resolve(repo.rootDir)}`;
+    const args =
+      depth === null
+        ? ["clone", "--quiet", source, destDir]
+        : ["clone", "--quiet", "--depth", String(depth), "--no-tags", source, destDir];
+    const clone = await run("git", args);
     if (!clone.ok) return { ok: false, error: clone.error };
     return run("git", ["-C", destDir, "remote", "set-url", "origin", repo.url]);
   },

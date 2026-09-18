@@ -304,6 +304,7 @@ scoring live in the template and the instance.
 | `--template-version <tag>` | Template tag to install (default: latest) |
 | `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `generic`) |
 | `--yes` | Run non-interactively, accepting defaults |
+| `--deep` | Clone the detected base repo with full history (default: shallow, HEAD only) |
 
 ```bash
 # Create an instance next to your product repo (run inside it to auto-register)
@@ -312,9 +313,17 @@ scoring live in the template and the instance.
 # Pin the template version
 10x bench-kit init my-benchmark --template-version v0.8.0
 
+# Keep the full history in the base repo clone under .repos/
+10x bench-kit init my-benchmark --deep
+
 # Upgrade an existing instance to the latest template
 10x bench-kit update
 ```
+
+A detected base repo is cloned into the instance's `.repos/<name>/` (gitignored)
+as a working copy for the authoring skills. That clone is **shallow** — HEAD only
+— because the skills read the file tree, not the history; `--deep` keeps the full
+history, and `git fetch --unshallow` inside the clone adds it later.
 
 Re-running `init` on an existing instance is a **repair**: missing template
 files are restored, company content is never touched. After `update`, run the

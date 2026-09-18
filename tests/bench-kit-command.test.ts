@@ -301,8 +301,9 @@ describe("10x bench-kit init", () => {
       url: "https://github.com/acme/shop-app.git",
       rootDir: "/somewhere/shop-app",
       dest: ".repos/shop-app",
+      depth: 1,
     };
-    const cloneCalls: { rootDir: string; destDir: string }[] = [];
+    const cloneCalls: { rootDir: string; depth?: number | null; destDir: string }[] = [];
     const { deps } = fakeDeps(
       template,
       okInitResponse({
@@ -311,7 +312,7 @@ describe("10x bench-kit init", () => {
       }),
       {
         cloneBaseRepo: (repo, destDir) => {
-          cloneCalls.push({ rootDir: repo.rootDir, destDir });
+          cloneCalls.push({ rootDir: repo.rootDir, depth: repo.depth, destDir });
           mkdirSync(destDir, { recursive: true });
           return Promise.resolve({ ok: true, error: "" });
         },
@@ -321,12 +322,41 @@ describe("10x bench-kit init", () => {
     const result = await captureStreams(() => runBenchKitInit(JSON_CTX, target, {}, deps));
 
     expect(result.exitCode).toBeUndefined();
+    // The depth decision is the kit's; the CLI only carries it through.
     expect(cloneCalls).toEqual([
-      { rootDir: "/somewhere/shop-app", destDir: join(target, ".repos", "shop-app") },
+      { rootDir: "/somewhere/shop-app", depth: 1, destDir: join(target, ".repos", "shop-app") },
     ]);
     const envelope = parseEnvelope(result.stdout);
     expect(envelope.data.baseRepoClone).toBe("cloned");
     expect(envelope.data.baseRepo.name).toBe("shop-app");
+  });
+
+  it("asks the bootstrap for a full-history clone only with --deep", async () => {
+    const template = buildTemplateFixture();
+    const shallowFake = fakeDeps(template, okInitResponse());
+    const shallow = await captureStreams(() =>
+      runBenchKitInit(
+        JSON_CTX,
+        join(tempDir("bench-kit-target-"), "instance"),
+        {},
+        shallowFake.deps,
+      ),
+    );
+    expect(shallow.exitCode).toBeUndefined();
+    expect(shallowFake.bootstrapCalls[0]!.request.deepClone).toBeUndefined();
+
+    const deepFake = fakeDeps(template, okInitResponse());
+    const deep = await captureStreams(() =>
+      runBenchKitInit(
+        JSON_CTX,
+        join(tempDir("bench-kit-target-"), "instance"),
+        { deep: true },
+        deepFake.deps,
+      ),
+    );
+
+    expect(deep.exitCode).toBeUndefined();
+    expect(deepFake.bootstrapCalls[0]!.request.deepClone).toBe(true);
   });
 
   it("degrades to a hint when the base repo clone fails (init still succeeds)", async () => {
