@@ -4,7 +4,8 @@
  * of signals. The interactive prompt uses the top signal to pre-fill
  * `initialValue`; the user still confirms before anything is saved.
  *
- * Pure file-system read; ≤12 `existsSync` calls, no I/O beyond that.
+ * Pure file-system read; a bounded number of `existsSync` calls, no I/O
+ * beyond that.
  */
 
 import { existsSync } from "node:fs";
@@ -137,6 +138,31 @@ export function detectTools(projectRoot: string): DetectionSignal[] {
     signals.push({ profileId: "gemini", confidence: "medium", reason: ".gemini/ directory" });
   }
 
+  // Kiro — .kiro/ holds steering, specs, hooks, settings and skills. The
+  // directory name is Kiro-specific enough that even a bare .kiro/ is a strong
+  // signal; the sub-marker branches exist only to give a precise hint reason.
+  if (hit(".kiro/" + MANIFEST_FILENAME)) {
+    signals.push({
+      profileId: "kiro",
+      confidence: "strong",
+      reason: ".kiro/.10x-cli-manifest.json",
+    });
+  } else if (hit(".kiro/steering") || hit(".kiro/specs")) {
+    signals.push({
+      profileId: "kiro",
+      confidence: "strong",
+      reason: ".kiro/steering/ or .kiro/specs/",
+    });
+  } else if (hit(".kiro/hooks") || hit(".kiro/settings")) {
+    signals.push({
+      profileId: "kiro",
+      confidence: "strong",
+      reason: ".kiro/hooks/ or .kiro/settings/",
+    });
+  } else if (hit(".kiro")) {
+    signals.push({ profileId: "kiro", confidence: "strong", reason: ".kiro/ directory" });
+  }
+
   // Generic — .ai/ is a project-defined convention
   if (hit(".ai/" + MANIFEST_FILENAME)) {
     signals.push({
@@ -161,6 +187,7 @@ const PROFILE_ORDER = [
   "codex",
   "devin-desktop",
   "gemini",
+  "kiro",
   "generic",
 ];
 

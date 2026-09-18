@@ -59,13 +59,24 @@ export function helperInstallContract(label: string, command: () => string[]): v
       expect(tree(f.home)).toEqual({});
     });
 
-    it("previews the chosen profile without writes", () => {
-      const f = fixture(); const before = tree(f.project);
-      const p = f.run("helpers", "install", "--tool", "claude-code", "--dry-run");
+    for (const [tool, dir] of [["claude-code", ".claude"], ["kiro", ".kiro"]] as const) {
+      it(`previews the chosen ${tool} profile without writes`, () => {
+        const f = fixture(); const before = tree(f.project);
+        const p = f.run("helpers", "install", "--tool", tool, "--dry-run");
+        expect(p.exitCode).toBe(0);
+        const files = JSON.parse(p.stdout.toString()).data.files;
+        expect(files.length).toBeGreaterThan(0);
+        expect(files.every((x: { path: string; action: string }) => x.path.startsWith(dir) && x.action === "would_create")).toBe(true);
+        expect(tree(f.project)).toEqual(before);
+      });
+    }
+
+    it("installs the complete packaged tree for kiro under .kiro/skills", () => {
+      const f = fixture();
+      const p = f.run("helpers", "install", "--tool", "kiro");
       expect(p.exitCode).toBe(0);
-      const files = JSON.parse(p.stdout.toString()).data.files;
-      expect(files.every((x: { path: string; action: string }) => x.path.startsWith(".claude") && x.action === "would_create")).toBe(true);
-      expect(tree(f.project)).toEqual(before);
+      expect(tree(join(f.project, ".kiro/skills"))).toEqual(tree(SOURCE));
+      expect(existsSync(join(f.project, ".claude"))).toBe(false);
     });
 
     it("preserves local edits in either helper and returns nonzero before installing the other", () => {

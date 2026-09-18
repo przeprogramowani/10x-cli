@@ -38,7 +38,7 @@ Once your release includes it, run from the intended project directory:
 
 This installs **both** `10x-cli-setup` and `10x-cli-guide`, each with its complete
 `SKILL.md` and `references/compatibility.md`, into `.github/skills/`. Use
-`--tool claude-code`, `cursor`, `codex`, `devin-desktop`, `gemini`, or `generic`
+`--tool claude-code`, `cursor`, `codex`, `devin-desktop`, `gemini`, `kiro`, or `generic`
 when that is your intended tool. The target must be explicit; installation is
 project-only. There is no `--global`, automatic agent detection, `skills`/npx
 subprocess, authentication, or network access. The helper bytes come from the
@@ -175,7 +175,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 
 | Flag | Description |
 |------|-------------|
-| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `generic` |
+| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `generic` |
 | `--print` | Output artifact content to stdout instead of writing files |
 | `--type <type>` | Filter by artifact type: `skills`, `prompts`, `rules`, `configs` |
 | `--name <name>` | Filter by artifact name (requires `--type`) |
@@ -302,7 +302,7 @@ scoring live in the template and the instance.
 | Flag | Description |
 |------|-------------|
 | `--template-version <tag>` | Template tag to install (default: latest) |
-| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `generic`) |
+| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `generic`) |
 | `--yes` | Run non-interactively, accepting defaults |
 | `--deep` | Clone the detected base repo with full history (default: shallow, HEAD only) |
 
@@ -355,6 +355,7 @@ On first run, the CLI prompts you to choose your AI coding tool. Artifacts are w
 | Codex CLI | `.agents/` | `AGENTS.md` |
 | Devin Desktop | `.devin/` | `AGENTS.md` |
 | Gemini CLI | `.gemini/` | `GEMINI.md` |
+| Kiro | `.kiro/` | `AGENTS.md` |
 | Generic | `.ai/` | `AGENTS.md` |
 
 Override with `--tool <name>`. Validated writing commands save your choice in `~/.config/10x-cli/config.json`. Previews leave it unchanged.

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Kiro is a supported tool profile.** `--tool kiro` writes artifacts under
+  `.kiro/`, uses root `AGENTS.md` for course rules, and is auto-detected from
+  `.kiro/steering/`, `.kiro/specs/`, `.kiro/hooks/`, `.kiro/settings/` or a bare
+  `.kiro/` directory. Content is
+  delivered in the generic variant.
 - **`10x sync` — bulk download & update with change visibility.** One command to
   download every unlocked lesson (`--all`) or refresh the ones you've already
   downloaded (default), with a report of what changed upstream. Each not-updated

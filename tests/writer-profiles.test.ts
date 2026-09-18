@@ -153,6 +153,27 @@ describe("writer with Devin Desktop profile", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Kiro profile
+// ---------------------------------------------------------------------------
+
+describe("writer with kiro profile", () => {
+  const kiroProfile = PROFILES["kiro"]!;
+
+  it("writes artifacts under .kiro/ and steering rules to AGENTS.md", async () => {
+    await applyBundle(makeBundle(), tmp, { profile: kiroProfile });
+    expect(existsSync(join(tmp, ".kiro/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".kiro/prompts/plan.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".kiro/config-templates/settings.json"))).toBe(true);
+    const rules = readFileSync(join(tmp, "AGENTS.md"), "utf8");
+    expect(rules).toContain("Always test.");
+    expect(rules).toContain("<!-- BEGIN @przeprogramowani/10x-cli -->");
+    // Freshness keys on toolId, not contentToolId, so the manifest stays "kiro".
+    expect(readManifest(join(tmp, ".kiro"))?.tool).toBe("kiro");
+    expect(existsSync(join(tmp, ".ai"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Generic profile
 // ---------------------------------------------------------------------------
 
