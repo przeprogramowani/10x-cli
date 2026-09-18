@@ -102,26 +102,6 @@
       "inDocs": false,
       "when": ["bench_kit"],
       "purpose": "Install-git hint in a bench-kit error message; CLI does not fetch it"
-    },
-    {
-      "hostname": "localhost",
-      "port": null,
-      "protocol": "http",
-      "calledBy": "development_only",
-      "required": false,
-      "inDocs": false,
-      "when": ["local_dev"],
-      "purpose": "API_BASE_URL / BENCH_BASE_URL loopback override; not used in production"
-    },
-    {
-      "hostname": "127.0.0.1",
-      "port": null,
-      "protocol": "http",
-      "calledBy": "development_only",
-      "required": false,
-      "inDocs": false,
-      "when": ["local_dev"],
-      "purpose": "API_BASE_URL / BENCH_BASE_URL loopback override; not used in production"
     }
   ]
 }

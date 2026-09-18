@@ -15,7 +15,6 @@ const DOC_PATHS = [
   "docs/network-requirements.md",
 ] as const;
 const HOST_RE = /https?:\/\/([a-zA-Z0-9.-]+)/g;
-const LOOPBACK = new Set(["localhost", "127.0.0.1"]);
 /** Vendor documentation links in the AI-tool table — not 10x-cli destinations. */
 const VENDOR_DOC_HOSTS = new Set([
   "docs.claude.com",
@@ -83,12 +82,19 @@ function hostsInText(text: string): Set<string> {
   return found;
 }
 
+/** Allowlist only public DNS names (a dot, not an IP literal). */
+function isPublicHostname(host: string): boolean {
+  if (!host.includes(".")) return false;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return false;
+  return true;
+}
+
 function hostsInSource(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   for (const file of walkTsFiles(SRC)) {
     const text = stripComments(readFileSync(file, "utf8"));
     for (const host of hostsInText(text)) {
-      if (LOOPBACK.has(host)) continue;
+      if (!isPublicHostname(host)) continue;
       const rel = relative(ROOT, file);
       const list = found.get(host) ?? [];
       if (!list.includes(rel)) list.push(rel);
@@ -113,7 +119,7 @@ describe("docs/network-allowlist.json", () => {
     expect(listed.has("registry.npmjs.org")).toBe(true);
   });
 
-  it("lists every non-loopback hostname referenced from src/", () => {
+  it("lists every public hostname referenced from src/", () => {
     const missing: string[] = [];
     for (const [host, files] of hostsInSource()) {
       if (!listed.has(host)) missing.push(`${host} (${files.join(", ")})`);
@@ -126,7 +132,7 @@ describe("docs/network-allowlist.json", () => {
     for (const path of DOC_PATHS) {
       const text = docTexts[path] ?? "";
       for (const host of hostsInText(text)) {
-        if (LOOPBACK.has(host) || VENDOR_DOC_HOSTS.has(host)) continue;
+        if (!isPublicHostname(host) || VENDOR_DOC_HOSTS.has(host)) continue;
         if (!listed.has(host)) missing.push(`${host} (${path})`);
       }
     }
