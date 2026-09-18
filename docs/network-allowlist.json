@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "updated": "2026-09-18",
+  "description": "Hostnames that 10x-cli source may mention or contact. Keep in sync with docs/wymagania-sieciowe.md. tests/network-allowlist.test.ts fails when src/ introduces an unlisted host.",
+  "hosts": [
+    {
+      "hostname": "10x-toolkit-api.przeprogramowani.workers.dev",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "cli_process",
+      "required": true,
+      "when": ["login", "every_authenticated_command", "doctor"],
+      "purpose": "Delivery API: auth, membership, catalog, lessons, artifacts, health"
+    },
+    {
+      "hostname": "registry.npmjs.org",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "cli_process",
+      "required": true,
+      "when": ["install", "update_check"],
+      "purpose": "Public npm registry for @przeprogramowani/10x-cli; doctor version lookup"
+    },
+    {
+      "hostname": "10xbench.ai",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "cli_process",
+      "required": false,
+      "when": ["bench"],
+      "purpose": "Public leaderboard JSON for `10x bench`"
+    },
+    {
+      "hostname": "github.com",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "cli_process",
+      "required": false,
+      "when": ["bench_kit", "optional_binary_install"],
+      "purpose": "git clone of 10x-bench-kit; optional GitHub Releases binary download"
+    },
+    {
+      "hostname": "toolkit.przeprogramowani.pl",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "browser",
+      "required": true,
+      "when": ["login_email"],
+      "purpose": "Magic-link callback opened in the user's browser (not called by the CLI process)"
+    },
+    {
+      "hostname": "10xdevs.pl",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "browser",
+      "required": false,
+      "when": ["enrollment_hint"],
+      "purpose": "Enrollment URL printed in error hints; CLI does not fetch it"
+    },
+    {
+      "hostname": "git-scm.com",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "documentation_only",
+      "required": false,
+      "when": ["bench_kit"],
+      "purpose": "Install-git hint in a bench-kit error message; CLI does not fetch it"
+    },
+    {
+      "hostname": "localhost",
+      "port": null,
+      "protocol": "http",
+      "direction": "outbound",
+      "calledBy": "development_only",
+      "required": false,
+      "when": ["local_dev"],
+      "purpose": "API_BASE_URL / BENCH_BASE_URL loopback override; not used in production"
+    },
+    {
+      "hostname": "127.0.0.1",
+      "port": null,
+      "protocol": "http",
+      "direction": "outbound",
+      "calledBy": "development_only",
+      "required": false,
+      "when": ["local_dev"],
+      "purpose": "API_BASE_URL / BENCH_BASE_URL loopback override; not used in production"
+    },
+    {
+      "hostname": "app.circle.so",
+      "port": 443,
+      "protocol": "https",
+      "direction": "outbound",
+      "calledBy": "not_on_device",
+      "required": false,
+      "when": ["login_circle_human"],
+      "purpose": "Circle Admin API is server-side only. User may open Circle in a browser to read the DM."
+    }
+  ]
+}

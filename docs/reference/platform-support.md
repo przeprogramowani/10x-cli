@@ -3,6 +3,7 @@
 ## Requirements
 
 - **Node 20+** — the only runtime dependency on all platforms.
+- Corporate network allowlist: [wymagania-sieciowe.md](../wymagania-sieciowe.md).
 
 ## Supported platforms
 
