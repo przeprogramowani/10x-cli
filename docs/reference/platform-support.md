@@ -74,13 +74,11 @@ The CLI auto-detects your tool from project markers on first run. Override anyti
 ```
 
 Kiro reads the root `AGENTS.md` as steering context, so it writes to the same
-file as Codex CLI, Devin Desktop and Generic. Two profiles can hold the same
-sentinel block only when their course-rules content is byte-identical — for Kiro
-that means Generic. Installing Kiro alongside Codex CLI or Devin Desktop in one
-project leaves the first owner's block untouched and reports the rules as
-`conflict: skipped (incompatible_shared_owner)`; every other artifact still
-installs normally. Pick one of those profiles per project, or accept that only
-the first one to run keeps the course rules.
+file as Codex CLI, Devin Desktop and Generic. Delivery currently treats every
+non-Claude tool as the same universal content, so those profiles can co-own the
+sentinel when the bytes match. A conflict (`incompatible_shared_owner`) arises
+only when the delivered content diverges; skills, prompts and configs still
+install independently of that rules outcome.
 
 Kiro is detected from `.kiro/steering/`, `.kiro/specs/`, `.kiro/hooks/`,
 `.kiro/settings/` or a bare `.kiro/` directory.

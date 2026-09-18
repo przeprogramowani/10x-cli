@@ -241,6 +241,7 @@ Full skill trees land under the selected profile's `skills/<canonical-name>/`:
 | codex | `.agents/` | `AGENTS.md` |
 | devin-desktop | `.devin/` | `AGENTS.md` |
 | gemini | `.gemini/` | `GEMINI.md` |
+| kiro | `.kiro/` | `AGENTS.md` |
 | generic | `.ai/` | `AGENTS.md` |
 
 Profile changes may offer migrate, delete eligible managed files, or keep both;
