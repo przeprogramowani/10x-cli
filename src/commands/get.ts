@@ -491,13 +491,7 @@ function renderGetResult(
   writeResult: WriteResult,
   dryRun: boolean,
   profile: ToolProfile,
-  langMeta: { course: string; selectionReason: SelectionReason; language: string; languageFallback: boolean; applyCourseRules: boolean } = {
-    course: "10xdevs3",
-    selectionReason: "backend_recommendation",
-    language: "en",
-    languageFallback: false,
-    applyCourseRules: true,
-  },
+  langMeta: { course: string; selectionReason: SelectionReason; language: string; languageFallback: boolean; applyCourseRules: boolean },
 ): void {
   const applyCourseRules = langMeta.applyCourseRules;
   const totalRemovals =

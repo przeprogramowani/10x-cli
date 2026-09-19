@@ -83,10 +83,14 @@ a magic link sent by email or a Circle message (`--method email` /
 on the user's behalf without their authorization. Never read out `auth.json`,
 tokens, magic-link URLs or email contents. Summarize only session/access state.
 
-Then use the selected runner's `list --course 10xdevs4` (or the user's explicit
-course). Distinguish no membership, unpublished course, locked module and network
+Then use the selected runner's bare `list`: with no `--course` the CLI takes the
+edition from the project's `.10x-cli.json` binding, or, in a directory that is not
+bound yet, from the live API recommendation (the highest edition the account can
+reach). Add `--course <slug>` only to inspect another entitled edition on purpose.
+Distinguish no membership, unpublished course, locked module and network
 failure. Reinstalling the CLI or selecting a different tool does not grant access.
-Keep `--course`, `--tool` and `--lang` explicit in subsequent download/sync commands.
+Keep `--tool` and `--lang` explicit in subsequent download/sync commands and leave
+`--course` out, so every download stays on the project's edition.
 
 ## 4. Diagnose readiness without manufacturing a tool directory
 
@@ -94,7 +98,11 @@ Run the selected runner's `doctor --json`; read all of `data.checks` and
 `data.overall`, plus the exit status. The outer `status: "ok"` is an output envelope,
 not a promise that every check passed. Doctor uses the configured profile (or its
 default), so compare the reported tool with the intended one; it has no `--tool`
-flag in the inspected baseline.
+flag in the inspected baseline. Its auth check also reports the resolved edition
+and selection reason (`details.course`, `details.selectionReason`) — use that as
+the self-check before the first download. A project is bound to one edition on its
+first write; a later edition needs a new empty directory, because writing it into a
+bound project fails with `course_mismatch`.
 
 In a new project before the first download, a missing `.claude/` (or the reported
 profile directory) can be expected. If that is the only failure and this is the

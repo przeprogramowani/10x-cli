@@ -310,6 +310,7 @@ async function syncLesson(
 
   if (opts.dryRun) {
     const plan = planBundle(bundle, process.cwd(), {
+      course: opts.course,
       profile: opts.profile,
       applyCourseRules: opts.applyCourseRules,
     });
