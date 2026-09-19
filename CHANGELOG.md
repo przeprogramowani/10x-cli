@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Course-rules sentinels count only as a whole line after trim. Quoted or inline copies of `BEGIN`/`END` (backticks, quotes, code fences, mid-sentence text) no longer trigger `rules_markers_need_repair`. Bare duplicates, orphans, and nested blocks still fail closed.
+
 ### Changed
 
 - **Windsurf is now Devin Desktop.** The tool selector uses `devin-desktop`,

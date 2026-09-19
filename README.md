@@ -209,6 +209,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 # Skip the course rules block (use only your rules). Persisted across runs;
 # an unchanged block with a known baseline is removed. Re-enable later with --course-rules.
 # Also the recovery path when CLAUDE.md markers are broken (orphan/duplicate).
+# Only a marker on its own line counts; quoted or inline copies are ignored.
 10x get m1l1 --no-course-rules
 10x get m1l2 --course-rules
 

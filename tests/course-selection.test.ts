@@ -3,9 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateCourseDiscovery, type CourseDiscovery } from "../src/lib/api-content";
-import { resolveCourseSelection, selectCourse, tokenLacksCourse } from "../src/lib/course-selection";
+import { reportCourseError, resolveCourseSelection, selectCourse, tokenLacksCourse } from "../src/lib/course-selection";
 import { requireAuth } from "../src/lib/auth-guard";
 import type { AuthData } from "../src/lib/config";
+import { inspectRulesBlock, NEW_BEGIN, NEW_END, RulesMarkerRepairError } from "../src/lib/sentinel-migration";
 
 const none = { course: null, source: "none" } as const;
 const v3 = { id: "10xdevs-3", slug: "10xdevs3", title: "3", edition: 3, available: true };
@@ -113,5 +114,25 @@ describe("stale-claim retry limits", () => {
     expect(calls).toBe(1);
     expect(discoveries).toBe(2);
     expect(JSON.parse(envelope).error.code).toBe("course_access_denied");
+  });
+});
+
+describe("rules_markers_need_repair", () => {
+  it("maps a true marker defect to rules_markers_need_repair", () => {
+    const originalExit = process.exit;
+    const originalWrite = process.stdout.write;
+    let envelope = "";
+    process.stdout.write = ((chunk: string | Uint8Array) => { envelope += String(chunk); return true; }) as typeof process.stdout.write;
+    process.exit = (() => { throw new Error("expected command exit"); }) as typeof process.exit;
+    try {
+      expect(() => reportCourseError({ json: true, verbose: false }, new RulesMarkerRepairError("orphan, duplicate, or out-of-order sentinel."))).toThrow("expected command exit");
+    } finally { process.exit = originalExit; process.stdout.write = originalWrite; }
+    expect(JSON.parse(envelope).error.code).toBe("rules_markers_need_repair");
+  });
+
+  it("does not treat a quoted marker in CLAUDE.md as rules_markers_need_repair", () => {
+    const claude = `# CLAUDE.md\nAgents may copy \`${NEW_BEGIN}\` or "${NEW_END}".\n\n${NEW_BEGIN}\n\ncourse rules\n\n${NEW_END}\n`;
+    expect(() => inspectRulesBlock(claude, NEW_BEGIN, NEW_END)).not.toThrow();
+    expect(inspectRulesBlock(claude, NEW_BEGIN, NEW_END)?.body).toBe("course rules");
   });
 });

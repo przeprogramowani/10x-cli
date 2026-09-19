@@ -14,16 +14,34 @@ export class RulesMarkerRepairError extends Error {
   }
 }
 
+/** A marker counts only when `line.trim() === marker` (quoted/inline copies are ignored). */
+function locateLineMarkers(content: string, marker: string): { start: number; finish: number }[] {
+  const hits: { start: number; finish: number }[] = [];
+  let lineStart = 0;
+  for (let i = 0; i <= content.length; i++) {
+    if (i !== content.length && content.charCodeAt(i) !== 10) continue;
+    const line = content.slice(lineStart, i);
+    if (line.trim() === marker) {
+      const start = lineStart + (line.length - line.trimStart().length);
+      hits.push({ start, finish: start + marker.length });
+    }
+    lineStart = i + 1;
+  }
+  return hits;
+}
+
 export function inspectRulesBlock(content: string, begin: string, end: string): RulesBlock | null {
-  const starts = content.split(begin).length - 1;
-  const ends = content.split(end).length - 1;
-  if (!starts && !ends) return null;
-  const start = content.indexOf(begin);
-  const stop = content.indexOf(end);
-  if (starts !== 1 || ends !== 1 || stop < start) {
+  const starts = locateLineMarkers(content, begin);
+  const ends = locateLineMarkers(content, end);
+  if (!starts.length && !ends.length) return null;
+  const firstStart = starts[0];
+  const firstEnd = ends[0];
+  if (starts.length !== 1 || ends.length !== 1 || !firstStart || !firstEnd || firstEnd.start < firstStart.start) {
     throw new RulesMarkerRepairError("orphan, duplicate, or out-of-order sentinel. Preserve the file and resolve its markers before continuing.");
   }
-  const finish = stop + end.length;
+  const start = firstStart.start;
+  const stop = firstEnd.start;
+  const finish = firstEnd.finish;
   return { start, finish, text: content.slice(start, finish), body: content.slice(start + begin.length, stop).trim() };
 }
 
