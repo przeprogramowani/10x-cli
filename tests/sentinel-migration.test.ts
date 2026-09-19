@@ -10,12 +10,19 @@
 import { describe, expect, it } from "bun:test";
 import {
   applyRulesBlock,
+  inspectRulesBlock,
   NEW_BEGIN,
   NEW_END,
   OLD_BEGIN,
   OLD_END,
   removeRulesBlockWithMarkers,
 } from "../src/lib/sentinel-migration";
+
+function outsideNewBlock(content: string): string {
+  const block = inspectRulesBlock(content, NEW_BEGIN, NEW_END);
+  if (!block) return content;
+  return content.slice(0, block.start) + content.slice(block.finish);
+}
 
 describe("applyRulesBlock — fresh CLAUDE.md", () => {
   it("writes a new block into an empty file", () => {
@@ -180,5 +187,72 @@ describe("applyRulesBlock — sentinel injection guard (F5)", () => {
     const body = "Use TDD. Always write tests.";
     const { content } = applyRulesBlock("# My project\n", body);
     expect(content).toContain(body);
+  });
+});
+
+describe("inspectRulesBlock — whole-line markers (quoted text is not a marker)", () => {
+  const pair = `${NEW_BEGIN}\n\nrules body\n\n${NEW_END}`;
+  const withProse = (prose: string) => `# CLAUDE.md\n\n${prose}\n\n${pair}\n\n## Local notes\nkeep me\n`;
+
+  it("clean: one pair applies and leaves student text outside the block byte-identical", () => {
+    const existing = withProse("Project notes.");
+    const outside = outsideNewBlock(existing);
+    const { content } = applyRulesBlock(existing, "updated rules");
+    expect(outsideNewBlock(content)).toBe(outside);
+    expect(content).toContain("updated rules");
+    expect(content).not.toContain("rules body");
+  });
+
+  it("backtick in prose is not a marker", () => {
+    const existing = withProse(`Agents sometimes copy \`${NEW_BEGIN}\` into notes.`);
+    const outside = outsideNewBlock(existing);
+    const { content } = applyRulesBlock(existing, "updated rules");
+    expect(outsideNewBlock(content)).toBe(outside);
+    expect(content).toContain(`\`${NEW_BEGIN}\``);
+    expect(content).toContain("updated rules");
+  });
+
+  it("quoted marker in prose is not a marker", () => {
+    const existing = withProse(`See "${NEW_BEGIN}" in the docs.`);
+    const outside = outsideNewBlock(existing);
+    const { content } = applyRulesBlock(existing, "updated rules");
+    expect(outsideNewBlock(content)).toBe(outside);
+    expect(content).toContain(`"${NEW_BEGIN}"`);
+  });
+
+  it("marker inside a code fence on a non-line is not a marker", () => {
+    const existing = withProse(`Example:\n\`\`\`\nwrap with ${NEW_BEGIN} in a fence\n\`\`\``);
+    const outside = outsideNewBlock(existing);
+    const { content } = applyRulesBlock(existing, "updated rules");
+    expect(outsideNewBlock(content)).toBe(outside);
+    expect(content).toContain(`wrap with ${NEW_BEGIN} in a fence`);
+  });
+
+  it("only END in quotes is not an orphan marker", () => {
+    const existing = `# CLAUDE.md\nDo not write "${NEW_END}" yourself.\n`;
+    expect(inspectRulesBlock(existing, NEW_BEGIN, NEW_END)).toBeNull();
+    const { content } = applyRulesBlock(existing, "fresh rules");
+    expect(content).toContain(`Do not write "${NEW_END}" yourself.`);
+    expect(content).toContain("fresh rules");
+    expect(content).toContain(NEW_BEGIN);
+  });
+
+  it("marker as a whole line inside a code fence is a known false positive", () => {
+    const existing = `# Notes\n\`\`\`\n${NEW_BEGIN}\n\`\`\`\n\n${NEW_BEGIN}\n\nbody\n\n${NEW_END}\n`;
+    expect(() => inspectRulesBlock(existing, NEW_BEGIN, NEW_END)).toThrow(/need repair/);
+  });
+
+  it("prefix or suffix on the same line is not a marker", () => {
+    const existing = `# Notes\nkeep ${NEW_BEGIN} inline\n${NEW_END} trailing\n\n${pair}\n`;
+    const outside = outsideNewBlock(existing);
+    const { content } = applyRulesBlock(existing, "updated rules");
+    expect(outsideNewBlock(content)).toBe(outside);
+    expect(content).toContain(`keep ${NEW_BEGIN} inline`);
+    expect(content).toContain(`${NEW_END} trailing`);
+  });
+
+  it("two bare BEGIN lines still need repair", () => {
+    const existing = `${NEW_BEGIN}\n${NEW_BEGIN}\n\nbody\n\n${NEW_END}\n`;
+    expect(() => inspectRulesBlock(existing, NEW_BEGIN, NEW_END)).toThrow(/need repair/);
   });
 });
