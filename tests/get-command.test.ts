@@ -610,7 +610,7 @@ describe("10x get — course rules opt-out", () => {
 
     // Establish the baseline through a successful delivery, then add user
     // content outside its sentinel without changing the managed block.
-    await applyBundle(makeBundle(), projectRoot);
+    await applyBundle(makeBundle(), projectRoot, { course: "10xdevs3" });
     const claudeMd = join(projectRoot, "CLAUDE.md");
     const installed = readFileSync(claudeMd, "utf8");
     writeFileSync(claudeMd, `# My own rules\n\nKeep me.\n\n${installed}\r\nTrailer  `);
@@ -633,7 +633,7 @@ describe("10x get — course rules opt-out", () => {
     apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
 
     // A genuine delivered baseline permits removal without prompting.
-    await applyBundle(makeBundle(), projectRoot);
+    await applyBundle(makeBundle(), projectRoot, { course: "10xdevs3" });
     expect(readManifest(join(projectRoot, ".claude"))!.managedRules?.upstreamHash).toBeDefined();
 
     process.stdout.isTTY = true;
@@ -661,7 +661,7 @@ describe("10x get — course rules opt-out", () => {
     writeValidAuth();
     saveToolConfig({ tool: "claude-code" });
     apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
-    await applyBundle(makeBundle(), projectRoot);
+    await applyBundle(makeBundle(), projectRoot, { course: "10xdevs3" });
     const baseline = readManifest(join(projectRoot, ".claude"))!.managedRules;
     const path = join(projectRoot, "CLAUDE.md");
     const edited = readFileSync(path, "utf8").replace("rules md", "my edited rules");
@@ -715,7 +715,7 @@ describe("10x get — course rules opt-out", () => {
     writeValidAuth();
     saveToolConfig({ tool: "claude-code" });
     apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
-    await applyBundle(makeBundle(), projectRoot);
+    await applyBundle(makeBundle(), projectRoot, { course: "10xdevs3" });
     const path = join(projectRoot, "CLAUDE.md");
     const installed = readFileSync(path, "utf8");
     writeFileSync(path, `# CLAUDE.md\n\nThis file provides guidance to Claude Code.\n\n${installed}\n## Local notes\n`);

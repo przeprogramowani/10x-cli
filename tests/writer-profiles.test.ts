@@ -54,7 +54,7 @@ describe("writer with cursor profile", () => {
   const cursorProfile = PROFILES["cursor"]!;
 
   it("writes skills to .cursor/skills/<name>/SKILL.md", async () => {
-    const result = await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+    const result = await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/skills/code-review/SKILL.md"))).toBe(true);
     expect(readFileSync(join(tmp, ".cursor/skills/code-review/SKILL.md"), "utf8")).toBe(
       "# Code Review\n",
@@ -63,13 +63,13 @@ describe("writer with cursor profile", () => {
   });
 
   it("writes prompts to .cursor/prompts/<name>.md", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/prompts/plan.md"))).toBe(true);
     expect(readFileSync(join(tmp, ".cursor/prompts/plan.md"), "utf8")).toBe("# plan prompt\n");
   });
 
   it("writes rules to .cursor/rules/10x-course.mdc", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: cursorProfile });
     const rulesPath = join(tmp, ".cursor/rules/10x-course.mdc");
     expect(existsSync(rulesPath)).toBe(true);
     const content = readFileSync(rulesPath, "utf8");
@@ -78,12 +78,12 @@ describe("writer with cursor profile", () => {
   });
 
   it("writes configs to .cursor/config-templates/<name>", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/config-templates/settings.json"))).toBe(true);
   });
 
   it("writes manifest to .cursor/.10x-cli-manifest.json", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: cursorProfile });
     const manifest = readManifest(join(tmp, ".cursor"));
     expect(manifest).not.toBeNull();
     expect(manifest!.tool).toBe("cursor");
@@ -91,7 +91,7 @@ describe("writer with cursor profile", () => {
   });
 
   it("does NOT write to .claude/ directory", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: cursorProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: cursorProfile });
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
   });
@@ -105,7 +105,7 @@ describe("writer with copilot profile", () => {
   const copilotProfile = PROFILES["copilot"]!;
 
   it("writes artifacts to .github/ paths", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: copilotProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: copilotProfile });
     expect(existsSync(join(tmp, ".github/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".github/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, ".github/copilot-instructions.md"))).toBe(true);
@@ -113,7 +113,7 @@ describe("writer with copilot profile", () => {
   });
 
   it("manifest records copilot tool", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: copilotProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: copilotProfile });
     const manifest = readManifest(join(tmp, ".github"));
     expect(manifest!.tool).toBe("copilot");
   });
@@ -127,7 +127,7 @@ describe("writer with codex profile", () => {
   const codexProfile = PROFILES["codex"]!;
 
   it("writes artifacts to .agents/ paths with AGENTS.md rules", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: codexProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: codexProfile });
     expect(existsSync(join(tmp, ".agents/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".agents/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "AGENTS.md"))).toBe(true);
@@ -143,7 +143,7 @@ describe("writer with Devin Desktop profile", () => {
   const devinProfile = PROFILES["devin-desktop"]!;
 
   it("writes artifacts under .devin/ and always-on rules to AGENTS.md", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: devinProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: devinProfile });
     expect(existsSync(join(tmp, ".devin/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".devin/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "AGENTS.md"))).toBe(true);
@@ -160,7 +160,7 @@ describe("writer with kiro profile", () => {
   const kiroProfile = PROFILES["kiro"]!;
 
   it("writes artifacts under .kiro/ and steering rules to AGENTS.md", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: kiroProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: kiroProfile });
     expect(existsSync(join(tmp, ".kiro/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".kiro/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, ".kiro/config-templates/settings.json"))).toBe(true);
@@ -181,7 +181,7 @@ describe("writer with generic profile", () => {
   const genericProfile = PROFILES["generic"]!;
 
   it("writes artifacts to .ai/ paths with AGENTS.md rules", async () => {
-    await applyBundle(makeBundle(), tmp, { profile: genericProfile });
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3", profile: genericProfile });
     expect(existsSync(join(tmp, ".ai/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".ai/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "AGENTS.md"))).toBe(true);
@@ -195,7 +195,7 @@ describe("writer with generic profile", () => {
 
 describe("writer without profile — backward compat", () => {
   it("defaults to .claude/ paths when no profile is specified", async () => {
-    await applyBundle(makeBundle(), tmp);
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3" });
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
@@ -203,7 +203,7 @@ describe("writer without profile — backward compat", () => {
   });
 
   it("manifest includes tool field as claude-code for default", async () => {
-    await applyBundle(makeBundle(), tmp);
+    await applyBundle(makeBundle(), tmp, { course: "10xdevs3" });
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.tool).toBe("claude-code");
   });
@@ -217,7 +217,7 @@ describe("writer cleanup with profiles", () => {
   it("preserves previous lesson artifacts when applying a new lesson (cumulative)", async () => {
     const cursorProfile = PROFILES["cursor"]!;
     const bundleA = makeBundle();
-    await applyBundle(bundleA, tmp, { profile: cursorProfile });
+    await applyBundle(bundleA, tmp, { course: "10xdevs3", profile: cursorProfile });
     expect(existsSync(join(tmp, ".cursor/skills/code-review/SKILL.md"))).toBe(true);
 
     const bundleB: LessonBundle = {
@@ -233,7 +233,7 @@ describe("writer cleanup with profiles", () => {
       rules: [],
       configs: [],
     };
-    await applyBundle(bundleB, tmp, { profile: cursorProfile });
+    await applyBundle(bundleB, tmp, { course: "10xdevs3", profile: cursorProfile });
 
     // Old skill preserved (cumulative)
     expect(existsSync(join(tmp, ".cursor/skills/code-review/SKILL.md"))).toBe(true);

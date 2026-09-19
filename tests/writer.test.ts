@@ -80,7 +80,7 @@ function bundleB(): LessonBundle {
 
 describe("writer — fresh install", () => {
   it("writes skills at .claude/skills/<name>/SKILL.md", async () => {
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(readFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "utf8")).toBe(
       "# Code Review\n\nContent A\n",
@@ -93,7 +93,7 @@ describe("writer — fresh install", () => {
   });
 
   it("writes prompts at .claude/prompts/<name>.md", async () => {
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(readFileSync(join(tmp, ".claude/prompts/plan.md"), "utf8")).toBe("# plan prompt\n");
     expect(result.prompts[0]!.action).toBe("created");
@@ -101,7 +101,7 @@ describe("writer — fresh install", () => {
   });
 
   it("writes configs at .claude/config-templates/<name>", async () => {
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(readFileSync(join(tmp, ".claude/config-templates/settings.json"), "utf8")).toBe(
       '{"a":1}\n',
@@ -110,7 +110,7 @@ describe("writer — fresh install", () => {
   });
 
   it("writes rules between sentinel markers in CLAUDE.md", async () => {
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const claudeMd = readFileSync(join(tmp, "CLAUDE.md"), "utf8");
 
     expect(claudeMd).toContain("<!-- BEGIN @przeprogramowani/10x-cli -->");
@@ -120,7 +120,7 @@ describe("writer — fresh install", () => {
   });
 
   it("creates a manifest describing what was written", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest).not.toBeNull();
     expect(manifest!.package).toBe("@przeprogramowani/10x-cli");
@@ -142,8 +142,8 @@ describe("writer — fresh install", () => {
 
 describe("writer — idempotent re-apply", () => {
   it("second apply reports unchanged/skipped actions", async () => {
-    await applyBundle(bundleA(), tmp);
-    const result = await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     for (const s of result.skills) {
       for (const f of s.files) expect(f.action).toBe("unchanged");
@@ -154,9 +154,9 @@ describe("writer — idempotent re-apply", () => {
   });
 
   it("does not duplicate the sentinel block in CLAUDE.md", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const first = readFileSync(join(tmp, "CLAUDE.md"), "utf8");
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const second = readFileSync(join(tmp, "CLAUDE.md"), "utf8");
 
     expect(second).toBe(first);
@@ -187,7 +187,7 @@ describe("writer — migration from internal-pkg markers", () => {
       ].join("\n"),
     );
 
-    await applyBundle(bundleA(), tmp, { onConflict: async () => "overwrite" });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3", onConflict: async () => "overwrite" });
     const claudeMd = readFileSync(join(tmp, "CLAUDE.md"), "utf8");
 
     expect(claudeMd).not.toContain("legacy rules");
@@ -209,7 +209,7 @@ describe("writer — config collision", () => {
     const preExisting = '{"edited_by_user":true}\n';
     writeFileSync(join(tmp, ".claude/config-templates/settings.json"), preExisting);
 
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(readFileSync(join(tmp, ".claude/config-templates/settings.json"), "utf8")).toBe(
       preExisting,
@@ -224,11 +224,11 @@ describe("writer — config collision", () => {
 
 describe("writer — cleanup on re-apply", () => {
   it("preserves artifacts from the previous lesson (cumulative)", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
     expect(existsSync(join(tmp, ".claude/prompts/plan.md"))).toBe(true);
 
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     // Exclusive to A → preserved (cumulative)
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
@@ -244,16 +244,16 @@ describe("writer — cleanup on re-apply", () => {
   });
 
   it("shared configs are preserved untouched (not overwritten)", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
     expect(readFileSync(join(tmp, ".claude/config-templates/settings.json"), "utf8")).toBe(
       '{"a":1}\n',
     );
   });
 
   it("manifest is the union of all applied lessons", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest).not.toBeNull();
     expect(manifest!.lessonId).toBe("m1l2");
@@ -298,7 +298,7 @@ describe("writer — multi-file skills", () => {
   }
 
   it("materializes every file at its relative path under the skill dir", async () => {
-    await applyBundle(multiFileBundle(), tmp);
+    await applyBundle(multiFileBundle(), tmp, { course: "10xdevs3" });
 
     expect(readFileSync(join(tmp, ".claude/skills/10x-plan/SKILL.md"), "utf8")).toBe(
       "# 10x-plan\n",
@@ -312,19 +312,19 @@ describe("writer — multi-file skills", () => {
   });
 
   it.skipIf(process.platform === "win32")("applies +x to files marked executable", async () => {
-    await applyBundle(multiFileBundle(), tmp);
+    await applyBundle(multiFileBundle(), tmp, { course: "10xdevs3" });
     const mode = statSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh")).mode;
     expect((mode & 0o111) !== 0).toBe(true);
   });
 
   it.skipIf(process.platform === "win32")("non-executable files are not chmod-marked +x", async () => {
-    await applyBundle(multiFileBundle(), tmp);
+    await applyBundle(multiFileBundle(), tmp, { course: "10xdevs3" });
     const mode = statSync(join(tmp, ".claude/skills/10x-plan/SKILL.md")).mode;
     expect((mode & 0o111) === 0).toBe(true);
   });
 
   it("manifest records every file path under the skill", async () => {
-    await applyBundle(multiFileBundle(), tmp);
+    await applyBundle(multiFileBundle(), tmp, { course: "10xdevs3" });
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.files.skills["10x-plan"]!.files.sort()).toEqual([
       "SKILL.md",
@@ -334,7 +334,7 @@ describe("writer — multi-file skills", () => {
   });
 
   it("removes a file dropped from a retained skill on re-apply", async () => {
-    await applyBundle(multiFileBundle(), tmp);
+    await applyBundle(multiFileBundle(), tmp, { course: "10xdevs3" });
     expect(
       existsSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh")),
     ).toBe(true);
@@ -352,7 +352,7 @@ describe("writer — multi-file skills", () => {
         },
       ],
     };
-    await applyBundle(next, tmp);
+    await applyBundle(next, tmp, { course: "10xdevs3" });
 
     expect(
       existsSync(join(tmp, ".claude/skills/10x-plan/scripts/check-context.sh")),
@@ -399,7 +399,7 @@ describe("writer — unsupported v1 manifest", () => {
     const legacyBefore = readFileSync(legacyPath);
 
     // A nullable low-level read is not permission to erase unsupported state.
-    await expect(applyBundle(bundleA(), tmp)).rejects.toMatchObject({
+    await expect(applyBundle(bundleA(), tmp, { course: "10xdevs3" })).rejects.toMatchObject({
       code: "course_binding_invalid",
     });
     expect(readFileSync(manifestPath)).toEqual(manifestBefore);
@@ -426,7 +426,7 @@ describe("writer — unsafe artifact names", () => {
   it("throws on a skill name containing path separators", async () => {
     const bundle = bundleA();
     bundle.skills[0]!.name = "../evil";
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe skill name/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe skill name/);
     // Confirm nothing was written before the throw.
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
   });
@@ -434,13 +434,13 @@ describe("writer — unsafe artifact names", () => {
   it("throws on a prompt name starting with a dot", async () => {
     const bundle = bundleA();
     bundle.prompts[0]!.name = ".hidden";
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe prompt name/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe prompt name/);
   });
 
   it("throws on a config name containing a backslash", async () => {
     const bundle = bundleA();
     bundle.configs[0]!.name = "..\\evil.json";
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe config name/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe config name/);
   });
 
   it("rejects Windows-specific unsafe names (NTFS ADS, reserved devices, trailing dot/space)", async () => {
@@ -462,7 +462,7 @@ describe("writer — unsafe artifact names", () => {
     for (const unsafe of cases) {
       const bundle = bundleA();
       bundle.skills[0]!.name = unsafe;
-      await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe skill name/);
+      await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe skill name/);
     }
     // Confirm nothing was written across all iterations.
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
@@ -471,31 +471,31 @@ describe("writer — unsafe artifact names", () => {
   it("throws on a skill file path containing '..' before any write", async () => {
     const bundle = bundleA();
     bundle.skills[0]!.files.push({ path: "../evil.sh", content: "rm -rf" });
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe file path/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe file path/);
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
   });
 
   it("throws on an absolute skill file path", async () => {
     const bundle = bundleA();
     bundle.skills[0]!.files.push({ path: "/etc/passwd", content: "x" });
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe file path/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe file path/);
   });
 
   it("throws on an empty skill file path", async () => {
     const bundle = bundleA();
     bundle.skills[0]!.files.push({ path: "", content: "x" });
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe file path/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe file path/);
   });
 
   it("throws on a backslash-separated path traversal", async () => {
     const bundle = bundleA();
     bundle.skills[0]!.files.push({ path: "..\\evil.sh", content: "x" });
-    await expect(applyBundle(bundle, tmp)).rejects.toThrow(/unsafe file path/);
+    await expect(applyBundle(bundle, tmp, { course: "10xdevs3" })).rejects.toThrow(/unsafe file path/);
   });
 
   it("cleanup silently skips tampered manifest entries instead of rm -rf escaping claudeDir", async () => {
     // First apply a clean bundle so a manifest exists.
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     // Now tamper with the manifest on disk to sneak in an unsafe name.
     const manifestPath = join(tmp, ".claude", MANIFEST_FILENAME);
@@ -505,7 +505,7 @@ describe("writer — unsafe artifact names", () => {
 
     // Second apply should not throw and should not rmSync outside claudeDir.
     // Use bundleB which drops "code-review" so cleanup is exercised.
-    await expect(applyBundle(bundleB(), tmp)).resolves.toBeDefined();
+    await expect(applyBundle(bundleB(), tmp, { course: "10xdevs3" })).resolves.toBeDefined();
     // tmp itself must still exist — the tampered entry was ignored.
     expect(existsSync(tmp)).toBe(true);
   });
@@ -513,7 +513,7 @@ describe("writer — unsafe artifact names", () => {
 
 describe("writer — dry run", () => {
   it("returns WriteResult shape without filesystem side effects on fresh install", async () => {
-    const result = await applyBundle(bundleA(), tmp, { dryRun: true });
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3", dryRun: true });
 
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
@@ -525,11 +525,11 @@ describe("writer — dry run", () => {
   });
 
   it("dry-run on re-apply reports unchanged/skipped without touching files", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const manifestBefore = readFileSync(join(tmp, ".claude", MANIFEST_FILENAME), "utf8");
     const claudeMdBefore = readFileSync(join(tmp, "CLAUDE.md"), "utf8");
 
-    const result = await applyBundle(bundleA(), tmp, { dryRun: true });
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3", dryRun: true });
 
     expect(result.rules.action).toBe("unchanged");
     for (const c of result.configs) expect(c.action).toBe("skipped");
@@ -539,8 +539,8 @@ describe("writer — dry run", () => {
   });
 
   it("dry-run does not delete stale artifacts from a previous lesson", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp, { dryRun: true });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3", dryRun: true });
 
     // Files from A must still exist on disk — dry-run must not remove them.
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
@@ -554,13 +554,14 @@ describe("writer — dry run", () => {
 
 describe("writer — conflict detection", () => {
   it("does not trigger conflict when file matches stored hash (clean upstream update)", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     // Re-apply with updated content — no local edits, so no conflict
     const conflicts: ConflictInfo[] = [];
     const updated = bundleA();
     updated.skills[0]!.files[0]!.content = "# Code Review\n\nContent A v2\n";
     const result = await applyBundle(updated, tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
     });
 
@@ -572,13 +573,14 @@ describe("writer — conflict detection", () => {
   });
 
   it("triggers conflict when user edits a skill file", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     // User edits the file locally
     writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# My custom review\n");
 
     const conflicts: ConflictInfo[] = [];
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
     });
 
@@ -589,12 +591,13 @@ describe("writer — conflict detection", () => {
   });
 
   it("triggers conflict when user edits a prompt file", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     writeFileSync(join(tmp, ".claude/prompts/plan.md"), "# My custom plan\n");
 
     const conflicts: ConflictInfo[] = [];
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "skip"; },
     });
 
@@ -605,7 +608,7 @@ describe("writer — conflict detection", () => {
   });
 
   it("does not trigger conflict when user edits match the new content", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     // User edits to exactly what the new bundle will write — no conflict
     writeFileSync(
@@ -615,6 +618,7 @@ describe("writer — conflict detection", () => {
 
     const conflicts: ConflictInfo[] = [];
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
     });
 
@@ -623,10 +627,11 @@ describe("writer — conflict detection", () => {
   });
 
   it("resolves conflict as overwrite — writes new content and updates hash", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
 
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async () => "overwrite",
     });
 
@@ -640,10 +645,11 @@ describe("writer — conflict detection", () => {
   });
 
   it("resolves conflict as save_user — backs up local file and writes new content", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
 
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async () => "save_user",
     });
 
@@ -655,13 +661,14 @@ describe("writer — conflict detection", () => {
   });
 
   it("resolves conflict as skip — preserves local file and does not update hash", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const manifestBefore = readManifest(join(tmp, ".claude"));
     const originalHash = manifestBefore!.files.skills["tdd"]!.contentHashes!["SKILL.md"];
 
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
 
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async () => "skip",
     });
 
@@ -675,10 +682,10 @@ describe("writer — conflict detection", () => {
   });
 
   it("defaults to skip when no onConflict callback is provided", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD notes\n");
 
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(result.skills[1]!.files[0]!.action).toBe("conflict_skipped");
     expect(readFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "utf8")).toBe(
@@ -687,13 +694,14 @@ describe("writer — conflict detection", () => {
   });
 
   it("handles multiple conflicts with different resolutions per file", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Edited CR\n");
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# Edited TDD\n");
 
     let callIndex = 0;
     const resolutions: ConflictResolution[] = ["overwrite", "skip"];
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async () => resolutions[callIndex++]!,
     });
 
@@ -738,6 +746,7 @@ describe("writer — v2 manifest upgrade", () => {
 
     const conflicts: ConflictInfo[] = [];
     await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
     });
 
@@ -752,6 +761,7 @@ describe("writer — v2 manifest upgrade", () => {
 
     const conflicts: ConflictInfo[] = [];
     await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "overwrite"; },
     });
 
@@ -764,6 +774,7 @@ describe("writer — v2 manifest upgrade", () => {
     writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Code Review\n\nContent A\n");
 
     await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async () => "overwrite",
     });
 
@@ -778,7 +789,7 @@ describe("writer — v2 manifest upgrade", () => {
     writeV2Manifest(join(tmp, ".claude"), { "code-review": { files: ["SKILL.md"] } }, ["plan.md"]);
     mkdirSync(join(tmp, ".claude/skills/code-review"), { recursive: true });
     writeFileSync(join(tmp, ".claude/skills/code-review/SKILL.md"), "# Code Review\n\nContent A\n");
-    await applyBundle(bundleA(), tmp, { onConflict: async () => "overwrite" });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3", onConflict: async () => "overwrite" });
 
     // Now v3 manifest exists. User edits a file.
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# Custom TDD\n");
@@ -786,6 +797,7 @@ describe("writer — v2 manifest upgrade", () => {
     // Second apply: should accurately detect the user edit
     const conflicts: ConflictInfo[] = [];
     await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       onConflict: async (info) => { conflicts.push(info); return "skip"; },
     });
 
@@ -800,8 +812,8 @@ describe("writer — v2 manifest upgrade", () => {
 
 describe("writer — removal tracking", () => {
   it("no removals when switching between different lessons (cumulative)", async () => {
-    await applyBundle(bundleA(), tmp);
-    const result = await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    const result = await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     expect(result.removals.skills).toHaveLength(0);
     expect(result.removals.prompts).toHaveLength(0);
@@ -809,7 +821,7 @@ describe("writer — removal tracking", () => {
   });
 
   it("reports empty removals when there is no previous manifest", async () => {
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(result.removals.skills).toHaveLength(0);
     expect(result.removals.prompts).toHaveLength(0);
@@ -817,8 +829,8 @@ describe("writer — removal tracking", () => {
   });
 
   it("dry-run produces no removals when switching lessons (cumulative)", async () => {
-    await applyBundle(bundleA(), tmp);
-    const result = await applyBundle(bundleB(), tmp, { dryRun: true });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    const result = await applyBundle(bundleB(), tmp, { course: "10xdevs3", dryRun: true });
 
     expect(result.removals.skills).toHaveLength(0);
     expect(result.removals.prompts).toHaveLength(0);
@@ -832,7 +844,7 @@ describe("writer — removal tracking", () => {
 
 describe("writer — hash persistence", () => {
   it("stores content hashes for skills in the manifest after apply", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const manifest = readManifest(join(tmp, ".claude"));
 
     expect(manifest!.files.skills["code-review"]!.contentHashes).toBeDefined();
@@ -845,7 +857,7 @@ describe("writer — hash persistence", () => {
   });
 
   it("stores content hashes for prompts in the manifest after apply", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const manifest = readManifest(join(tmp, ".claude"));
 
     expect(manifest!.files.promptHashes).toBeDefined();
@@ -853,22 +865,22 @@ describe("writer — hash persistence", () => {
   });
 
   it("preserves old hash for conflict-skipped files", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const originalHash = readManifest(join(tmp, ".claude"))!.files.skills["tdd"]!.contentHashes!["SKILL.md"];
 
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD\n");
 
-    await applyBundle(bundleA(), tmp, { onConflict: async () => "skip" });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3", onConflict: async () => "skip" });
 
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(originalHash);
   });
 
   it("updates hash for conflict-overwritten files", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD\n");
 
-    await applyBundle(bundleA(), tmp, { onConflict: async () => "overwrite" });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3", onConflict: async () => "overwrite" });
 
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
@@ -877,10 +889,10 @@ describe("writer — hash persistence", () => {
   });
 
   it("updates hash for conflict-saved-user files (new content was written)", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, ".claude/skills/tdd/SKILL.md"), "# My TDD\n");
 
-    await applyBundle(bundleA(), tmp, { onConflict: async () => "save_user" });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3", onConflict: async () => "save_user" });
 
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.files.skills["tdd"]!.contentHashes!["SKILL.md"]).toBe(
@@ -895,8 +907,8 @@ describe("writer — hash persistence", () => {
 
 describe("writer — cumulative multi-lesson", () => {
   it("accumulates artifacts from multiple lessons on disk", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     // All artifacts from both lessons exist
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
@@ -907,9 +919,9 @@ describe("writer — cumulative multi-lesson", () => {
   });
 
   it("re-applying a lesson does not remove another lesson's artifacts", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     // m1l2-exclusive artifacts survive re-apply of m1l1
     expect(existsSync(join(tmp, ".claude/skills/refactor/SKILL.md"))).toBe(true);
@@ -922,7 +934,7 @@ describe("writer — cumulative multi-lesson", () => {
   });
 
   it("removes a skill dropped by a lesson when no other lesson claims it", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     expect(existsSync(join(tmp, ".claude/skills/code-review/SKILL.md"))).toBe(true);
 
     // Re-apply m1l1 without code-review
@@ -930,15 +942,15 @@ describe("writer — cumulative multi-lesson", () => {
       ...bundleA(),
       skills: [{ name: "tdd", files: [{ path: "SKILL.md", content: "# TDD v1\n" }] }],
     };
-    await applyBundle(trimmedA, tmp);
+    await applyBundle(trimmedA, tmp, { course: "10xdevs3" });
 
     // code-review was only in m1l1 and was dropped → removed
     expect(existsSync(join(tmp, ".claude/skills/code-review"))).toBe(false);
   });
 
   it("does not remove a shared skill when one lesson drops it but another claims it", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     // Both lessons have tdd. Re-apply m1l1 without tdd
     const trimmedA: LessonBundle = {
@@ -947,15 +959,15 @@ describe("writer — cumulative multi-lesson", () => {
         { name: "code-review", files: [{ path: "SKILL.md", content: "# Code Review\n\nContent A\n" }] },
       ],
     };
-    await applyBundle(trimmedA, tmp);
+    await applyBundle(trimmedA, tmp, { course: "10xdevs3" });
 
     // tdd is protected by m1l2
     expect(existsSync(join(tmp, ".claude/skills/tdd/SKILL.md"))).toBe(true);
   });
 
   it("manifest has lessons entries with appliedAt timestamps", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     const manifest = readManifest(join(tmp, ".claude"));
     expect(manifest!.lessons).toBeDefined();
@@ -967,8 +979,8 @@ describe("writer — cumulative multi-lesson", () => {
   });
 
   it("union files includes content hashes from both lessons", async () => {
-    await applyBundle(bundleA(), tmp);
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     const manifest = readManifest(join(tmp, ".claude"));
     // code-review is m1l1-only — hash present from first apply
@@ -998,7 +1010,7 @@ describe("writer — cumulative multi-lesson", () => {
 describe("writer — upgrade seeding for lessons field", () => {
   it("seeds lessons from a v3-without-lessons manifest on first cumulative apply", async () => {
     // First apply creates a v3 manifest without lessons (simulating pre-cumulative code)
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     // Manually strip the lessons field to simulate old v3 manifest
     const manifestDir = join(tmp, ".claude");
@@ -1011,7 +1023,7 @@ describe("writer — upgrade seeding for lessons field", () => {
     );
 
     // Apply a different lesson — should seed m1l1 from the old manifest
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     const updated = readManifest(manifestDir);
     expect(updated!.lessons).toBeDefined();
@@ -1050,7 +1062,7 @@ describe("writer — upgrade seeding for lessons field", () => {
     writeFileSync(join(tmp, ".claude/prompts/plan.md"), "# plan prompt\n");
 
     // Apply m1l2 — should seed m1l1 from v2 data
-    await applyBundle(bundleB(), tmp);
+    await applyBundle(bundleB(), tmp, { course: "10xdevs3" });
 
     const manifest = readManifest(manifestDir);
     expect(manifest!.manifestVersion).toBe(3);
@@ -1073,13 +1085,13 @@ describe("writer — course rules opt-out", () => {
 
   it("strips an existing block and preserves surrounding content", async () => {
     // Seed a CLAUDE.md with a course block sandwiched between user content.
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const claudeMdPath = join(tmp, "CLAUDE.md");
     const seeded = `# My own rules\n\nKeep me.\n\n${readFileSync(claudeMdPath, "utf8")}\n# Trailer\n`;
     writeFileSync(claudeMdPath, seeded);
     expect(readFileSync(claudeMdPath, "utf8")).toContain(BEGIN);
 
-    const result = await applyBundle(bundleA(), tmp, { applyCourseRules: false });
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3", applyCourseRules: false });
 
     expect(result.rules.action).toBe("removed");
     const after = readFileSync(claudeMdPath, "utf8");
@@ -1094,19 +1106,20 @@ describe("writer — course rules opt-out", () => {
     const claudeMdPath = join(tmp, "CLAUDE.md");
     writeFileSync(claudeMdPath, "# Just my rules\n");
 
-    const result = await applyBundle(bundleA(), tmp, { applyCourseRules: false });
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3", applyCourseRules: false });
 
     expect(result.rules.action).toBe("unchanged");
     expect(readFileSync(claudeMdPath, "utf8")).toBe("# Just my rules\n");
   });
 
   it("reports removed under dryRun without modifying the file", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const claudeMdPath = join(tmp, "CLAUDE.md");
     const before = readFileSync(claudeMdPath, "utf8");
     expect(before).toContain(BEGIN);
 
     const result = await applyBundle(bundleA(), tmp, {
+      course: "10xdevs3",
       applyCourseRules: false,
       dryRun: true,
     });
@@ -1117,12 +1130,12 @@ describe("writer — course rules opt-out", () => {
   });
 
   it("default (omitted flag) still applies the block and is idempotent", async () => {
-    await applyBundle(bundleA(), tmp);
+    await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
     const claudeMdPath = join(tmp, "CLAUDE.md");
     const first = readFileSync(claudeMdPath, "utf8");
     expect(first).toContain(BEGIN);
 
-    const result = await applyBundle(bundleA(), tmp);
+    const result = await applyBundle(bundleA(), tmp, { course: "10xdevs3" });
 
     expect(result.rules.action).toBe("unchanged");
     // Byte-identical re-apply.

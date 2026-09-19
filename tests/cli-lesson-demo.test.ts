@@ -29,7 +29,7 @@ const docs = [
   "skills/10x-cli-guide/references/compatibility.md",
   "skills/10x-cli-setup/references/compatibility.md",
 ];
-const flags = "--course 10xdevs4 --tool claude-code --lang pl";
+const flags = "--tool claude-code --lang pl";
 const expectedGets = names.flatMap((name) => [
   `10x_cli get m1l1 --type skills --name ${name} ${flags} --dry-run`, `10x_cli get m1l1 --type skills --name ${name} ${flags}`,
 ]);
@@ -61,7 +61,7 @@ function fixture(name: string): LessonBundle {
 // Match get --type skills --name: each partial apply preserves earlier skills
 // under the same lesson owner. Network and command parsing have separate tests.
 async function materialize(names: string[]) {
-  for (const name of names) await applyBundle(fixture(name), root, { partial: true });
+  for (const name of names) await applyBundle(fixture(name), root, { course: "10xdevs3", partial: true });
 }
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "cli-lesson-demo-")); });
