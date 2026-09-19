@@ -659,7 +659,7 @@ describe("sync cumulative variants converge", () => {
     variants();
     await runSyncCmd(["--all", "--tool", "claude-code"]);
     const { applyBundle } = await import("../src/lib/writer");
-    await applyBundle(makeBundle("m1l2", "partial later variant"), tmp, { partial: true });
+    await applyBundle(makeBundle("m1l2", "partial later variant"), tmp, { course: "10xdevs3", partial: true });
     expect(readFileSync(skillPath(), "utf8")).toBe("partial later variant");
     fetched = [];
     await runSyncCmd(["--tool", "claude-code"]);

@@ -541,7 +541,7 @@ describe("profile migration shared rules", () => {
     const source = PROFILES.codex!;
     const destination = PROFILES.generic!;
     const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [{ name: "a", files: [{ path: "SKILL.md", content: "A" }] }], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
-    await applyBundle(bundle, tmp, { profile: source });
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: source });
     const before = readFileSync(join(tmp, "AGENTS.md"));
     const orphan = findOrphanedManifests(tmp, destination).find((entry) => entry.profile.toolId === source.toolId)!;
     migrateArtifacts(tmp, orphan, destination);
@@ -552,8 +552,8 @@ describe("profile migration shared rules", () => {
   it("cleanup releases one shared owner without stripping the other profile's rules", async () => {
     const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
     const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
-    await applyBundle(bundle, tmp, { profile: PROFILES.codex! });
-    await applyBundle(bundle, tmp, { profile: PROFILES.generic!, onConflict: async () => "overwrite" });
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: PROFILES.codex! });
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: PROFILES.generic!, onConflict: async () => "overwrite" });
     const before = readFileSync(join(tmp, "AGENTS.md"));
     const orphan = findOrphanedManifests(tmp, PROFILES.generic!).find((entry) => entry.profile.toolId === "codex")!;
     const result = deleteArtifacts(tmp, orphan);
@@ -566,7 +566,7 @@ describe("profile migration shared rules", () => {
     const source = PROFILES.kiro!;
     const destination = PROFILES.codex!;
     const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [{ name: "a", files: [{ path: "SKILL.md", content: "A" }] }], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
-    await applyBundle(bundle, tmp, { profile: source });
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: source });
     const before = readFileSync(join(tmp, "AGENTS.md"));
     expect(before.toString()).toContain(SENTINEL_BEGIN);
     const orphan = findOrphanedManifests(tmp, destination).find((entry) => entry.profile.toolId === "kiro")!;
@@ -584,9 +584,9 @@ describe("profile migration shared rules", () => {
     // planManagedRules must fail closed rather than clobber the other owner.
     const { applyBundle } = await import("../src/lib/writer");
     const base = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [] };
-    await applyBundle({ ...base, rules: [{ name: "rules", content: "codex variant" }] }, tmp, { profile: PROFILES.codex! });
+    await applyBundle({ ...base, rules: [{ name: "rules", content: "codex variant" }] }, tmp, { course: "10xdevs3", profile: PROFILES.codex! });
     const before = readFileSync(join(tmp, "AGENTS.md"), "utf8");
-    const result = await applyBundle({ ...base, rules: [{ name: "rules", content: "kiro variant" }] }, tmp, { profile: PROFILES.kiro!, onConflict: async () => "overwrite" });
+    const result = await applyBundle({ ...base, rules: [{ name: "rules", content: "kiro variant" }] }, tmp, { course: "10xdevs3", profile: PROFILES.kiro!, onConflict: async () => "overwrite" });
     expect(result.rules.action).toBe("conflict_skipped");
     expect(result.rules.reason).toBe("incompatible_shared_owner");
     expect(readFileSync(join(tmp, "AGENTS.md"), "utf8")).toBe(before);
@@ -596,8 +596,8 @@ describe("profile migration shared rules", () => {
   it("cleanup releases the kiro owner while codex keeps the shared AGENTS.md block", async () => {
     const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
     const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [], rules: [{ name: "rules", content: "shared" }] };
-    await applyBundle(bundle, tmp, { profile: PROFILES.kiro! });
-    await applyBundle(bundle, tmp, { profile: PROFILES.codex!, onConflict: async () => "overwrite" });
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: PROFILES.kiro! });
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: PROFILES.codex!, onConflict: async () => "overwrite" });
     const before = readFileSync(join(tmp, "AGENTS.md"));
     const orphan = findOrphanedManifests(tmp, PROFILES.codex!).find((entry) => entry.profile.toolId === "kiro")!;
     const result = deleteArtifacts(tmp, orphan);

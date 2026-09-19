@@ -101,10 +101,10 @@ separate project from public copies, after setup/auth:
 10x_cli() { npx --yes "@przeprogramowani/10x-cli@$CLI_VERSION" "$@"; }
 10x_cli --version
 10x_cli get --help
-10x_cli get m1l1 --type skills --name 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-cli-setup --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-cli-guide --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-cli-setup --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-cli-setup --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-cli-guide --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-cli-guide --tool claude-code --lang pl
 ```
 
 Source membership does not prove publication. Confirm skill-filter support and direct
@@ -123,27 +123,29 @@ per-skill unregister is promised. See the compatibility reference for details.
 ## Quick Start
 
 Use an existing verified global/standalone `10x`, or the pinned `10x_cli` runner
-above. Retain your v3 project and use a separate v4 exercise directory. After
-checking skill-filter capability and content availability. Sync later refreshes
+above. Retain your v3 project and use a separate v4 exercise directory. Leave
+`--course` out: an unbound directory takes the highest edition your account can
+reach, a bound one keeps its own, and `10x doctor` reports which edition this
+project is on. After checking skill-filter capability and content availability. Sync later refreshes
 whole downloaded lessons, so inspect its preview and accept any additional
 artifacts/rules before applying; repeat a skill filter for a narrow update:
 
 ```bash
 10x_cli auth --status
 # If login is needed: 10x_cli auth (email or Circle); see auth commands below.
-10x_cli list --course 10xdevs4
-10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl
+10x_cli list
+10x_cli get m1l1 --type skills --name 10x-idea-check --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-idea-check --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-init --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-init --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-shape --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-shape --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-prd --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-prd --tool claude-code --lang pl
 # Follow the guide: read each installed SKILL.md and references, then
 # init → shape with the learner’s 10xCards inputs → PRD from approved notes.
-10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
+10x_cli sync --tool claude-code --lang pl --dry-run
+10x_cli sync --tool claude-code --lang pl
 10x_cli doctor
 ```
 
