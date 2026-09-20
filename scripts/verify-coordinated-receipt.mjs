@@ -36,10 +36,16 @@ export function validateProducerRun(run, identity) {
   }
   return run.run_attempt;
 }
+/**
+ * A required position may be one job name or a set of accepted names; a set still
+ * demands exactly one match, so a run carrying both old and renamed job is a conflict.
+ */
 export function validatePlatformJobs(result, identity, runAttempt, required = evidenceJobs) {
   if (!result || !Array.isArray(result.jobs) || result.total_count !== result.jobs.length) throw new Error("Incomplete private job evidence");
   for (const name of required) {
-    const matches = result.jobs.filter((job) => job.name === name);
+    const accepted = Array.isArray(name) ? name : [name];
+    if (accepted.length === 0) throw new Error("Required job name set cannot be empty");
+    const matches = result.jobs.filter((job) => accepted.includes(job.name));
     if (matches.length !== 1 || String(matches[0].run_id) !== identity.runId || matches[0].run_attempt !== runAttempt ||
         matches[0].head_sha !== identity.toolkitSha || matches[0].status !== "completed" || matches[0].conclusion !== "success") {
       throw new Error("Required jobs must succeed in this exact source/run/attempt");
@@ -150,7 +156,7 @@ export async function verifyCoordinatedEvidence(identity, { get, download }) {
     validateSourceRun(await get(sourcePath), receipt);
     validateSourceRun(await get(`${sourcePath}/attempts/${receipt.sourceRunAttempt}`), receipt);
     validatePlatformJobs(await get(`${sourcePath}/attempts/${receipt.sourceRunAttempt}/jobs?per_page=100`), sourceIdentity, receipt.sourceRunAttempt,
-      [...evidenceJobs, "upload-content"]);
+      [...evidenceJobs, ["upload-content", "retain-tested-stage"]]);
     // Metadata only: the retained content itself never enters this public job.
     validateReceiptArtifact(await get(`${sourcePath}/artifacts?per_page=100`), sourceIdentity, receipt.sourceRunAttempt, "v4-release", 1073741824);
     validateSourceRun(await get(sourcePath), receipt);
