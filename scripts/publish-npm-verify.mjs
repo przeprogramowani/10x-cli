@@ -66,6 +66,31 @@ export async function classifyPublishDecision({ version, expectedIntegrity, sour
   return { action: "resume", result };
 }
 
+/**
+ * Three registry states decide a publish, not two. `publish` and `resume` both
+ * proceed; a version already held by a foreign gitHead is a manual publication
+ * that overtook the automation — green and skipped on a push, an operator
+ * mistake on a dispatch.
+ */
+export const GATE_REASONS = { publish: "published", resume: "resumed", conflict: "version-already-published-from-other-sha" };
+
+export async function classifyPublishGate({ version, sourceSha, trigger, fetchFn = fetch }) {
+  if (!sha(sourceSha)) throw new Error("Exact candidate SHA required");
+  if (trigger !== "push" && trigger !== "dispatch") throw new Error("TRIGGER must be push or dispatch");
+  if (typeof version !== "string" || version.length === 0) throw new Error("Candidate version required");
+  const { status, body } = await fetchVersionMetadata(version, fetchFn);
+  if (status === 404 || (body && body.error === "Not found")) return { version, proceed: true, reason: GATE_REASONS.publish, registryGitHead: null };
+  if (status !== 200 || !body) throw new Error(`Registry lookup for ${version} failed with status ${status}`);
+  const registryGitHead = typeof body.gitHead === "string" ? body.gitHead : null;
+  if (registryGitHead === sourceSha) return { version, proceed: true, reason: GATE_REASONS.resume, registryGitHead };
+  return { version, proceed: false, reason: GATE_REASONS.conflict, registryGitHead };
+}
+
+export function gateSummaryLine({ version, reason, registryGitHead }, sourceSha) {
+  const head = registryGitHead ? ` registry gitHead \`${registryGitHead}\`` : "";
+  return `npm publish gate: \`@przeprogramowani/10x-cli@${version}\` from \`${sourceSha}\` — ${reason}.${head}`;
+}
+
 function candidate(out) {
   return JSON.parse(readFileSync(`${out}/candidate.json`, "utf8"));
 }
@@ -73,6 +98,34 @@ function candidate(out) {
 function writeGithubOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
+
+function appendIfSet(path, text) {
+  if (path) appendFileSync(path, text);
+}
+
+function packageVersion() {
+  return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+}
+
+/**
+ * Whatever the gate decides, the run says so out loud: the summary line is
+ * written on every branch. Only a dispatch collision throws, because there the
+ * operator named a SHA the registry contradicts; the same collision on a push
+ * is an ordinary commit without a version bump.
+ */
+export async function runPublishGate({ env = process.env, fetchFn = fetch, log = console.log } = {}) {
+  const sourceSha = env.CLI_SHA, trigger = env.TRIGGER;
+  const decision = await classifyPublishGate({ version: env.VERSION || packageVersion(), sourceSha, trigger, fetchFn });
+  appendIfSet(env.GITHUB_OUTPUT, `proceed=${decision.proceed}\nreason=${decision.reason}\n`);
+  appendIfSet(env.GITHUB_STEP_SUMMARY, `${gateSummaryLine(decision, sourceSha)}\n`);
+  log(JSON.stringify(decision));
+  if (decision.proceed) return decision;
+  log(`::warning::${decision.version} is already on the registry from ${decision.registryGitHead}, not ${sourceSha}; a manual publication overtook the automation`);
+  if (trigger === "dispatch") throw new Error(`Dispatch asked to publish ${decision.version} from ${sourceSha}, but the registry holds it from ${decision.registryGitHead}`);
+  return decision;
+}
+
+const gate = () => runPublishGate();
 
 async function decide() {
   const out = process.env.OUT, sourceSha = process.env.CLI_SHA, c = candidate(out);
@@ -98,7 +151,7 @@ function isEntrypoint() {
 
 if (isEntrypoint()) {
   const command = process.argv[2];
-  const run = command === "decide" ? decide : command === "verify" ? verify : null;
-  if (!run) { console.error("publish-npm-verify requires decide or verify"); process.exitCode = 2; }
+  const run = command === "gate" ? gate : command === "decide" ? decide : command === "verify" ? verify : null;
+  if (!run) { console.error("publish-npm-verify requires gate, decide or verify"); process.exitCode = 2; }
   else run().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 }
