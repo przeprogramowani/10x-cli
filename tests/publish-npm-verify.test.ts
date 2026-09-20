@@ -177,3 +177,44 @@ describe("ci publishes from the same run that tested the SHA", () => {
     }
   });
 });
+
+describe("the release carries the five binaries README promises", () => {
+  const publish = parse(readFileSync(new URL("../.github/workflows/publish-npm.yml", import.meta.url), "utf8"));
+  const artifacts = ["10x-linux-x64", "10x-linux-arm64", "10x-darwin-arm64", "10x-darwin-x64", "10x-windows-x64.exe"];
+
+  it("compiles exactly five targets under the names the install docs quote", () => {
+    const include = publish.jobs.binaries.strategy.matrix.include as Array<{ os: string; target: string; artifact: string }>;
+    expect(include).toHaveLength(5);
+    expect(include.map((entry) => entry.artifact)).toEqual(artifacts);
+    expect(include.map((entry) => entry.target)).toEqual(["bun-linux-x64", "bun-linux-arm64", "bun-darwin-arm64", "bun-darwin-x64", "bun-windows-x64"]);
+    expect(publish.jobs.binaries.strategy["fail-fast"]).toBe(false);
+    const build = publish.jobs.binaries.steps.find((step: any) => step.name?.startsWith("Build binary"));
+    expect(build.run).toContain("--target ${{ matrix.target }}");
+    expect(build.run).toContain("--outfile dist/${{ matrix.artifact }}");
+    const checkout = publish.jobs.binaries.steps.find((step: any) => step.uses?.startsWith("actions/checkout@"));
+    expect(checkout.with.ref).toBe("${{ inputs.cli_sha }}");
+  });
+
+  it("releases only after both producers, and attaches the tarball plus every binary", () => {
+    expect(publish.jobs.release.needs).toEqual(["publish", "binaries"]);
+    expect(publish.jobs.release.if).toBe("needs.publish.outputs.proceed == 'true'");
+    expect(publish.jobs.binaries.needs).toEqual(["publish"]);
+    expect(publish.jobs.binaries.if).toBe("needs.publish.outputs.proceed == 'true'");
+    expect(publish.jobs.publish.outputs.proceed).toBe("${{ steps.gate.outputs.proceed }}");
+    const create = publish.jobs.release.steps.find((step: any) => step.name?.startsWith("Create the GitHub Release"));
+    for (const artifact of artifacts) expect(create.run).toContain(`$BIN/${artifact}`);
+    expect(create.run).toContain('"$OUT/$FILE#npm package tarball');
+    expect(create.env.BIN).toBe("${{ runner.temp }}/release-binaries");
+    expect(create.run).toContain("already exists; not modified");
+  });
+
+  it("keeps npm publication off the macOS and Windows critical path, and the write token off it entirely", () => {
+    const names = publish.jobs.publish.steps.map((step: any) => step.name ?? "");
+    expect(names.some((name: string) => name.startsWith("Tag the published source"))).toBe(false);
+    expect(names.some((name: string) => name.startsWith("Create the GitHub Release"))).toBe(false);
+    expect(publish.jobs.publish.permissions.contents).toBe("read");
+    expect(publish.jobs.release.permissions.contents).toBe("write");
+    expect(publish.jobs.publish.needs).toBeUndefined();
+    expect(publish.concurrency.group).toBe("publish-npm");
+  });
+});

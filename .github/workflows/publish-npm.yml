@@ -32,11 +32,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate, pack, publish, verify. Tagging moved to `release`, so this job no
+  # longer needs a write token, and npm publication never waits for macOS or
+  # Windows to finish compiling a binary.
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      reason: ${{ steps.gate.outputs.reason }}
     steps:
       - name: Require an exact full SHA
         run: node -e 'if (!/^[a-f0-9]{40}$/.test(process.env.CLI_SHA || "")) throw new Error("cli_sha must be a full SHA")'
@@ -110,8 +116,91 @@ jobs:
         env:
           OUT: ${{ runner.temp }}/release-package
           CLI_SHA: ${{ inputs.cli_sha }}
-      - name: Tag the published source
+      - name: Carry the verified pack to the release job
         if: steps.gate.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release-package/candidate.json
+            ${{ runner.temp }}/release-package/published-result.json
+            ${{ runner.temp }}/release-package/*.tgz
+          if-no-files-found: error
+          retention-days: 90
+
+  # The five binaries README:24 promises and no release has shipped since
+  # v1.21.0, compiled from the exact SHA that went to npm. The artifact names
+  # are a contract for the installation documentation.
+  binaries:
+    name: Binary (${{ matrix.artifact }})
+    needs: [publish]
+    if: needs.publish.outputs.proceed == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            artifact: 10x-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            artifact: 10x-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            artifact: 10x-darwin-arm64
+          - os: macos-14
+            target: bun-darwin-x64
+            artifact: 10x-darwin-x64
+          - os: windows-latest
+            target: bun-windows-x64
+            artifact: 10x-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.cli_sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.3.8"
+      - run: bun install --frozen-lockfile
+      - name: Build binary from the published source
+        run: bun build --compile --minify src/index.ts --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: binary-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 90
+
+  # One idempotent release carrying the tarball and all five binaries, created
+  # only once both producers are green.
+  release:
+    needs: [publish, binaries]
+    if: needs.publish.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.cli_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-package
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: binary-*-${{ github.run_id }}-${{ github.run_attempt }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-binaries
+      - name: Tag the published source
         # The tag may already exist (pushed by hand, or a previous attempt).
         # Peel it to its commit: an annotated tag's ref SHA is the tag object,
         # not the commit, so comparing ref SHAs alone reports a false mismatch.
@@ -133,8 +222,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CLI_SHA: ${{ inputs.cli_sha }}
-      - name: Create the GitHub Release with the verified tarball
-        if: steps.gate.outputs.proceed == 'true'
+          OUT: ${{ runner.temp }}/release-package
+      - name: Create the GitHub Release with the verified tarball and binaries
         # Idempotent: an existing release for the tag is left untouched.
         run: |
           set -eu
@@ -152,17 +241,15 @@ jobs:
           } > "$NOTES"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --target "$CLI_SHA" \
             --title "$TAG" --notes-file "$NOTES" --generate-notes \
-            "$OUT/$FILE#npm package tarball (${TAG#v})"
+            "$OUT/$FILE#npm package tarball (${TAG#v})" \
+            "$BIN/10x-linux-x64" \
+            "$BIN/10x-linux-arm64" \
+            "$BIN/10x-darwin-arm64" \
+            "$BIN/10x-darwin-x64" \
+            "$BIN/10x-windows-x64.exe"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,assets --jq '{url,tagName,assets:[.assets[].name]}'
         env:
           GH_TOKEN: ${{ github.token }}
           CLI_SHA: ${{ inputs.cli_sha }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: steps.gate.outputs.proceed == 'true'
-        with:
-          name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/release-package/candidate.json
-            ${{ runner.temp }}/release-package/published-result.json
-          if-no-files-found: error
-          retention-days: 90
+          OUT: ${{ runner.temp }}/release-package
+          BIN: ${{ runner.temp }}/release-binaries
