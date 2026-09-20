@@ -13,6 +13,16 @@ on:
         description: Exact full source SHA to publish (must be an ancestor of master)
         required: true
         type: string
+  # Called by ci.yml after the full test matrix. `inputs.cli_sha` reads the same
+  # for both triggers, so every step below is trigger-agnostic; only the gate
+  # distinguishes them, because a version taken by a foreign SHA is an operator
+  # mistake on a dispatch and an unbumped push on a push.
+  workflow_call:
+    inputs:
+      cli_sha:
+        description: Exact full source SHA to publish (must be an ancestor of master)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,11 +32,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate, pack, publish, verify. Tagging moved to `release`, so this job no
+  # longer needs a write token, and npm publication never waits for macOS or
+  # Windows to finish compiling a binary.
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      reason: ${{ steps.gate.outputs.reason }}
     steps:
       - name: Require an exact full SHA
         run: node -e 'if (!/^[a-f0-9]{40}$/.test(process.env.CLI_SHA || "")) throw new Error("cli_sha must be a full SHA")'
@@ -39,6 +55,12 @@ jobs:
           persist-credentials: false
       - name: Require the SHA to be on master
         run: git merge-base --is-ancestor "${{ inputs.cli_sha }}" origin/master
+      - name: Decide whether this version is ours to publish
+        id: gate
+        run: node scripts/publish-npm-verify.mjs gate
+        env:
+          CLI_SHA: ${{ inputs.cli_sha }}
+          TRIGGER: ${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'push' }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.3.8"
@@ -49,6 +71,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run build
       - name: Pack outside the checkout and smoke the pack in an isolated installation
+        if: steps.gate.outputs.proceed == 'true'
         run: |
           set -eu
           OUT="$RUNNER_TEMP/release-package"; mkdir -p "$OUT"
@@ -69,12 +92,13 @@ jobs:
           OUT: ${{ runner.temp }}/release-package
       - name: Decide whether to publish or resume a matching registry copy
         id: decide
+        if: steps.gate.outputs.proceed == 'true'
         run: node scripts/publish-npm-verify.mjs decide
         env:
           OUT: ${{ runner.temp }}/release-package
           CLI_SHA: ${{ inputs.cli_sha }}
       - name: Publish the exact directory once
-        if: steps.decide.outputs.action == 'publish'
+        if: steps.gate.outputs.proceed == 'true' && steps.decide.outputs.action == 'publish'
         run: |
           set -eu
           VERSION=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).version')
@@ -87,10 +111,95 @@ jobs:
           NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/release-npmrc
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify actual registry bytes against the pack
+        if: steps.gate.outputs.proceed == 'true'
         run: node scripts/publish-npm-verify.mjs verify
         env:
           OUT: ${{ runner.temp }}/release-package
           CLI_SHA: ${{ inputs.cli_sha }}
+      - name: Carry the verified pack to the release job
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release-package/candidate.json
+            ${{ runner.temp }}/release-package/published-result.json
+            ${{ runner.temp }}/release-package/*.tgz
+          if-no-files-found: error
+          retention-days: 90
+
+  # The five binaries README:24 promises and no release has shipped since
+  # v1.21.0, compiled from the exact SHA that went to npm. The artifact names
+  # are a contract for the installation documentation.
+  binaries:
+    name: Binary (${{ matrix.artifact }})
+    needs: [publish]
+    if: needs.publish.outputs.proceed == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            artifact: 10x-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            artifact: 10x-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            artifact: 10x-darwin-arm64
+          - os: macos-14
+            target: bun-darwin-x64
+            artifact: 10x-darwin-x64
+          - os: windows-latest
+            target: bun-windows-x64
+            artifact: 10x-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.cli_sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.3.8"
+      - run: bun install --frozen-lockfile
+      - name: Build binary from the published source
+        run: bun build --compile --minify src/index.ts --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: binary-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 90
+
+  # One idempotent release carrying the tarball and all five binaries, created
+  # only once both producers are green.
+  release:
+    needs: [publish, binaries]
+    if: needs.publish.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.cli_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-package
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: binary-*-${{ github.run_id }}-${{ github.run_attempt }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-binaries
       - name: Tag the published source
         # The tag may already exist (pushed by hand, or a previous attempt).
         # Peel it to its commit: an annotated tag's ref SHA is the tag object,
@@ -99,7 +208,17 @@ jobs:
           set -eu
           VERSION=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).version')
           TAG="v${VERSION}"
-          git fetch --quiet origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
+          # A missing tag and a broken fetch are different answers. Only the
+          # first one may continue to the creation path below.
+          if ! FETCH=$(git fetch --quiet origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>&1); then
+            case "$FETCH" in
+              *"couldn't find remote ref"*|*"not found"*) : ;;
+              *)
+                echo "::error::Could not read refs/tags/${TAG} from origin: ${FETCH}"
+                exit 1
+                ;;
+            esac
+          fi
           EXISTING=$(git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}" || true)
           if [ -z "$EXISTING" ]; then
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${TAG}" -f sha="${CLI_SHA}" > /dev/null
@@ -113,12 +232,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CLI_SHA: ${{ inputs.cli_sha }}
-      - name: Create the GitHub Release with the verified tarball
+          OUT: ${{ runner.temp }}/release-package
+      - name: Create the GitHub Release with the verified tarball and binaries
         # Idempotent: an existing release for the tag is left untouched.
         run: |
           set -eu
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "Release ${TAG} already exists; not modified"; exit 0
+            echo "Release ${TAG} already exists; not modified"
+            echo "GitHub release \`${TAG}\`: **already existed**, left unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           FILE=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).filename')
           INTEGRITY=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/published-result.json","utf8")).registryIntegrity')
@@ -131,16 +253,16 @@ jobs:
           } > "$NOTES"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --target "$CLI_SHA" \
             --title "$TAG" --notes-file "$NOTES" --generate-notes \
-            "$OUT/$FILE#npm package tarball (${TAG#v})"
+            "$OUT/$FILE#npm package tarball (${TAG#v})" \
+            "$BIN/10x-linux-x64" \
+            "$BIN/10x-linux-arm64" \
+            "$BIN/10x-darwin-arm64" \
+            "$BIN/10x-darwin-x64" \
+            "$BIN/10x-windows-x64.exe"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,assets --jq '{url,tagName,assets:[.assets[].name]}'
+          echo "GitHub release \`${TAG}\`: **created** with the tarball and five binaries." >> "$GITHUB_STEP_SUMMARY"
         env:
           GH_TOKEN: ${{ github.token }}
           CLI_SHA: ${{ inputs.cli_sha }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: published-npm-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/release-package/candidate.json
-            ${{ runner.temp }}/release-package/published-result.json
-          if-no-files-found: error
-          retention-days: 90
+          OUT: ${{ runner.temp }}/release-package
+          BIN: ${{ runner.temp }}/release-binaries
