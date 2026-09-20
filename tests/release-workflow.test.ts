@@ -28,6 +28,21 @@ describe("one publication path", () => {
     expect(workflow.env).toBeUndefined();
   });
 
+  // GitHub's default is 360 minutes. A hung test step therefore holds the
+  // publication — and the notification that waits on it — for six hours
+  // without saying anything. Run 35534379461 spent over half an hour inside
+  // the Windows test step with nothing to stop it.
+  it("bounds every job it runs itself, so a hung step cannot hold a release for six hours", () => {
+    for (const [name, job] of Object.entries(workflow.jobs) as Array<[string, any]>) {
+      if (job.uses) continue; // a called workflow carries its own budgets
+      expect(job["timeout-minutes"], `${name} has no timeout`).toBeNumber();
+      expect(job["timeout-minutes"]).toBeLessThanOrEqual(30);
+    }
+    for (const [name, job] of Object.entries(publish.jobs) as Array<[string, any]>) {
+      expect(job["timeout-minutes"], `publish-npm.yml ${name} has no timeout`).toBeNumber();
+    }
+  });
+
   it("publishes from a master push only, after both operating systems are green", () => {
     const release = workflow.jobs.release;
     expect(release.needs).toEqual(["check", "check-windows"]);
