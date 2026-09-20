@@ -28,6 +28,18 @@ describe("release workflow trust and ordering", () => {
     expect(workflow.jobs["wake-coordinator"].if).toContain("'push'");
     expect(workflow.jobs["wake-coordinator"].if).toContain("refs/heads/master");
   });
+  // The push path publishes through `release`, not through the dispatch-only
+  // `version`/`publish-npm`/`github-release` chain. A notifier that waits on the
+  // dispatch jobs alone can post green while the real publication is still
+  // running, or after it failed.
+  it("makes the Slack notification wait on the job that actually publishes", () => {
+    const notify = workflow.jobs["notify-slack"];
+    expect(notify.needs).toContain("release");
+    const condition = notify.steps.find((step: any) => step.id === "payload").run;
+    expect(condition).toContain("needs.release.result }}\" == \"failure\"");
+    expect(condition).toContain("needs.release.result }}\" == \"cancelled\"");
+  });
+
   it("requires private evidence only for master release dispatch, not ordinary PRs", () => {
     const condition = workflow.jobs.coordinated.if;
     const allows = (event: string, ref: string) => Function("github", `return (${condition})`)({ event_name: event, ref });
