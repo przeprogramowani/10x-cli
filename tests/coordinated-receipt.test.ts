@@ -21,6 +21,10 @@ const receipt = () => ({
   sourceRunId: "123", sourceRunAttempt: 2, sourceArtifactId: null, leaseGeneration: null,
   platforms: ["Linux", "Windows"], releaseId: `r-${"c".repeat(64)}`, manifestHash: "d".repeat(64),
 });
+const evidenceJobNames = [
+  "Coordinated CLI/API (ubuntu-latest)", "Coordinated CLI/API (windows-latest)", "coordinated-receipt",
+  "coordinated-inputs", "lint-check", "validate", "prepare-coordinated-content",
+];
 const jobs = () => ({ total_count: 7, jobs: [
   "Coordinated CLI/API (ubuntu-latest)", "Coordinated CLI/API (windows-latest)", "coordinated-receipt",
   "coordinated-inputs", "lint-check", "validate", "prepare-coordinated-content",
@@ -180,5 +184,35 @@ describe("immutable artifact download and exact-attempt verification", () => {
     expect(() => readReceiptArchive(fixture.zip, { ...fixture.artifact, digest: `sha256:${"0".repeat(64)}` })).toThrow();
     const extra = Buffer.from(fixture.zip); extra.writeUInt16LE(2, extra.length - 12);
     expect(() => readReceiptArchive(extra, { ...fixture.artifact, digest: `sha256:${createHash("sha256").update(extra).digest("hex")}` })).toThrow();
+  });
+});
+
+describe("the retention job is verifiable under either of its two names", () => {
+  // Phase 4 renames the job in the toolkit; already-retained stages keep the old name.
+  const retentionSet = [...evidenceJobNames, ["upload-content", "retain-tested-stage"]];
+  const withRetention = (...retentionNames: string[]) => ({
+    total_count: evidenceJobNames.length + retentionNames.length,
+    jobs: [...evidenceJobNames, ...retentionNames].map((name) => ({
+      name, run_id: 123, run_attempt: 2, head_sha: identity.toolkitSha, status: "completed", conclusion: "success",
+    })),
+  });
+
+  it.each(["upload-content", "retain-tested-stage"])("accepts a source run naming the job %s", (name) => {
+    expect(() => validatePlatformJobs(withRetention(name), identity, 2, retentionSet)).not.toThrow();
+  });
+
+  it("refuses a source run carrying both names at once", () => {
+    expect(() => validatePlatformJobs(withRetention("upload-content", "retain-tested-stage"), identity, 2, retentionSet))
+      .toThrow(/Required jobs must succeed/);
+  });
+
+  it("refuses a source run carrying neither name", () => {
+    expect(() => validatePlatformJobs(withRetention(), identity, 2, retentionSet)).toThrow(/Required jobs must succeed/);
+  });
+
+  it("still demands success for whichever name is present", () => {
+    const input = withRetention("retain-tested-stage");
+    input.jobs[input.jobs.length - 1]!.conclusion = "failure";
+    expect(() => validatePlatformJobs(input, identity, 2, retentionSet)).toThrow();
   });
 });
