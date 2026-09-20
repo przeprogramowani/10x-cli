@@ -1,53 +1,20 @@
 name: CI
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('release-release-{0}', inputs.operation) || github.event.head_commit.message || github.event.pull_request.title }}
+run-name: ${{ github.event.head_commit.message || github.event.pull_request.title }}
 
 on:
   pull_request:
   push:
     branches: [main, master]
 
-  workflow_dispatch:
-    inputs:
-      cli_sha:
-        required: true
-        type: string
-      toolkit_sha:
-        required: true
-        type: string
-      evidence_run_id:
-        required: true
-        type: string
-      evidence_run_attempt:
-        required: true
-        type: string
-      evidence_artifact_id:
-        required: true
-        type: string
-      lease_generation:
-        required: true
-        type: string
-      operation:
-        required: true
-        type: string
-
 permissions:
   contents: read
   actions: read
   pull-requests: read
 
-env:
-  RELEASE_CLI_SHA: ${{ inputs.cli_sha || github.event.pull_request.head.sha || github.sha }}
-  RELEASE_TOOLKIT_SHA: ${{ inputs.toolkit_sha }}
-  TOOLKIT_COORDINATED_RUN_ID: ${{ inputs.evidence_run_id }}
-  TOOLKIT_COORDINATED_RUN_ATTEMPT: ${{ inputs.evidence_run_attempt }}
-  TOOLKIT_COORDINATED_ARTIFACT_ID: ${{ inputs.evidence_artifact_id }}
-  RELEASE_LEASE_GENERATION: ${{ inputs.lease_generation }}
-  RELEASE_OPERATION: ${{ inputs.operation }}
-
-
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # Pinned by SHA to prevent tag-swapping supply chain attacks.
       # To update: verify the new SHA on the action's releases page,
@@ -95,6 +62,7 @@ jobs:
 
   check-windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
@@ -128,39 +96,10 @@ jobs:
       - name: Smoke tests (binary + package)
         run: bun test tests/smoke/
 
-  coordinated:
-    # PRs validate the CLI locally on both OSes. Exact private evidence gates publication.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
-    name: Verified private CLI/API evidence
-    needs: [check, check-windows]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      # Paid content, private source and content-bearing failure logs stay in
-      # Toolkit. This public workflow downloads only a strict hash-only receipt.
-      - name: Require green private run for this exact candidate pair
-        run: node scripts/verify-coordinated-receipt.mjs
-        env:
-          GH_TOKEN: ${{ secrets.TOOLKIT_READ_TOKEN }}
-          TOOLKIT_COORDINATED_RUN_ID: ${{ inputs.evidence_run_id || vars.TOOLKIT_COORDINATED_RUN_ID }}
-          E2E_TOOLKIT_SHA: ${{ inputs.toolkit_sha || vars.TOOLKIT_CANDIDATE_SHA }}
-          E2E_CLI_SHA: ${{ inputs.cli_sha || github.event.pull_request.head.sha || github.sha }}
-          E2E_CANDIDATE_KIND: ${{ github.event_name == 'pull_request' && 'pr' || 'release' }}
-          E2E_LEASE_GENERATION: ${{ inputs.lease_generation }}
-          TOOLKIT_DISPATCH_TOKEN: ${{ github.event_name == 'workflow_dispatch' && secrets.TOOLKIT_DISPATCH_TOKEN || '' }}
-
   version-bootstrap:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -183,22 +122,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  wake-coordinator:
-    needs: [check, check-windows]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wake trusted Toolkit coordinator after ordinary master checks
-        env:
-          GH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
-          CLI_RUN_ID: ${{ github.run_id }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo 'Release coordination pending scoped credential/bootstrap prerequisites.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          gh workflow run release-coordinator.yml --repo przeprogramowani/10x-toolkit --ref master -f cli_run_id="$CLI_RUN_ID"
-
   # Publication rides the same run and Checks view as the tests that cleared it.
   # `permissions` is declared here because a called workflow can only narrow the
   # caller's token, and this workflow's default is read-only.
@@ -212,198 +135,15 @@ jobs:
       cli_sha: ${{ github.sha }}
     secrets: inherit
 
-  version:
-    needs: [check, check-windows, coordinated]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.identity.outputs.version }}
-      should_release: ${{ steps.identity.outputs.should_release }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: '1.3.8'
-      - run: bun install --frozen-lockfile
-      - name: Verify committed automatic version, merged PR provenance and lease
-        id: identity
-        run: node scripts/release-preflight.mjs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TOOLKIT_DISPATCH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
-          RELEASE_PREFLIGHT_FILE: ${{ runner.temp }}/preflight.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: release-preflight-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/preflight.json
-          if-no-files-found: error
-          retention-days: 90
-
-  build-binaries:
-    name: Binary (${{ matrix.artifact }})
-    needs: [version]
-    if: needs.version.outputs.should_release == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-            artifact: 10x-linux-x64
-          - os: ubuntu-latest
-            target: bun-linux-arm64
-            artifact: 10x-linux-arm64
-          - os: macos-latest
-            target: bun-darwin-arm64
-            artifact: 10x-darwin-arm64
-          - os: macos-14
-            target: bun-darwin-x64
-            artifact: 10x-darwin-x64
-          - os: windows-latest
-            target: bun-windows-x64
-            artifact: 10x-windows-x64.exe
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: '1.3.8'
-      - run: bun install --frozen-lockfile
-      - name: Build binary from proven source
-        run: bun build --compile --minify src/index.ts --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: binary-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/${{ matrix.artifact }}
-          if-no-files-found: error
-          retention-days: 90
-
-  publish-npm:
-    needs: [version, build-binaries]
-    if: needs.version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - name: Set isolated release paths
-        run: |
-          printf '%s\n' \
-            "RELEASE_OUTPUT_DIR=${RUNNER_TEMP}/release-package" \
-            "RELEASE_ASSET_DIR=${RUNNER_TEMP}/release-binaries" \
-            "RELEASE_PREFLIGHT_FILE=${RUNNER_TEMP}/release-preflight/preflight.json" \
-            "NPM_CONFIG_USERCONFIG=${RUNNER_TEMP}/release-npmrc" >> "$GITHUB_ENV"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: '1.3.8'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --global npm@11.12.1 --ignore-scripts
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - name: Pack frozen directory outside checkout
-        run: node scripts/release-identity.mjs pack
-      - name: Smoke the retained pre-publication pack in an isolated installation
-        run: |
-          node scripts/smoke-release-pack.mjs
-      - name: Select complete exact-attempt binary artifacts
-        id: binaries
-        run: node scripts/release-assets.mjs select
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          artifact-ids: ${{ steps.binaries.outputs.ids }}
-          merge-multiple: true
-          path: ${{ env.RELEASE_ASSET_DIR }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-preflight-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/release-preflight
-      - name: Record bounded public release manifest before mutation
-        run: node scripts/release-assets.mjs manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: release-package-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.RELEASE_OUTPUT_DIR }}
-          if-no-files-found: error
-          retention-days: 90
-      - name: Publish exact directory once, then verify actual registry bytes
-        run: |
-          node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=" + process.env.NPM_TOKEN + "\n", {mode: 0o600})'
-          node scripts/release-identity.mjs publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TOOLKIT_DISPATCH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: published-result-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.RELEASE_OUTPUT_DIR }}/published-result.json
-          if-no-files-found: error
-          retention-days: 90
-
-  github-release:
-    needs: [version, build-binaries, publish-npm]
-    if: needs.version.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Select original binary artifact IDs
-        id: binaries
-        run: node scripts/release-assets.mjs select
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          artifact-ids: ${{ steps.binaries.outputs.ids }}
-          merge-multiple: true
-          path: ${{ runner.temp }}/release-binaries
-      - name: Revalidate lease immediately before GitHub release mutation
-        run: node scripts/release-identity.mjs lease
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TOOLKIT_DISPATCH_TOKEN: ${{ secrets.TOOLKIT_DISPATCH_TOKEN }}
-      - name: Create release with exactly the original binary assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.new_version }}
-        run: |
-          gh release create "v${VERSION}" --verify-tag --generate-notes --target "$RELEASE_CLI_SHA" \
-            "$RUNNER_TEMP/release-binaries/10x-linux-x64" \
-            "$RUNNER_TEMP/release-binaries/10x-linux-arm64" \
-            "$RUNNER_TEMP/release-binaries/10x-darwin-arm64" \
-            "$RUNNER_TEMP/release-binaries/10x-darwin-x64" \
-            "$RUNNER_TEMP/release-binaries/10x-windows-x64.exe"
-
+  # `release` is a called workflow, so the caller sees one result for the whole
+  # thing. Its gate outputs are what distinguish "published" from "the version
+  # was already taken", which is the ordinary shape of a master push with no
+  # version bump.
   notify-slack:
-    needs: [check, check-windows, coordinated, release, version, publish-npm, github-release]
-    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
+    needs: [check, check-windows, release]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Build notification payload
         id: payload
@@ -412,7 +152,7 @@ jobs:
         run: |
           MSG=$(printf '%s\n' "$COMMIT_MESSAGE" | head -1 | cut -c1-80)
           echo "commit_msg=${MSG}" >> "$GITHUB_OUTPUT"
-          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.check-windows.result }}" != "success" || ( "${{ needs.coordinated.result }}" != "success" && "${{ needs.coordinated.result }}" != "skipped" ) || "${{ needs.release.result }}" == "failure" || "${{ needs.release.result }}" == "cancelled" || "${{ needs.publish-npm.result }}" == "failure" || "${{ needs.version.result }}" == "failure" || "${{ needs.github-release.result }}" == "failure" ]]; then
+          if [[ "${{ needs.check.result }}" != "success" || "${{ needs.check-windows.result }}" != "success" || "${{ needs.release.result }}" == "failure" || "${{ needs.release.result }}" == "cancelled" ]]; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
           else
             echo "failed=false" >> "$GITHUB_OUTPUT"
@@ -425,20 +165,20 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "${{ steps.payload.outputs.failed == 'true' && '🔴' || needs.version.outputs.should_release == 'true' && needs.publish-npm.result == 'success' && '📦' || '🟢' }} 10x-cli pipeline",
+              "text": "${{ steps.payload.outputs.failed == 'true' && '🔴' || needs.release.outputs.proceed == 'true' && '📦' || '🟢' }} 10x-cli pipeline",
               "blocks": [
                 {
                   "type": "header",
                   "text": {
                     "type": "plain_text",
-                    "text": "${{ steps.payload.outputs.failed == 'true' && '🔴' || needs.version.outputs.should_release == 'true' && needs.publish-npm.result == 'success' && '📦' || '🟢' }} 10x-cli${{ needs.version.outputs.should_release == 'true' && format(' — v{0}', needs.version.outputs.new_version) || '' }}"
+                    "text": "${{ steps.payload.outputs.failed == 'true' && '🔴' || needs.release.outputs.proceed == 'true' && '📦' || '🟢' }} 10x-cli${{ needs.release.outputs.proceed == 'true' && format(' — v{0}', needs.release.outputs.version) || '' }}"
                   }
                 },
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅' || '❌' }} Tests (Linux/Windows)    ${{ needs.coordinated.result == 'success' && '✅' || needs.coordinated.result == 'skipped' && '⏭️' || '❌' }} E2E    ${{ needs.publish-npm.result == 'success' && '✅' || needs.publish-npm.result == 'skipped' && '⏭️' || '❌' }} npm    ${{ needs.github-release.result == 'success' && '✅' || needs.github-release.result == 'skipped' && '⏭️' || '❌' }} Release"
+                    "text": "${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅' || '❌' }} Tests (Linux/Windows)    ${{ needs.release.result == 'failure' && '❌' || needs.release.outputs.proceed == 'true' && '✅' || '⏭️' }} npm + release${{ needs.release.outputs.reason != '' && needs.release.outputs.proceed != 'true' && format(' ({0})', needs.release.outputs.reason) || '' }}"
                   }
                 },
                 {
@@ -474,9 +214,7 @@ jobs:
                   "type": "section",
                   "fields": [
                     { "type": "mrkdwn", "text": "*Tests (Linux/Windows)*\n${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅ passed' || '❌ failed' }}" },
-                    { "type": "mrkdwn", "text": "*E2E*\n${{ needs.coordinated.result == 'success' && '✅ passed' || needs.coordinated.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" },
-                    { "type": "mrkdwn", "text": "*npm*\n${{ needs.publish-npm.result == 'success' && '✅ published' || needs.publish-npm.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" },
-                    { "type": "mrkdwn", "text": "*Release*\n${{ needs.github-release.result == 'success' && '✅ created' || needs.github-release.result == 'skipped' && '⏭️ skipped' || '❌ failed' }}" }
+                    { "type": "mrkdwn", "text": "*npm + release*\n${{ needs.release.result == 'failure' && '❌ failed' || needs.release.outputs.proceed == 'true' && format('✅ v{0}', needs.release.outputs.version) || format('⏭️ {0}', needs.release.outputs.reason) }}" }
                   ]
                 },
                 {

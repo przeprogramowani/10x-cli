@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BranchUpdateRequiredError, calculateVersion, packageWithVersion, stableVersion } from "./auto-version.mjs";
 import { CLI_REPOSITORY, fullSha, github, canonicalRun, successfulJobs } from "./release-github.mjs";
-import { readReceiptArchive } from "./verify-coordinated-receipt.mjs";
+import { readArchiveMember } from "./read-artifact-archive.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 }).trim();
 export function validatePullRequest(pr, expectedHead, expectedBase) {
@@ -126,7 +126,7 @@ export async function loadPreparationForMerge(sourceSha, { get, download, baseli
       if (selected.length === 0) continue;
       if (selected.length !== 1 || selected[0].expired || selected[0].workflow_run?.head_sha !== run.head_sha || String(selected[0].workflow_run?.id) !== String(run.id)) throw new Error("Unique exact preparation artifact required");
       successfulJobs(await get(`actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=100`), run, [kind === "trusted" ? `Prepare version (#${matches[0].number})` : "version-bootstrap"]);
-      const record = readReceiptArchive(await download(selected[0]), selected[0], "version-preparation.json");
+      const record = readArchiveMember(await download(selected[0]), selected[0], "version-preparation.json");
       validatePreparationRecord(record);
       if (record.runId !== String(run.id) || record.runAttempt !== attempt || record.kind !== kind || record.prNumber !== matches[0].number || record.preparedHead !== matches[0].head.sha) continue;
       await verifyMergedPreparation(record, { sourceSha, packageVersion, get, baseline, recalculate, readPackage });

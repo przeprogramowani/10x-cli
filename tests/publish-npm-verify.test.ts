@@ -120,7 +120,7 @@ describe("the publish gate decides before anything is packed", () => {
 
     const pushed = await runPublishGate({ env: env("push"), fetchFn, log: () => {} });
     expect(pushed.proceed).toBe(false);
-    expect(readFileSync(join(dir, "push.out"), "utf8")).toBe(`proceed=false\nreason=${GATE_REASONS.conflict}\n`);
+    expect(readFileSync(join(dir, "push.out"), "utf8")).toBe(`proceed=false\nreason=${GATE_REASONS.conflict}\nversion=1.22.1\n`);
     expect(readFileSync(join(dir, "push.md"), "utf8")).toContain(GATE_REASONS.conflict);
 
     await expect(runPublishGate({ env: env("dispatch"), fetchFn, log: () => {} })).rejects.toThrow(new RegExp(sha("d")));

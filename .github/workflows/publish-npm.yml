@@ -23,6 +23,19 @@ on:
         description: Exact full source SHA to publish (must be an ancestor of master)
         required: true
         type: string
+    # A caller only ever sees one result for the whole called workflow, and
+    # "success" covers both "published" and "the gate declined". The caller's
+    # notification has to tell those apart, so the gate's verdict travels out.
+    outputs:
+      proceed:
+        description: Whether the gate admitted this version for publication
+        value: ${{ jobs.publish.outputs.proceed }}
+      reason:
+        description: published, resumed, or version-already-published-from-other-sha
+        value: ${{ jobs.publish.outputs.reason }}
+      version:
+        description: The candidate version the gate judged
+        value: ${{ jobs.publish.outputs.version }}
 
 permissions:
   contents: read
@@ -43,6 +56,7 @@ jobs:
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
       reason: ${{ steps.gate.outputs.reason }}
+      version: ${{ steps.gate.outputs.version }}
     steps:
       - name: Require an exact full SHA
         run: node -e 'if (!/^[a-f0-9]{40}$/.test(process.env.CLI_SHA || "")) throw new Error("cli_sha must be a full SHA")'

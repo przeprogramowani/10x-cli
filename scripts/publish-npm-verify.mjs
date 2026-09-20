@@ -116,7 +116,7 @@ function packageVersion() {
 export async function runPublishGate({ env = process.env, fetchFn = fetch, log = console.log } = {}) {
   const sourceSha = env.CLI_SHA, trigger = env.TRIGGER;
   const decision = await classifyPublishGate({ version: env.VERSION || packageVersion(), sourceSha, trigger, fetchFn });
-  appendIfSet(env.GITHUB_OUTPUT, `proceed=${decision.proceed}\nreason=${decision.reason}\n`);
+  appendIfSet(env.GITHUB_OUTPUT, `proceed=${decision.proceed}\nreason=${decision.reason}\nversion=${decision.version}\n`);
   appendIfSet(env.GITHUB_STEP_SUMMARY, `${gateSummaryLine(decision, sourceSha)}\n`);
   log(JSON.stringify(decision));
   if (decision.proceed) return decision;
