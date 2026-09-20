@@ -218,3 +218,32 @@ describe("the release carries the five binaries README promises", () => {
     expect(publish.concurrency.group).toBe("publish-npm");
   });
 });
+
+describe("no green publish run finishes without saying what it did", () => {
+  const publish = parse(readFileSync(new URL("../.github/workflows/publish-npm.yml", import.meta.url), "utf8"));
+  const step = (prefix: string) => publish.jobs.release.steps.find((s: any) => s.name?.startsWith(prefix)) as { run: string };
+
+  it("tells a missing tag apart from a fetch that failed", () => {
+    const tag = step("Tag the published source").run;
+    expect(tag).not.toContain("|| true\n");
+    expect(tag).toContain("couldn't find remote ref");
+    expect(tag).toContain("::error::Could not read refs/tags/");
+    // the creation path is still reached for a tag that simply is not there
+    expect(tag).toContain('if [ -z "$EXISTING" ]');
+  });
+
+  it("records both release outcomes in the step summary, not just the created one", () => {
+    const create = step("Create the GitHub Release").run;
+    expect(create).toContain("already existed");
+    expect(create).toContain("created");
+    expect(create.match(/GITHUB_STEP_SUMMARY/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(create).toContain("already exists; not modified");
+  });
+
+  it("annotates a verifier failure so the cause reaches the run page", () => {
+    const source = readFileSync(new URL("../scripts/publish-npm-verify.mjs", import.meta.url), "utf8");
+    expect(source).toContain("console.error(`::error::${error instanceof Error ? error.message : String(error)}`)");
+    // predicates that answer with a value, not a message, stay as they are
+    expect(source).toContain("catch { body = null; }");
+  });
+});

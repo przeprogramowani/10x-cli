@@ -153,5 +153,5 @@ if (isEntrypoint()) {
   const command = process.argv[2];
   const run = command === "gate" ? gate : command === "decide" ? decide : command === "verify" ? verify : null;
   if (!run) { console.error("publish-npm-verify requires gate, decide or verify"); process.exitCode = 2; }
-  else run().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
+  else run().catch((error) => { console.error(`::error::${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; });
 }

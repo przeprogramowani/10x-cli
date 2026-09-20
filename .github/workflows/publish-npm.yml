@@ -208,7 +208,17 @@ jobs:
           set -eu
           VERSION=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).version')
           TAG="v${VERSION}"
-          git fetch --quiet origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
+          # A missing tag and a broken fetch are different answers. Only the
+          # first one may continue to the creation path below.
+          if ! FETCH=$(git fetch --quiet origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>&1); then
+            case "$FETCH" in
+              *"couldn't find remote ref"*|*"not found"*) : ;;
+              *)
+                echo "::error::Could not read refs/tags/${TAG} from origin: ${FETCH}"
+                exit 1
+                ;;
+            esac
+          fi
           EXISTING=$(git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}" || true)
           if [ -z "$EXISTING" ]; then
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${TAG}" -f sha="${CLI_SHA}" > /dev/null
@@ -228,7 +238,9 @@ jobs:
         run: |
           set -eu
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "Release ${TAG} already exists; not modified"; exit 0
+            echo "Release ${TAG} already exists; not modified"
+            echo "GitHub release \`${TAG}\`: **already existed**, left unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           FILE=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/candidate.json","utf8")).filename')
           INTEGRITY=$(node -p 'JSON.parse(require("fs").readFileSync(process.env.OUT + "/published-result.json","utf8")).registryIntegrity')
@@ -248,6 +260,7 @@ jobs:
             "$BIN/10x-darwin-x64" \
             "$BIN/10x-windows-x64.exe"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,assets --jq '{url,tagName,assets:[.assets[].name]}'
+          echo "GitHub release \`${TAG}\`: **created** with the tarball and five binaries." >> "$GITHUB_STEP_SUMMARY"
         env:
           GH_TOKEN: ${{ github.token }}
           CLI_SHA: ${{ inputs.cli_sha }}
