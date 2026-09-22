@@ -21,7 +21,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import lockfile from "proper-lockfile";
-import { type AuthData, authFilePath, readAuth, saveAuth } from "./config";
+import { type AuthData, authFilePath, deleteAuth, readAuth, saveAuth } from "./config";
 import { refreshTokenRequest } from "./auth-flow";
 import { ExitCodes, type OutputContext, outputError, verbose } from "./output";
 
@@ -50,6 +50,8 @@ export interface RequireAuthOptions {
   persist?: (auth: AuthData) => void;
   /** Test seam: read the stored auth (defaults to readAuth). */
   read?: () => AuthData | null;
+  /** Remove rejected credentials while holding the refresh lock. */
+  remove?: () => void;
   /**
    * Test seam: override the file we lock against. Defaults to authFilePath().
    * Production code should always lock the credentials file itself so that
@@ -165,8 +167,11 @@ export async function requireAuth(
     const freshNow = now();
     const freshExpired = isExpired(fresh, freshNow);
 
-    if (!freshExpired && !isNearExpiry(fresh, windowMs, freshNow) &&
-        (!forced || fresh.access_token !== options.forceRefreshForToken)) {
+    if (
+      !freshExpired &&
+      !isNearExpiry(fresh, windowMs, freshNow) &&
+      (!forced || fresh.access_token !== options.forceRefreshForToken)
+    ) {
       verbose(ctx, "another process already refreshed — using rotated token");
       return fresh;
     }
@@ -193,10 +198,34 @@ export async function requireAuth(
       return next;
     }
 
+    if (refreshed.code === "email_changed") {
+      try {
+        (options.remove ?? deleteAuth)();
+      } catch {
+        /* Still require re-authentication. */
+      }
+      outputError(
+        ctx,
+        "email_changed",
+        "Your email changed. Sign in again.",
+        ExitCodes.AUTH_REQUIRED,
+        "Run '10x auth' to log in.",
+      );
+    }
+
     // Refresh failed. If the existing token is still valid (not yet expired),
     // continue with it — graceful degradation per the plan. Otherwise bail.
     if (forced) {
-      outputError(ctx, refreshed.code, refreshed.error, refreshed.status === 403 ? ExitCodes.FORBIDDEN : refreshed.status === 401 ? ExitCodes.AUTH_REQUIRED : ExitCodes.ERROR);
+      outputError(
+        ctx,
+        refreshed.code,
+        refreshed.error,
+        refreshed.status === 403
+          ? ExitCodes.FORBIDDEN
+          : refreshed.status === 401
+            ? ExitCodes.AUTH_REQUIRED
+            : ExitCodes.ERROR,
+      );
     }
     if (!freshExpired) {
       verbose(ctx, `refresh failed (${refreshed.code}) — using existing token`);

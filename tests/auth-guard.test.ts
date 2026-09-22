@@ -284,3 +284,52 @@ describe("requireAuth — AuthData.method round-trip (W07)", () => {
     expect("method" in persisted!).toBe(false);
   });
 });
+
+describe("email change revocation", () => {
+  it("clears a still-unexpired credential and never falls back after email_changed", async () => {
+    const auth = makeAuth({ expires_at: new Date(FIXED_NOW.getTime() + 60_000).toISOString() });
+    let removed = false;
+    const { exitCode, value } = await captureExit(() =>
+      requireAuth(ctx, {
+        now: () => FIXED_NOW,
+        read: () => auth,
+        remove: () => {
+          removed = true;
+        },
+        persist: () => {
+          throw new Error("must not persist");
+        },
+        refresh: async () => ({
+          ok: false,
+          status: 401,
+          code: "email_changed",
+          error: "email_changed",
+        }),
+      }),
+    );
+    expect(removed).toBe(true);
+    expect(value).toBeUndefined();
+    expect(exitCode).toBe(3);
+  });
+});
+
+it("retains the email_changed refusal when credential removal fails", async () => {
+  const auth = makeAuth({ expires_at: new Date(FIXED_NOW.getTime() + 60_000).toISOString() });
+  const { exitCode, value } = await captureExit(() =>
+    requireAuth(ctx, {
+      now: () => FIXED_NOW,
+      read: () => auth,
+      remove: () => {
+        throw new Error("read-only filesystem");
+      },
+      refresh: async () => ({
+        ok: false,
+        status: 403,
+        code: "email_changed",
+        error: "email_changed",
+      }),
+    }),
+  );
+  expect(value).toBeUndefined();
+  expect(exitCode).toBe(3);
+});

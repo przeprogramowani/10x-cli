@@ -1,3 +1,6 @@
+import { authFilePath, deleteAuth, readAuth } from "./config";
+import lockfile from "proper-lockfile";
+
 /**
  * Typed HTTP client for the 10x-toolkit delivery API.
  *
@@ -32,9 +35,7 @@ export function resolveApiBase(): string {
   try {
     url = new URL(override);
   } catch {
-    throw new Error(
-      `API_BASE_URL is not a valid URL: ${JSON.stringify(override)}`,
-    );
+    throw new Error(`API_BASE_URL is not a valid URL: ${JSON.stringify(override)}`);
   }
 
   // Path prefixes are rejected — the client composes its own paths like
@@ -106,6 +107,7 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   signing_failed: "Could not sign the download URL. Try again in a moment.",
   invalid_json: "The server received a malformed request.",
   // Auth
+  email_changed: "Your email changed. Run `10x auth` to sign in again.",
   unauthorized: "You are not signed in. Run `10x auth` first.",
   no_membership: "No active course membership was found for this email.",
   invalid_refresh_token: "Your session has expired. Run `10x auth` again.",
@@ -113,10 +115,13 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   rate_limited: "Too many requests. Please slow down and try again shortly.",
   email_send_failed: "Could not send the login email. Try again in a moment.",
   // Auth — Circle login
-  circle_login_disabled: "Circle login is currently unavailable. Run `10x auth --method email` instead.",
-  dm_rejected: "Circle refused to deliver the login message. Check your Circle direct-message settings or run `10x auth --method email`.",
+  circle_login_disabled:
+    "Circle login is currently unavailable. Run `10x auth --method email` instead.",
+  dm_rejected:
+    "Circle refused to deliver the login message. Check your Circle direct-message settings or run `10x auth --method email`.",
   access_denied: "This account is not allowed to sign in. Check your course access.",
-  expired_or_used: "This Circle login link has expired or was already used. Run `10x auth --method circle` again.",
+  expired_or_used:
+    "This Circle login link has expired or was already used. Run `10x auth --method circle` again.",
   slow_down: "Polling too fast. The CLI will wait longer between checks.",
   auth_cancelled: "Authentication was cancelled before it completed.",
   // Admin
@@ -135,8 +140,9 @@ export function messageForApiError(payload: ApiErrorPayload | undefined): string
   if (typeof payload.message === "string" && payload.message.length > 0) {
     return payload.message;
   }
-  if (typeof payload.error === "string" && payload.error.length > 0) {
-    return ERROR_CODE_MESSAGES[payload.error];
+  const code = payload.code ?? payload.error;
+  if (typeof code === "string" && code.length > 0) {
+    return ERROR_CODE_MESSAGES[code];
   }
   return undefined;
 }
@@ -203,6 +209,30 @@ async function request<T>(
   if (!response.ok) {
     const payload =
       parsed && typeof parsed === "object" ? (parsed as ApiErrorPayload) : undefined;
+    // Content requests do not hold the refresh lock. Compare again under it so
+    // credentials already replaced before the lock was acquired are retained.
+    if (
+      (payload?.code ?? payload?.error) === "email_changed" &&
+      options.token &&
+      readAuth()?.access_token === options.token
+    ) {
+      // Deletion is best-effort; a filesystem/lock failure never changes the
+      // server's refusal into fallback credentials or a network-error envelope.
+      try {
+        const release = await lockfile.lock(authFilePath(), {
+          realpath: false,
+          stale: 10_000,
+          retries: { retries: 5, factor: 2, minTimeout: 100, maxTimeout: 1_000 },
+        });
+        try {
+          if (readAuth()?.access_token === options.token) deleteAuth();
+        } finally {
+          await release();
+        }
+      } catch {
+        /* Keep email_changed as the authoritative response below. */
+      }
+    }
     const mapped = messageForApiError(payload);
     let errorMessage: string;
     if (mapped) {
@@ -217,13 +247,24 @@ async function request<T>(
     return {
       ok: false,
       status: response.status,
-      code: typeof payload?.code === "string" ? payload.code : typeof payload?.error === "string" ? payload.error : `http_${response.status}`,
+      code:
+        typeof payload?.code === "string"
+          ? payload.code
+          : typeof payload?.error === "string"
+            ? payload.error
+            : `http_${response.status}`,
       error: errorMessage,
       payload,
     };
   }
 
-  return { ok: true, status: response.status, data: parsed as T, responseHeaders: response.headers, rawBody: text };
+  return {
+    ok: true,
+    status: response.status,
+    data: parsed as T,
+    responseHeaders: response.headers,
+    rawBody: text,
+  };
 }
 
 export function apiGet<T>(path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
