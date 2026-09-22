@@ -41,9 +41,6 @@ import { assertProjectCourse, assertProjectFilePath, establishProjectCourse } fr
 
 const CLI_VERSION = pkgJson.version;
 
-/** Default course slug — matches the one hardcoded in `commands/get.ts`. */
-const DEFAULT_COURSE = "10xdevs3";
-
 export type ArtifactAction =
   | "created"
   | "updated"
@@ -150,7 +147,11 @@ export interface WritePlan {
 }
 
 export interface PlanOptions {
-  course?: string;
+  /**
+   * Course slug the caller resolved (explicit `--course`, project binding, or
+   * backend recommendation). Required — the writer never picks an edition.
+   */
+  course: string;
   profile?: ToolProfile;
   applyCourseRules?: boolean;
 }
@@ -173,10 +174,11 @@ export interface ApplyOptions {
    */
   dryRun?: boolean;
   /**
-   * Course slug recorded in the manifest. Defaults to `10xdevs3` to match
-   * the `get` command's default; tests and future commands can override.
+   * Course slug recorded in the manifest and bound to the project on the
+   * first real write. Resolved by the caller the same way as `PlanOptions`;
+   * there is no fallback edition here.
    */
-  course?: string;
+  course: string;
   /**
    * Tool profile controlling directory layout and sentinel markers.
    * Defaults to the `claude-code` profile for backward compatibility.
@@ -218,10 +220,10 @@ export interface ApplyOptions {
 /**
  * Apply a lesson bundle to a project. See module docstring for semantics.
  */
-export async function applyBundle(bundle: LessonBundle, projectRoot: string, options: ApplyOptions = {}): Promise<WriteResult> {
+export async function applyBundle(bundle: LessonBundle, projectRoot: string, options: ApplyOptions): Promise<WriteResult> {
   const dryRun = options.dryRun === true;
   const partial = options.partial === true;
-  const course = options.course ?? DEFAULT_COURSE;
+  const course = options.course;
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
   const applyCourseRules = options.applyCourseRules !== false;
   const plan = planBundle(bundle, projectRoot, { course, profile, applyCourseRules });
@@ -407,13 +409,13 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
 export function planBundle(
   bundle: LessonBundle,
   projectRoot: string,
-  options: PlanOptions = {},
+  options: PlanOptions,
 ): WritePlan {
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
   const applyCourseRules = options.applyCourseRules !== false;
 
   validateBundlePayload(bundle);
-  if (options.course && bundle.course !== undefined && bundle.course !== options.course) throw new Error("Bundle course differs from selected project course");
+  if (bundle.course !== undefined && bundle.course !== options.course) throw new Error("Bundle course differs from selected project course");
   // Validate up front — the same guard applyBundle relied on, centralized here
   // so a tampered bundle is rejected before any read or (downstream) write.
   for (const skill of bundle.skills) {

@@ -41,8 +41,16 @@ verified global/standalone executable:
 10x_cli get --help
 10x_cli sync --help
 10x_cli auth --status
-10x_cli list --course 10xdevs4
+10x_cli list
 ```
+
+Leave `--course` out of these commands: the CLI reads the edition from
+`.10x-cli.json` when the directory is already bound, otherwise from the live API
+recommendation (the highest edition the account can reach). `get` prints
+`Course: <slug> (<reason>)`; check it once before the first write. Use
+`--course <slug>` only to inspect another entitled edition on purpose — a bound
+project cannot be rewritten to a different edition (`course_mismatch`), so v4
+starts in a new empty directory.
 
 Check source/release evidence for lesson reference, skill filter and lesson-scoped sync, then use the
 filtered preview below to check the endpoint. Do not treat a successful help exit as
@@ -86,14 +94,14 @@ narrower scope. After checking each name's capability and availability, download
 four separate complete selected skill trees. Inspect each dry-run before its corresponding write:
 
 ```bash
-10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-idea-check --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-init --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-shape --course 10xdevs4 --tool claude-code --lang pl
-10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli get m1l1 --type skills --name 10x-prd --course 10xdevs4 --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-idea-check --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-idea-check --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-init --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-init --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-shape --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-shape --tool claude-code --lang pl
+10x_cli get m1l1 --type skills --name 10x-prd --tool claude-code --lang pl --dry-run
+10x_cli get m1l1 --type skills --name 10x-prd --tool claude-code --lang pl
 ```
 
 Inspect each report and the complete supporting tree, not just SKILL.md. In the
@@ -138,8 +146,8 @@ missing prerequisite and obtain the supported route from the lesson/release owne
 before that step. Do not invent a rule command or download a full lesson to bypass
 it. Do not overwrite an existing project rule.
 
-For browsing use `10x_cli list m1 --course 10xdevs4`. The commands above filter
-one lesson by skill name; `get 10x-init` is not supported. `--print` is inspection:
+For browsing use `10x_cli list m1`. The commands above filter one lesson by skill
+name; `get 10x-init` is not supported. `--print` is inspection:
 TTY Markdown can contain only SKILL.md; non-TTY output is a JSON envelope. Never
 redirect print output into SKILL.md as a package installation.
 
@@ -180,16 +188,17 @@ two canonical output filenames instead of forcing an overwrite.
 
 ## Update
 
-Use the same runner, directory, course, tool and language. Sync updates entire
-downloaded lessons, including m1l1 after these filtered gets. Its preview may
+Use the same runner, directory, tool and language; the edition stays the project's
+own, so `sync` needs no `--course` either. Sync updates entire downloaded lessons,
+including m1l1 after these filtered gets. Its preview may
 include other skills, prompts, configs and course rules. Inspect that expanded
 scope and apply only when the user accepts it; to update only one skill, repeat
 its filtered preview/get instead. Do not use sync as a hidden rule prerequisite
 workaround:
 
 ```bash
-10x_cli sync --course 10xdevs4 --tool claude-code --lang pl --dry-run
-10x_cli sync --course 10xdevs4 --tool claude-code --lang pl
+10x_cli sync --tool claude-code --lang pl --dry-run
+10x_cli sync --tool claude-code --lang pl
 ```
 
 Normal sync refreshes the full lessons recorded in the manifest, not just the
@@ -200,9 +209,9 @@ resource counts even if exit is 0: skipped conflicts alone are not process error
 Do not equate an unchanged remote digest with intact local files.
 
 For one conflicting skill, inspect the diff and back up local work before retrying
-its filtered get in an interactive terminal with the same course/tool/lang. Preserve
-the user's resolution choice. If a CLI hint omits context, restore these flags in
-your proposed command. Never run automatic `--force`; it can overwrite local
+its filtered get in an interactive terminal, from the same directory and with the
+same tool/lang. Preserve the user's resolution choice. If a CLI hint omits context,
+restore these flags in your proposed command. Never run automatic `--force`; it can overwrite local
 skill/prompt edits and does not bypass protected rules or safe removal. Config
 templates remain create-only. Cleanup preserves modified/untracked files and
 files owned elsewhere; do not manually sweep a skill directory after sync.
@@ -251,8 +260,10 @@ other-agent walkthrough. Translate shell syntax to the user's actual shell.
 
 Run `10x_cli doctor --json` when diagnosis is useful; inspect its complete
 `data.overall` and `data.checks` as well as exit status. It checks the configured
-profile, not a `--tool` or `--course` argument. Before first get, a missing tool
-directory can be expected; explain only that failure and keep other failures
+profile, not a `--tool` or `--course` argument. Its auth check reports the resolved
+edition and selection reason (`details.course`, `details.selectionReason`) — that is
+the self-check for which edition this directory is on. Before first get, a missing
+tool directory can be expected; explain only that failure and keep other failures
 visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 
 | Symptom | Next step |

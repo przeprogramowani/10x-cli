@@ -52,6 +52,11 @@ describe("course selection contract", () => {
     { courses: [{ ...v3, available: "true" }], defaultCourse: v3.slug },
     { courses: [v3, { ...v4, id: v3.slug }], defaultCourse: v4.slug },
   ])("rejects contradictory discovery %#", (value) => { expect(validateCourseDiscovery(value)).toBe(false); });
+  it("never falls back to 10xdevs3 when nothing resolves a course", () => {
+    expect(() => selectCourse({ courses: [v4], defaultCourse: null }, none)).toThrow(/Invalid course discovery/);
+    expect(() => selectCourse(discovery([], null), none)).toThrow(/no active course access/);
+    for (const data of [discovery([v4]), discovery([v3, v4])]) expect(selectCourse(data, none).course).not.toBe(v3.slug);
+  });
   it("distinguishes no membership from unpublished membership", () => {
     expect(() => selectCourse(discovery([], null), none)).toThrow(/no active course access/);
     expect(() => selectCourse(discovery([{ ...v4, available: false }], null), none)).toThrow(/no available published/);

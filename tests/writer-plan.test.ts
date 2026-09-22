@@ -39,20 +39,20 @@ const skillFile = ".claude/skills/code-review/SKILL.md";
 
 describe("planBundle — read-only", () => {
   it("writes nothing to disk on a fresh project", () => {
-    const plan = planBundle(baseBundle(), tmp);
+    const plan = planBundle(baseBundle(), tmp, { course: "10xdevs3" });
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
     expect(plan.skills[0]!.files[0]!.action).toBe("created");
   });
 
   it("does not prompt — it reports conflicts instead of resolving them", async () => {
-    await applyBundle(baseBundle(), tmp);
+    await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
     // User edits the local skill file, upstream also moves → a real conflict.
     writeFileSync(join(tmp, skillFile), "# locally edited\n");
     const updated = baseBundle();
     updated.skills[0]!.files[0]!.content = "# Code Review\nB (upstream)\n";
 
     // planBundle has no resolver parameter, so it cannot prompt by construction.
-    const plan = planBundle(updated, tmp);
+    const plan = planBundle(updated, tmp, { course: "10xdevs3" });
     const file = plan.skills[0]!.files[0]!;
     expect(file.isConflict).toBe(true);
     expect(file.action).toBe("updated");
@@ -63,8 +63,8 @@ describe("planBundle — read-only", () => {
 
 describe("planBundle / applyBundle parity", () => {
   it("new file → created (parity)", async () => {
-    const plan = planBundle(baseBundle(), tmp);
-    const result = await applyBundle(baseBundle(), tmp);
+    const plan = planBundle(baseBundle(), tmp, { course: "10xdevs3" });
+    const result = await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
     expect(plan.skills[0]!.files[0]!.action).toBe("created");
     expect(plan.skills[0]!.files[0]!.isConflict).toBe(false);
     expect(plan.skills[0]!.files[0]!.upstreamChanged).toBe(true);
@@ -72,9 +72,9 @@ describe("planBundle / applyBundle parity", () => {
   });
 
   it("re-apply identical → unchanged, upstreamChanged false (parity)", async () => {
-    await applyBundle(baseBundle(), tmp);
-    const plan = planBundle(baseBundle(), tmp);
-    const result = await applyBundle(baseBundle(), tmp);
+    await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
+    const plan = planBundle(baseBundle(), tmp, { course: "10xdevs3" });
+    const result = await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
     expect(plan.skills[0]!.files[0]!.action).toBe("unchanged");
     expect(plan.skills[0]!.files[0]!.isConflict).toBe(false);
     expect(plan.skills[0]!.files[0]!.upstreamChanged).toBe(false);
@@ -82,12 +82,12 @@ describe("planBundle / applyBundle parity", () => {
   });
 
   it("clean upstream update → updated, no conflict (parity)", async () => {
-    await applyBundle(baseBundle(), tmp);
+    await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
     const updated = baseBundle();
     updated.skills[0]!.files[0]!.content = "# Code Review\nB\n";
 
-    const plan = planBundle(updated, tmp);
-    const result = await applyBundle(updated, tmp);
+    const plan = planBundle(updated, tmp, { course: "10xdevs3" });
+    const result = await applyBundle(updated, tmp, { course: "10xdevs3" });
     expect(plan.skills[0]!.files[0]!.action).toBe("updated");
     expect(plan.skills[0]!.files[0]!.isConflict).toBe(false);
     expect(plan.skills[0]!.files[0]!.upstreamChanged).toBe(true);
@@ -95,31 +95,40 @@ describe("planBundle / applyBundle parity", () => {
   });
 
   it("user-edit conflict → plan reports conflict; apply skips by default, overwrites with resolver", async () => {
-    await applyBundle(baseBundle(), tmp);
+    await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
     writeFileSync(join(tmp, skillFile), "# locally edited\n");
     const updated = baseBundle();
     updated.skills[0]!.files[0]!.content = "# Code Review\nB (upstream)\n";
 
-    const plan = planBundle(updated, tmp);
+    const plan = planBundle(updated, tmp, { course: "10xdevs3" });
     expect(plan.skills[0]!.files[0]!.action).toBe("updated");
     expect(plan.skills[0]!.files[0]!.isConflict).toBe(true);
 
     // Default resolver (skip) — local edit preserved.
-    const skipped = await applyBundle(updated, tmp);
+    const skipped = await applyBundle(updated, tmp, { course: "10xdevs3" });
     expect(skipped.skills[0]!.files[0]!.action).toBe("conflict_skipped");
     expect(readFileSync(join(tmp, skillFile), "utf8")).toBe("# locally edited\n");
 
     // Conflict still present (skip did not update the stored hash); overwrite now.
     const overwritten = await applyBundle(updated, tmp, {
+      course: "10xdevs3",
       onConflict: async () => "overwrite",
     });
     expect(overwritten.skills[0]!.files[0]!.action).toBe("conflict_overwritten");
     expect(readFileSync(join(tmp, skillFile), "utf8")).toBe("# Code Review\nB (upstream)\n");
   });
 
+  it("requires the caller to resolve the course — no 10xdevs3 fallback", async () => {
+    const bundle = { ...baseBundle(), course: "10xdevs4" };
+    // @ts-expect-error - `course` is required: the writer must never pick an edition itself.
+    expect(() => planBundle(bundle, tmp, {})).toThrow(/Bundle course differs/);
+    await applyBundle(bundle, tmp, { course: "10xdevs4" });
+    expect(JSON.parse(readFileSync(join(tmp, ".10x-cli.json"), "utf8")).course).toBe("10xdevs4");
+  });
+
   it("prompt + config + rules actions match applyBundle (parity)", async () => {
-    const plan = planBundle(baseBundle(), tmp);
-    const result = await applyBundle(baseBundle(), tmp);
+    const plan = planBundle(baseBundle(), tmp, { course: "10xdevs3" });
+    const result = await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
     expect(plan.prompts[0]!.action).toBe(result.prompts[0]!.action);
     expect(String(plan.configs[0]!.action)).toBe(result.configs[0]!.action);
     expect(plan.rules.action).toBe(result.rules.action);
