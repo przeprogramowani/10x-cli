@@ -77,6 +77,17 @@ describe("tool profiles — path generation", () => {
     expect(p.manifestDir).toBe(".devin");
   });
 
+  it("factory profile produces native Factory paths and requests the generic content variant", () => {
+    const p = PROFILES["factory"]!;
+    expect(p.displayName).toBe("Factory AI");
+    expect(p.skillPath("code-review")).toBe(".factory/skills/code-review/SKILL.md");
+    expect(p.promptPath("plan")).toBe(".factory/commands/plan.md");
+    expect(p.configPath("settings.json")).toBe(".factory/config-templates/settings.json");
+    expect(p.rulesFile).toBe("AGENTS.md");
+    expect(p.manifestDir).toBe(".factory");
+    expect(contentToolId(p)).toBe("generic");
+  });
+
   it("kiro profile produces .kiro/ paths and requests the generic content variant", () => {
     const p = PROFILES["kiro"]!;
     expect(p.displayName).toBe("Kiro");
@@ -276,6 +287,17 @@ describe("resolveToolProfile — auto-detection", () => {
     expect(clackMockState.lastSelect!.initialValue).toBe("cursor");
     expect(clackMockState.noteMessages.some((m) => /Cursor/.test(m))).toBe(true);
     expect(profile.toolId).toBe("cursor");
+  });
+
+  it("TTY + Factory markers: prompt selects Factory over the AGENTS.md fallback", async () => {
+    process.stdout.isTTY = true;
+    mkdirSync(join(projectRoot, ".factory", "commands"), { recursive: true });
+    writeFileSync(join(projectRoot, "AGENTS.md"), "# shared instructions\n");
+
+    const profile = await resolveToolProfile(undefined, projectRoot);
+
+    expect(clackMockState.lastSelect?.initialValue).toBe("factory");
+    expect(profile.toolId).toBe("factory");
   });
 
   it("TTY + no detection match: prompt initialValue is claude-code, no note printed", async () => {

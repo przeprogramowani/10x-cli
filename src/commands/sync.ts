@@ -101,7 +101,7 @@ export function registerSyncCommand(cli: CAC): void {
     .option("--course <course>", "Select course ID or slug (default: project edition or API recommendation)")
     .option(
       "--tool <tool>",
-      "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, gemini, kiro, generic)",
+      "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, factory, gemini, kiro, generic)",
     )
     .option("--lang <lang>", "Content language: en (default) or pl")
     .option(

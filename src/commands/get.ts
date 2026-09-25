@@ -62,7 +62,7 @@ export function registerGetCommand(cli: CAC): void {
     .option("--course <course>", "Select course ID or slug (default: project edition or API recommendation)")
     .option(
       "--tool <tool>",
-      "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, gemini, kiro, generic)",
+      "AI coding tool (claude-code, cursor, copilot, codex, devin-desktop, factory, gemini, kiro, generic)",
     )
     .option("--print", "Print artifact content to stdout instead of writing to files")
     .option("--type <type>", "Artifact type filter: skills, prompts, rules, configs")

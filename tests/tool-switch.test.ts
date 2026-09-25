@@ -561,6 +561,32 @@ describe("profile migration shared rules", () => {
     expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
     expect(readManifest(join(tmp, ".ai"))!.managedRules).toBeDefined();
   });
+  it("Factory shares byte-identical AGENTS.md rules with Generic", async () => {
+    const { applyBundle } = await import("../src/lib/writer");
+    const bundle = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [], rules: [{ name: "rules", content: "generic rules" }] };
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: PROFILES.generic! });
+    const before = readFileSync(join(tmp, "AGENTS.md"));
+    const result = await applyBundle(bundle, tmp, { course: "10xdevs3", profile: PROFILES.factory!, onConflict: async () => "overwrite" });
+    // The shared Generic baseline proves compatibility, but Factory still
+    // needs an explicit choice before adopting a block it did not install.
+    expect(result.rules.action).toBe("conflict_overwritten");
+    expect(readFileSync(join(tmp, "AGENTS.md"))).toEqual(before);
+    expect(readManifest(join(tmp, ".factory"))!.managedRules?.upstreamHash).toBe(readManifest(join(tmp, ".ai"))!.managedRules?.upstreamHash);
+  });
+  for (const ownerId of ["codex", "devin-desktop"] as const) {
+    it(`Factory cannot overwrite ${ownerId}-owned incompatible AGENTS.md rules, even when requested`, async () => {
+      const { applyBundle } = await import("../src/lib/writer");
+      const base = { lessonId: "m1l1", module: 1, lesson: 1, title: "A", summary: "", skills: [], prompts: [], configs: [] };
+      await applyBundle({ ...base, rules: [{ name: "rules", content: `${ownerId} variant` }] }, tmp, { course: "10xdevs3", profile: PROFILES[ownerId]! });
+      const before = readFileSync(join(tmp, "AGENTS.md"), "utf8");
+      const result = await applyBundle({ ...base, rules: [{ name: "rules", content: "factory generic variant" }] }, tmp, { course: "10xdevs3", profile: PROFILES.factory!, onConflict: async () => "overwrite" });
+      expect(result.rules.action).toBe("conflict_skipped");
+      expect(result.rules.reason).toBe("incompatible_shared_owner");
+      expect(readFileSync(join(tmp, "AGENTS.md"), "utf8")).toBe(before);
+      expect(readManifest(join(tmp, ".factory"))?.managedRules).toBeUndefined();
+      expect(readManifest(join(tmp, PROFILES[ownerId]!.manifestDir))!.managedRules).toBeDefined();
+    });
+  }
   it("transfers AGENTS.md ownership from kiro to codex without rewriting the file", async () => {
     const { applyBundle, findOrphanedManifests } = await import("../src/lib/writer");
     const source = PROFILES.kiro!;
