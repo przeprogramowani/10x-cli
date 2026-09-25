@@ -176,6 +176,57 @@ describe("detectTools", () => {
     expect(signals[0]!.confidence).toBe("strong");
   });
 
+  it(".factory manifest → factory (strong)", () => {
+    writeManifestAt(".factory");
+    const signals = detectTools(tmp);
+    expect(signals[0]!.profileId).toBe("factory");
+    expect(signals[0]!.confidence).toBe("strong");
+    expect(signals[0]!.reason).toBe(".factory/.10x-cli-manifest.json");
+  });
+
+  it(".factory/commands/ → factory (strong)", () => {
+    touchDir(".factory/commands");
+    const signals = detectTools(tmp);
+    expect(signals[0]!.profileId).toBe("factory");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it(".factory/droids/ → factory (strong)", () => {
+    touchDir(".factory/droids");
+    const signals = detectTools(tmp);
+    expect(signals[0]!.profileId).toBe("factory");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it(".factory/skills/ → factory (strong)", () => {
+    touchDir(".factory/skills");
+    const signals = detectTools(tmp);
+    expect(signals[0]!.profileId).toBe("factory");
+    expect(signals[0]!.confidence).toBe("strong");
+  });
+
+  it("bare .factory/ + AGENTS.md → factory outranks Codex and Generic", () => {
+    touchDir(".factory");
+    touchFile("AGENTS.md", "# agents\n");
+    const signals = detectTools(tmp);
+    expect(signals.map((s) => [s.profileId, s.confidence])).toEqual([
+      ["factory", "strong"],
+      ["codex", "medium"],
+      ["generic", "weak"],
+    ]);
+  });
+
+  it("AGENTS.md alone does not identify Factory", () => {
+    touchFile("AGENTS.md", "# agents\n");
+    expect(detectTools(tmp).map((signal) => signal.profileId)).not.toContain("factory");
+  });
+
+  it("Factory ranks before Generic when both have strong project markers", () => {
+    touchDir(".factory");
+    touchDir(".ai");
+    expect(detectTools(tmp).map((signal) => signal.profileId)).toEqual(["factory", "generic"]);
+  });
+
   it(".kiro manifest → kiro (strong)", () => {
     writeManifestAt(".kiro");
     const signals = detectTools(tmp);
@@ -260,6 +311,11 @@ describe("topDetectedProfile", () => {
     const signals = detectTools(tmp);
     const profile = topDetectedProfile(signals);
     expect(profile?.toolId).toBe("cursor");
+  });
+
+  it("resolves the Factory profile from a .factory/ signal", () => {
+    touchDir(".factory");
+    expect(topDetectedProfile(detectTools(tmp))?.toolId).toBe("factory");
   });
 
   it("resolves the Kiro profile from a .kiro/ signal", () => {

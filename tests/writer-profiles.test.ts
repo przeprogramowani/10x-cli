@@ -153,6 +153,27 @@ describe("writer with Devin Desktop profile", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Factory AI profile
+// ---------------------------------------------------------------------------
+
+describe("writer with Factory AI profile", () => {
+  const factoryProfile = PROFILES["factory"]!;
+
+  it("writes skills, native slash-command prompts, configs, rules, and manifest", async () => {
+    const bundle = makeBundle();
+    bundle.prompts = [{ name: "plan", content: "# Preserve prompt bytes\r\n" }];
+    await applyBundle(bundle, tmp, { course: "10xdevs3", profile: factoryProfile });
+
+    expect(existsSync(join(tmp, ".factory/skills/code-review/SKILL.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".factory/commands/plan.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".factory/config-templates/settings.json"))).toBe(true);
+    expect(readFileSync(join(tmp, "AGENTS.md"), "utf8")).toContain("Always test.");
+    expect(readManifest(join(tmp, ".factory"))?.tool).toBe("factory");
+    expect(existsSync(join(tmp, ".ai"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Kiro profile
 // ---------------------------------------------------------------------------
 
