@@ -64,6 +64,7 @@ The CLI writes artifacts to the correct directory for your AI coding tool:
 | GitHub Copilot | `.github/skills/` | `.github/copilot-instructions.md` | `.github/config-templates/` |
 | Codex CLI | `.agents/skills/` | `AGENTS.md` | `.agents/config-templates/` |
 | Devin Desktop | `.devin/skills/` | `AGENTS.md` | `.devin/config-templates/` |
+| Factory AI | `.factory/skills/` | `AGENTS.md` | `.factory/config-templates/` |
 | Kiro | `.kiro/skills/` | `AGENTS.md` | `.kiro/config-templates/` |
 | Generic | `.ai/skills/` | `AGENTS.md` | `.ai/config-templates/` |
 
@@ -72,6 +73,22 @@ The CLI auto-detects your tool from project markers on first run. Override anyti
 ```
 10x get m1l1 --tool cursor
 ```
+
+Factory AI writes skills to `.factory/skills/`, prompts as native custom slash
+commands under `.factory/commands/<name>.md`, and config templates to
+`.factory/config-templates/`. Prompt filenames and contents are preserved.
+Config templates are only a staging location, not automatically activated
+Factory configuration. Select it explicitly with `10x get m1l1 --tool factory`
+or `10x sync --tool factory`; the API receives the `generic` content variant,
+while the manifest records `factory`. Detection uses `.factory/`, its manifest,
+`.factory/commands/`, `.factory/droids/`, or `.factory/skills/`; a root
+`AGENTS.md` alone is not a Factory marker.
+
+Factory shares root `AGENTS.md` with Codex CLI, Devin Desktop, Kiro, and Generic.
+The sentinel-managed course rules may be shared only when their bytes match.
+Factory and Generic are compatible because both use generic content; Codex or
+Devin rules with different bytes block Factory replacement, including an
+explicit overwrite request. Other Factory artifacts can still be installed.
 
 Kiro reads the root `AGENTS.md` as steering context, so it writes to the same
 file as Codex CLI, Devin Desktop and Generic. Two profiles can hold the same

@@ -42,7 +42,7 @@ Once your release includes it, run from the intended project directory:
 
 This installs **both** `10x-cli-setup` and `10x-cli-guide`, each with its complete
 `SKILL.md` and `references/compatibility.md`, into `.github/skills/`. Use
-`--tool claude-code`, `cursor`, `codex`, `devin-desktop`, `gemini`, `kiro`, or `generic`
+`--tool claude-code`, `cursor`, `codex`, `devin-desktop`, `factory`, `gemini`, `kiro`, or `generic`
 when that is your intended tool. The target must be explicit; installation is
 project-only. There is no `--global`, automatic agent detection, `skills`/npx
 subprocess, authentication, or network access. The helper bytes come from the
@@ -181,7 +181,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 
 | Flag | Description |
 |------|-------------|
-| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `generic` |
+| `--tool <tool>` | AI coding tool: `claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `factory`, `generic` |
 | `--print` | Output artifact content to stdout instead of writing files |
 | `--type <type>` | Filter by artifact type: `skills`, `prompts`, `rules`, `configs` |
 | `--name <name>` | Filter by artifact name (requires `--type`) |
@@ -309,7 +309,7 @@ scoring live in the template and the instance.
 | Flag | Description |
 |------|-------------|
 | `--template-version <tag>` | Template tag to install (default: latest) |
-| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `generic`) |
+| `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `factory`, `generic`) |
 | `--yes` | Run non-interactively, accepting defaults |
 | `--deep` | Clone the detected base repo with full history (default: shallow, HEAD only) |
 
@@ -363,12 +363,27 @@ On first run, the CLI prompts you to choose your AI coding tool. Artifacts are w
 | Devin Desktop | `.devin/` | `AGENTS.md` |
 | Gemini CLI | `.gemini/` | `GEMINI.md` |
 | Kiro | `.kiro/` | `AGENTS.md` |
+| Factory AI | `.factory/` | `AGENTS.md` |
 | Generic | `.ai/` | `AGENTS.md` |
 
 Override with `--tool <name>`. Validated writing commands save your choice in `~/.config/10x-cli/config.json`. Previews leave it unchanged.
 The former `windsurf` ID remains accepted as an alias and is upgraded to
 `devin-desktop`; existing `.windsurf/` artifacts can be migrated by the normal
 tool-switch prompt.
+
+Factory AI stores skills in `.factory/skills/`, prompts in
+`.factory/commands/<name>.md` as custom slash commands, and config templates in
+`.factory/config-templates/`. Prompt names and bytes are preserved. Config
+templates are only a staging location; the CLI does not activate or merge them.
+Factory requests the generic content variant from the delivery API while its
+manifest records `factory`. It is auto-detected from `.factory/` (including its
+manifest, `skills/`, or `commands/`); `AGENTS.md` alone does not identify
+Factory.
+
+Factory shares root `AGENTS.md` with Codex CLI, Devin Desktop, Kiro, and Generic.
+The managed course-rules block can be shared only when its bytes are identical.
+Factory and Generic use the same generic content, but incompatible Codex or
+Devin rules stay protected even when an overwrite is requested.
 
 ## Development
 

@@ -59,7 +59,7 @@ export function helperInstallContract(label: string, command: () => string[]): v
       expect(tree(f.home)).toEqual({});
     });
 
-    for (const [tool, dir] of [["claude-code", ".claude"], ["kiro", ".kiro"]] as const) {
+    for (const [tool, dir] of [["claude-code", ".claude"], ["factory", ".factory"], ["kiro", ".kiro"]] as const) {
       it(`previews the chosen ${tool} profile without writes`, () => {
         const f = fixture(); const before = tree(f.project);
         const p = f.run("helpers", "install", "--tool", tool, "--dry-run");
@@ -70,6 +70,14 @@ export function helperInstallContract(label: string, command: () => string[]): v
         expect(tree(f.project)).toEqual(before);
       });
     }
+
+    it("installs the complete packaged tree for Factory under .factory/skills", () => {
+      const f = fixture();
+      const p = f.run("helpers", "install", "--tool", "factory");
+      expect(p.exitCode).toBe(0);
+      expect(tree(join(f.project, ".factory/skills"))).toEqual(tree(SOURCE));
+      expect(existsSync(join(f.project, ".claude"))).toBe(false);
+    });
 
     it("installs the complete packaged tree for kiro under .kiro/skills", () => {
       const f = fixture();

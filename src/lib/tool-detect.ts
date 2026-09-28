@@ -125,6 +125,25 @@ export function detectTools(projectRoot: string): DetectionSignal[] {
     });
   }
 
+  // Factory AI — its project configuration is rooted in `.factory/`. The
+  // directory itself is an explicit marker; checking subpaths first gives a
+  // more useful reason without changing the strong confidence.
+  if (hit(".factory/" + MANIFEST_FILENAME)) {
+    signals.push({
+      profileId: "factory",
+      confidence: "strong",
+      reason: ".factory/.10x-cli-manifest.json",
+    });
+  } else if (hit(".factory/commands")) {
+    signals.push({ profileId: "factory", confidence: "strong", reason: ".factory/commands/" });
+  } else if (hit(".factory/droids")) {
+    signals.push({ profileId: "factory", confidence: "strong", reason: ".factory/droids/" });
+  } else if (hit(".factory/skills")) {
+    signals.push({ profileId: "factory", confidence: "strong", reason: ".factory/skills/" });
+  } else if (hit(".factory")) {
+    signals.push({ profileId: "factory", confidence: "strong", reason: ".factory/ directory" });
+  }
+
   // Gemini CLI
   if (hit(".gemini/" + MANIFEST_FILENAME)) {
     signals.push({
@@ -186,6 +205,7 @@ const PROFILE_ORDER = [
   "copilot",
   "codex",
   "devin-desktop",
+  "factory",
   "gemini",
   "kiro",
   "generic",

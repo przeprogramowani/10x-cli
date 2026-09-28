@@ -395,6 +395,20 @@ describe("10x get — --lang flag", () => {
     expect(exitCode ?? 0).toBe(0);
     expect(capturedTool).toBe("cursor");
   });
+  it("passes the generic content variant for --tool factory", async () => {
+    writeValidAuth();
+    let capturedTool: string | undefined;
+    apiContentMockState.fetchLessonImpl = (_course, _lessonId, _token, options) => {
+      capturedTool = options?.tool;
+      return lessonOk(makeBundle());
+    };
+
+    const { exitCode } = await runGet(["get", "m1l1", "--tool", "factory", "--json"]);
+
+    expect(exitCode).toBeUndefined();
+    expect(capturedTool).toBe("generic");
+    expect(readManifest(join(projectRoot, ".factory"))?.tool).toBe("factory");
+  });
 
   it("passes ?tool=cursor to fetchLesson in print/filter flow (--print --type rules)", async () => {
     writeValidAuth();

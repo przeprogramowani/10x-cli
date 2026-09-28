@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Factory AI is a supported tool profile.** `--tool factory` writes skills
+  under `.factory/skills/`, prompts under `.factory/commands/`, config templates
+  under `.factory/config-templates/`, and course rules to root `AGENTS.md`.
+  The API receives the generic content variant. Detection uses Factory-specific
+  `.factory/` markers, not `AGENTS.md` alone.
 - **Kiro is a supported tool profile.** `--tool kiro` writes artifacts under
   `.kiro/`, uses root `AGENTS.md` for course rules, and is auto-detected from
   `.kiro/steering/`, `.kiro/specs/`, `.kiro/hooks/`, `.kiro/settings/` or a bare
