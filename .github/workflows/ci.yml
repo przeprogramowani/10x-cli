@@ -178,7 +178,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅' || '❌' }} Tests (Linux/Windows)    ${{ needs.release.result == 'failure' && '❌' || needs.release.outputs.proceed == 'true' && '✅' || '⏭️' }} npm + release${{ needs.release.outputs.reason != '' && needs.release.outputs.proceed != 'true' && format(' ({0})', needs.release.outputs.reason) || '' }}"
+                    "text": "${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅' || '❌' }} Tests (Linux/Windows)    ${{ needs.release.result == 'failure' && '❌' || needs.release.outputs.proceed == 'true' && '✅' || '⏭️' }} npm + release${{ needs.release.outputs.reason != '' && (needs.release.outputs.proceed != 'true' || needs.release.outputs.reason == 'resumed-unfinished-release') && format(' ({0})', needs.release.outputs.reason) || '' }}"
                   }
                 },
                 {

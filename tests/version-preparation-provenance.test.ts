@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "bun:test";
-import { loadPreparationForMerge } from "../scripts/prepare-version.mjs";
+import { loadPreparationForMerge, publishedBaseline } from "../scripts/prepare-version.mjs";
 
 const repository = "przeprogramowani/10x-cli";
 const repo = () => ({ id: 1208637968, url: `https://api.github.com/repos/${repository}`, full_name: repository });
@@ -141,5 +141,20 @@ describe("event-aware retained version preparation provenance", () => {
     const parent = fixture(); parent.values.mergeCommit = { parents: [{ sha: sha("e") }] }; await expect(parent.load()).rejects.toThrow();
     const head = fixture(); head.values.mergedPr.head.sha = sha("e"); await expect(head.load()).rejects.toThrow();
     const ancestry = fixture(); ancestry.values.compare = { merge_base_commit: { sha: sha("e") } }; await expect(ancestry.load()).rejects.toThrow();
+  });
+});
+
+// Run 36462419962 failed with a bare "Completed stable GitHub release required".
+describe("a baseline without its release says which one and how to finish it", () => {
+  it("names the version, its gitHead and the recovery path", async () => {
+    const registry = async () => ({ name: "@przeprogramowani/10x-cli", version: "1.25.3", gitHead: old, dist: { integrity: "sha512-AAAA" } });
+    const error = await publishedBaseline(async () => null, registry).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toStartWith("Completed stable GitHub release required");
+    expect(message).toContain("1.25.3");
+    expect(message).toContain(old);
+    expect(message).toContain("release / publish");
+    expect(message).toContain("docs/how-to/release-cli.md");
   });
 });

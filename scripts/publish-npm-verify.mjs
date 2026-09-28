@@ -2,10 +2,17 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const REGISTRY_VERSION = (version) => `https://registry.npmjs.org/@przeprogramowani%2f10x-cli/${version}`;
-export const DEFAULT_WAIT = { timeoutMs: 180_000, initialDelayMs: 1_000, maxDelayMs: 8_000 };
+/**
+ * npm answers a fresh version with 404 for minutes after `npm publish` returns
+ * ("may take a few minutes to become available"). Run 36461685814 gave up after
+ * three minutes on a version that was served soon after; ten still leaves the
+ * 20-minute publish job room for the download and byte comparison.
+ */
+export const DEFAULT_WAIT = { timeoutMs: 600_000, initialDelayMs: 1_000, maxDelayMs: 15_000 };
 
 const sha = (s) => typeof s === "string" && /^[a-f0-9]{40}$/.test(s);
 const integrityOf = (bytes) => "sha512-" + createHash("sha512").update(bytes).digest("base64");
@@ -14,8 +21,11 @@ export function metadataIsComplete(meta) {
   return Boolean(meta && meta.version && meta.dist && typeof meta.dist.tarball === "string" && meta.dist.tarball.startsWith("https://") && typeof meta.dist.integrity === "string" && meta.dist.integrity.startsWith("sha512-"));
 }
 
-export async function fetchVersionMetadata(version, fetchFn = fetch) {
-  const response = await fetchFn(REGISTRY_VERSION(version), { signal: AbortSignal.timeout(30000) });
+export async function fetchVersionMetadata(version, fetchFn = fetch, { fresh = false } = {}) {
+  // A unique query keeps any intermediary from answering a poll with the 404 it
+  // stored before the publication; the registry ignores the parameter.
+  const url = fresh ? `${REGISTRY_VERSION(version)}?t=${Date.now()}` : REGISTRY_VERSION(version);
+  const response = await fetchFn(url, { signal: AbortSignal.timeout(30000) });
   const text = await response.text();
   let body = null;
   try { body = JSON.parse(text); } catch { body = null; }
@@ -27,7 +37,7 @@ export async function waitForPublishedMetadata(version, { fetchFn = fetch, sleep
   let delay = initialDelayMs, attempt = 0;
   while (true) {
     attempt += 1;
-    const { status, body } = await fetchVersionMetadata(version, fetchFn);
+    const { status, body } = await fetchVersionMetadata(version, fetchFn, { fresh: true });
     if (status === 200 && metadataIsComplete(body)) {
       log(`registry metadata ready for ${version} after ${attempt} attempt(s)`);
       return body;
@@ -71,24 +81,50 @@ export async function classifyPublishDecision({ version, expectedIntegrity, sour
  * proceed; a version already held by a foreign gitHead is a manual publication
  * that overtook the automation — green and skipped on a push, an operator
  * mistake on a dispatch.
+ *
+ * The one exception is a push that finds the version held by an ancestor of
+ * this commit whose GitHub release never completed: an earlier master run
+ * published and then failed. Left alone it blocks every later version
+ * preparation, so the push finishes that release from the registry's own SHA
+ * (`sha`) instead of skipping. It still never republishes.
  */
-export const GATE_REASONS = { publish: "published", resume: "resumed", conflict: "version-already-published-from-other-sha" };
+export const GATE_REASONS = { publish: "published", resume: "resumed", finish: "resumed-unfinished-release", conflict: "version-already-published-from-other-sha" };
 
-export async function classifyPublishGate({ version, sourceSha, trigger, fetchFn = fetch }) {
+export async function classifyPublishGate({ version, sourceSha, trigger, fetchFn = fetch, isAncestor = async () => false, releaseComplete = async () => true }) {
   if (!sha(sourceSha)) throw new Error("Exact candidate SHA required");
   if (trigger !== "push" && trigger !== "dispatch") throw new Error("TRIGGER must be push or dispatch");
   if (typeof version !== "string" || version.length === 0) throw new Error("Candidate version required");
   const { status, body } = await fetchVersionMetadata(version, fetchFn);
-  if (status === 404 || (body && body.error === "Not found")) return { version, proceed: true, reason: GATE_REASONS.publish, registryGitHead: null };
+  if (status === 404 || (body && body.error === "Not found")) return { version, proceed: true, reason: GATE_REASONS.publish, registryGitHead: null, sha: sourceSha };
   if (status !== 200 || !body) throw new Error(`Registry lookup for ${version} failed with status ${status}`);
   const registryGitHead = typeof body.gitHead === "string" ? body.gitHead : null;
-  if (registryGitHead === sourceSha) return { version, proceed: true, reason: GATE_REASONS.resume, registryGitHead };
-  return { version, proceed: false, reason: GATE_REASONS.conflict, registryGitHead };
+  if (registryGitHead === sourceSha) return { version, proceed: true, reason: GATE_REASONS.resume, registryGitHead, sha: sourceSha };
+  if (trigger === "push" && sha(registryGitHead) && (await isAncestor(registryGitHead, sourceSha)) && !(await releaseComplete(version))) {
+    return { version, proceed: true, reason: GATE_REASONS.finish, registryGitHead, sha: registryGitHead };
+  }
+  return { version, proceed: false, reason: GATE_REASONS.conflict, registryGitHead, sha: sourceSha };
+}
+
+/** Same definition of "completed" that prepare-version.mjs demands of its baseline. */
+export async function githubReleaseComplete(version, { repository, token, fetchFn = fetch }) {
+  if (!repository || !token) throw new Error("GITHUB_REPOSITORY and GH_TOKEN are required to read the release");
+  const tag = `v${version}`;
+  const response = await fetchFn(`https://api.github.com/repos/${repository}/releases/tags/${tag}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "10x-cli-release" }, signal: AbortSignal.timeout(30000) });
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error(`GitHub release lookup for ${tag} failed with status ${response.status}`);
+  const release = await response.json();
+  return release.draft === false && release.prerelease === false && release.tag_name === tag && Boolean(release.published_at);
+}
+
+export function gitIsAncestor(ancestor, descendant) {
+  try { execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { stdio: "ignore" }); return true; }
+  catch { return false; }
 }
 
 export function gateSummaryLine({ version, reason, registryGitHead }, sourceSha) {
   const head = registryGitHead ? ` registry gitHead \`${registryGitHead}\`` : "";
-  return `npm publish gate: \`@przeprogramowani/10x-cli@${version}\` from \`${sourceSha}\` — ${reason}.${head}`;
+  const finish = reason === GATE_REASONS.finish ? ` Finishing the release of \`${registryGitHead}\`, not publishing this commit.` : "";
+  return `npm publish gate: \`@przeprogramowani/10x-cli@${version}\` from \`${sourceSha}\` — ${reason}.${head}${finish}`;
 }
 
 function candidate(out) {
@@ -113,10 +149,10 @@ function packageVersion() {
  * operator named a SHA the registry contradicts; the same collision on a push
  * is an ordinary commit without a version bump.
  */
-export async function runPublishGate({ env = process.env, fetchFn = fetch, log = console.log } = {}) {
+export async function runPublishGate({ env = process.env, fetchFn = fetch, log = console.log, isAncestor = gitIsAncestor, releaseComplete = (version) => githubReleaseComplete(version, { repository: env.GITHUB_REPOSITORY, token: env.GH_TOKEN, fetchFn }) } = {}) {
   const sourceSha = env.CLI_SHA, trigger = env.TRIGGER;
-  const decision = await classifyPublishGate({ version: env.VERSION || packageVersion(), sourceSha, trigger, fetchFn });
-  appendIfSet(env.GITHUB_OUTPUT, `proceed=${decision.proceed}\nreason=${decision.reason}\nversion=${decision.version}\n`);
+  const decision = await classifyPublishGate({ version: env.VERSION || packageVersion(), sourceSha, trigger, fetchFn, isAncestor, releaseComplete });
+  appendIfSet(env.GITHUB_OUTPUT, `proceed=${decision.proceed}\nreason=${decision.reason}\nversion=${decision.version}\nsha=${decision.sha}\n`);
   appendIfSet(env.GITHUB_STEP_SUMMARY, `${gateSummaryLine(decision, sourceSha)}\n`);
   log(JSON.stringify(decision));
   if (decision.proceed) return decision;

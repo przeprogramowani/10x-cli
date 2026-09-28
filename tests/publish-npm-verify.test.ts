@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { assertPackMatchesRegistry, classifyPublishDecision, classifyPublishGate, gateSummaryLine, GATE_REASONS, metadataIsComplete, runPublishGate, waitForPublishedMetadata } from "../scripts/publish-npm-verify.mjs";
+import { assertPackMatchesRegistry, classifyPublishDecision, classifyPublishGate, DEFAULT_WAIT, gateSummaryLine, GATE_REASONS, githubReleaseComplete, metadataIsComplete, runPublishGate, waitForPublishedMetadata } from "../scripts/publish-npm-verify.mjs";
 
 const sha = (c: string) => c.repeat(40);
 const integrity = "sha512-UpH51iLC2WQmjhzVj2HbfOu+79ob0EtcQ3XI2epIHrEq3Vl8NxnBoqjCSHCRVdvUNXCgmmCC8kU/06IW/lsGew==";
@@ -65,7 +65,7 @@ describe("publish-npm workflow uses bounded verify and resume", () => {
     const steps = workflow.jobs.publish.steps;
     const decide = steps.find((step: any) => step.id === "decide");
     expect(decide.run).toBe("node scripts/publish-npm-verify.mjs decide");
-    expect(decide.env.CLI_SHA).toBe("${{ inputs.cli_sha }}");
+    expect(decide.env.CLI_SHA).toBe("${{ steps.gate.outputs.sha }}");
     const publish = steps.find((step: any) => step.name === "Publish the exact directory once");
     expect(publish.if).toContain("steps.decide.outputs.action == 'publish'");
     expect(publish.if).toContain("steps.gate.outputs.proceed == 'true'");
@@ -73,9 +73,31 @@ describe("publish-npm workflow uses bounded verify and resume", () => {
     const verify = steps.find((step: any) => step.name === "Verify actual registry bytes against the pack");
     expect(verify.run).toBe("node scripts/publish-npm-verify.mjs verify");
     expect(verify.if).toBe("steps.gate.outputs.proceed == 'true'");
+    expect(verify.env.CLI_SHA).toBe("${{ steps.gate.outputs.sha }}");
     const source = readFileSync(new URL("../scripts/publish-npm-verify.mjs", import.meta.url), "utf8");
     expect(source).toContain("never republish");
-    expect(source).not.toMatch(/timeoutMs:\s*[5-9]\d{5,}/);
+  });
+
+  // Run 36461685814 published 1.25.3 and then gave up after 180 s of 404s.
+  // The wait has to outlast npm's propagation yet leave the 20-minute job
+  // room to download and compare the bytes.
+  it("waits long enough for npm propagation while staying inside the job budget", () => {
+    const workflow = parse(readFileSync(new URL("../.github/workflows/publish-npm.yml", import.meta.url), "utf8"));
+    expect(DEFAULT_WAIT.timeoutMs).toBeGreaterThanOrEqual(600_000);
+    expect(DEFAULT_WAIT.timeoutMs).toBeLessThanOrEqual((workflow.jobs.publish["timeout-minutes"] - 8) * 60_000);
+  });
+
+  it("polls with a unique URL so no intermediary can replay the pre-publication 404", async () => {
+    const urls: string[] = [];
+    const fetchFn = async (url: string) => {
+      urls.push(url);
+      return urls.length < 3
+        ? { status: 404, text: async () => '"version not found: 1.22.1"', ok: false }
+        : { status: 200, text: async () => JSON.stringify(complete), ok: true };
+    };
+    await waitForPublishedMetadata("1.22.1", { fetchFn: fetchFn as any, sleep: async () => {}, now: (() => { let t = 0; return () => (t += 1); })(), log: () => {}, timeoutMs: 100, initialDelayMs: 1, maxDelayMs: 1 });
+    expect(urls).toHaveLength(3);
+    for (const url of urls) expect(url).toMatch(/^https:\/\/registry\.npmjs\.org\/@przeprogramowani%2f10x-cli\/1\.22\.1\?t=\d+$/);
   });
 });
 
@@ -86,7 +108,7 @@ describe("the publish gate decides before anything is packed", () => {
   it("publishes a version the registry does not have", async () => {
     for (const trigger of ["push", "dispatch"]) {
       const decision = await classifyPublishGate({ version: "1.22.1", sourceSha: sha("d"), trigger, fetchFn: absent });
-      expect(decision).toEqual({ version: "1.22.1", proceed: true, reason: GATE_REASONS.publish, registryGitHead: null });
+      expect(decision).toEqual({ version: "1.22.1", proceed: true, reason: GATE_REASONS.publish, registryGitHead: null, sha: sha("d") });
     }
   });
 
@@ -113,6 +135,52 @@ describe("the publish gate decides before anything is packed", () => {
     await expect(classifyPublishGate({ version: "1.22.1", sourceSha: sha("d"), trigger: "push", fetchFn: registry({ error: "upstream" }, 502) })).rejects.toThrow(/502/);
   });
 
+  // Run 36462419962: the push after an interrupted release found its version
+  // held by the previous master commit, skipped, and left every later version
+  // preparation blocked on the missing GitHub release.
+  describe("a push finishes an earlier master run's unfinished release", () => {
+    const ancestor = async (a: string, d: string) => a === sha("d") && d === sha("a");
+
+    it("proceeds from the registry's SHA when that SHA is an ancestor and its release is incomplete", async () => {
+      const decision = await classifyPublishGate({ version: "1.22.1", sourceSha: sha("a"), trigger: "push", fetchFn: registry(complete), isAncestor: ancestor, releaseComplete: async () => false });
+      expect(decision).toEqual({ version: "1.22.1", proceed: true, reason: GATE_REASONS.finish, registryGitHead: sha("d"), sha: sha("d") });
+      expect(gateSummaryLine(decision, sha("a"))).toContain(`Finishing the release of \`${sha("d")}\``);
+    });
+
+    it("stays the ordinary green skip when the release is complete, the SHA is foreign, or an operator dispatched", async () => {
+      const cases = [
+        { trigger: "push", isAncestor: ancestor, releaseComplete: async () => true },
+        { trigger: "push", isAncestor: async () => false, releaseComplete: async () => false },
+        { trigger: "dispatch", isAncestor: ancestor, releaseComplete: async () => false },
+      ];
+      for (const extra of cases) {
+        const decision = await classifyPublishGate({ version: "1.22.1", sourceSha: sha("a"), fetchFn: registry(complete), ...extra });
+        expect(decision.proceed).toBe(false);
+        expect(decision.reason).toBe(GATE_REASONS.conflict);
+        expect(decision.sha).toBe(sha("a"));
+      }
+    });
+
+    it("hands the resolved SHA to the workflow", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "gate-"));
+      const out = join(dir, "finish.out");
+      await runPublishGate({ env: { CLI_SHA: sha("a"), TRIGGER: "push", VERSION: "1.22.1", GITHUB_OUTPUT: out }, fetchFn: registry(complete), log: () => {}, isAncestor: ancestor, releaseComplete: async () => false });
+      expect(readFileSync(out, "utf8")).toBe(`proceed=true\nreason=${GATE_REASONS.finish}\nversion=1.22.1\nsha=${sha("d")}\n`);
+    });
+
+    it("reads release completion the way prepare-version reads its baseline", async () => {
+      const answer = (status: number, body: unknown = {}) => (async () => ({ status, ok: status === 200, json: async () => body })) as any;
+      const done = { draft: false, prerelease: false, tag_name: "v1.22.1", published_at: "2026-09-28T18:08:58Z" };
+      const opts = (fetchFn: any) => ({ repository: "przeprogramowani/10x-cli", token: "t", fetchFn });
+      expect(await githubReleaseComplete("1.22.1", opts(answer(200, done)))).toBe(true);
+      expect(await githubReleaseComplete("1.22.1", opts(answer(404)))).toBe(false);
+      expect(await githubReleaseComplete("1.22.1", opts(answer(200, { ...done, draft: true })))).toBe(false);
+      expect(await githubReleaseComplete("1.22.1", opts(answer(200, { ...done, published_at: null })))).toBe(false);
+      await expect(githubReleaseComplete("1.22.1", opts(answer(502)))).rejects.toThrow(/502/);
+      await expect(githubReleaseComplete("1.22.1", { repository: "", token: "t", fetchFn: answer(200, done) })).rejects.toThrow(/GH_TOKEN/);
+    });
+  });
+
   it("fails a dispatch collision and passes a push collision, saying so either way", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gate-"));
     const fetchFn = registry(complete);
@@ -120,7 +188,7 @@ describe("the publish gate decides before anything is packed", () => {
 
     const pushed = await runPublishGate({ env: env("push"), fetchFn, log: () => {} });
     expect(pushed.proceed).toBe(false);
-    expect(readFileSync(join(dir, "push.out"), "utf8")).toBe(`proceed=false\nreason=${GATE_REASONS.conflict}\nversion=1.22.1\n`);
+    expect(readFileSync(join(dir, "push.out"), "utf8")).toBe(`proceed=false\nreason=${GATE_REASONS.conflict}\nversion=1.22.1\nsha=${sha("a")}\n`);
     expect(readFileSync(join(dir, "push.md"), "utf8")).toContain(GATE_REASONS.conflict);
 
     await expect(runPublishGate({ env: env("dispatch"), fetchFn, log: () => {} })).rejects.toThrow(new RegExp(sha("d")));
@@ -176,6 +244,21 @@ describe("ci publishes from the same run that tested the SHA", () => {
       else expect(step.if).toContain("steps.gate.outputs.proceed == 'true'");
     }
   });
+
+  it("builds, tags and releases the SHA the gate resolved, re-checking it is on master", () => {
+    const steps = publish.jobs.publish.steps as Array<{ name?: string; id?: string; run?: string; env?: Record<string, string> }>;
+    const gate = steps.find((step) => step.id === "gate")!;
+    expect(gate.env?.GH_TOKEN).toBe("${{ github.token }}");
+    const switchIndex = steps.findIndex((step) => step.name === "Check out the SHA the gate resolved");
+    expect(switchIndex).toBe(steps.indexOf(gate) + 1);
+    const switchStep = steps[switchIndex]!;
+    expect(switchStep.env?.RESOLVED).toBe("${{ steps.gate.outputs.sha }}");
+    expect(switchStep.run).toContain('git merge-base --is-ancestor "$RESOLVED" origin/master');
+    expect(publish.jobs.publish.outputs.sha).toBe("${{ steps.gate.outputs.sha }}");
+    const releaseCheckout = publish.jobs.release.steps.find((step: any) => step.uses?.startsWith("actions/checkout@"));
+    expect(releaseCheckout.with.ref).toBe("${{ needs.publish.outputs.sha }}");
+    for (const step of publish.jobs.release.steps.filter((s: any) => s.env?.CLI_SHA)) expect(step.env.CLI_SHA).toBe("${{ needs.publish.outputs.sha }}");
+  });
 });
 
 describe("the release carries the five binaries README promises", () => {
@@ -192,7 +275,7 @@ describe("the release carries the five binaries README promises", () => {
     expect(build.run).toContain("--target ${{ matrix.target }}");
     expect(build.run).toContain("--outfile dist/${{ matrix.artifact }}");
     const checkout = publish.jobs.binaries.steps.find((step: any) => step.uses?.startsWith("actions/checkout@"));
-    expect(checkout.with.ref).toBe("${{ inputs.cli_sha }}");
+    expect(checkout.with.ref).toBe("${{ needs.publish.outputs.sha }}");
   });
 
   it("releases only after both producers, and attaches the tarball plus every binary", () => {
