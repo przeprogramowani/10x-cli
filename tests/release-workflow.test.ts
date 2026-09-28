@@ -81,6 +81,7 @@ describe("the notification reports the publication that actually exists", () => 
       proceed: "${{ steps.gate.outputs.proceed }}",
       reason: "${{ steps.gate.outputs.reason }}",
       version: "${{ steps.gate.outputs.version }}",
+      sha: "${{ steps.gate.outputs.sha }}",
     });
     const rendered = JSON.stringify(workflow.jobs["notify-slack"]);
     expect(rendered).toContain("needs.release.outputs.proceed");
@@ -108,6 +109,23 @@ describe("version preparation stays a trusted, narrow writer", () => {
     const source = readFileSync(new URL("../scripts/prepare-version.mjs", import.meta.url), "utf8");
     expect(source).not.toMatch(/git\("checkout"/); expect(source).not.toMatch(/execFileSync\("(?:bun|npm)"/);
     expect(source).toContain('force: false');
+  });
+
+  // PR #66 came from a fork, `select` dropped it, and it merged with no bump.
+  it("labels and comments on a fork PR it cannot prepare, without its code or the release credential", () => {
+    const prep = parse(readFileSync(new URL("../.github/workflows/prepare-version.yml", import.meta.url), "utf8"));
+    const notice = prep.jobs["fork-notice"];
+    expect(notice.if).toContain("github.event_name == 'pull_request_target'");
+    expect(notice.if).toContain("github.event.pull_request.head.repo.full_name != github.repository");
+    expect(notice.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write" });
+    expect(notice["timeout-minutes"]).toBeNumber();
+    const rendered = JSON.stringify(notice);
+    expect(rendered).not.toContain("actions/checkout");
+    expect(rendered).not.toContain("RELEASE_TOKEN");
+    const script = notice.steps[0].with.script as string;
+    expect(script).toContain("needs-release-prep");
+    expect(script).toContain("<!-- 10x-cli:needs-release-prep -->");
+    expect(script).toContain("if (comments.some((comment) => comment.body?.includes(marker))) return;");
   });
 
   it("does not expose the version writer's credential to a pull-request execution", () => {

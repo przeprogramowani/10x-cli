@@ -18,15 +18,16 @@ an emergency hatch and described at the end.
 ## What makes a push publish
 
 The version in `package.json`. The gate in `publish-npm-verify.mjs` asks the
-registry about that exact version and answers one of three ways:
+registry about that exact version and answers one of four ways:
 
 | Registry says | Gate verdict | What happens |
 | --- | --- | --- |
 | 404 — nobody holds this version | `published` | packs, publishes once, verifies the bytes, tags, releases |
 | holds it, `gitHead` equals this SHA | `resumed` | never republishes; finishes whatever the previous attempt left — verification, tag, release |
+| holds it from an **ancestor** `gitHead` whose GitHub release is missing or incomplete (push only) | `resumed-unfinished-release` | never republishes; checks out that ancestor and finishes its verification, tag, binaries and release |
 | holds it from a **different** `gitHead` | `version-already-published-from-other-sha` | on a push: skipped, run stays green; on a dispatch: fails |
 
-The third row is the ordinary shape of a master push with no version bump. It is
+The fourth row is the ordinary shape of a master push with no version bump. It is
 not an error, and the automation says so in the job summary rather than turning
 the run red.
 
@@ -40,6 +41,11 @@ on `pull_request_target`, on pushes to `master`, and after a successful CI
 dispatch; for each open PR it computes the next version from Conventional Commits
 against the published baseline and commits `chore(release): prepare vX.Y.Z` to
 that PR's branch using `RELEASE_TOKEN`.
+
+It skips PRs from forks, because `RELEASE_TOKEN` never writes to a repository
+we do not own. Such a PR gets the `needs-release-prep` label and a comment
+explaining how to move it into a branch here; merged as is, it ships only with
+the next PR that bumps the version.
 
 Two things it will refuse, both visible in its log:
 
@@ -64,8 +70,13 @@ line — `npm publish gate: @przeprogramowani/10x-cli@X.Y.Z from <sha> — <reas
 - **`release` failed after publishing** — the package is on npm and the tag or
   the GitHub release is missing. Do **not** rerun hoping to republish; the job
   refuses to. Re-run it and the gate will answer `resumed`, take the same version
-  and finish the tag and release. Verify the registry bytes first (below) before
-  concluding the package itself is sound.
+  and finish the tag and release. The next master push does the same on its own
+  (`resumed-unfinished-release`). Verify the registry bytes first (below) before
+  concluding the package itself is sound. Until one of these happens,
+  `prepare-version` refuses every PR with `Completed stable GitHub release
+  required`, naming the version and SHA to finish.
+- **`verify` timed out with `status=404`** — npm accepted the publication but
+  had not served it yet. The wait is ten minutes; after that, re-run as above.
 
 ## Verify a published package against the registry
 

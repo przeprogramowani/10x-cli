@@ -21,7 +21,7 @@ export async function publishedBaseline(get, registry = async () => {
   const metadata = await registry();
   if (metadata.name !== "@przeprogramowani/10x-cli" || !stableVersion(metadata.version) || !fullSha(metadata.gitHead) || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(metadata.dist?.integrity || "")) throw new Error("Stable published registry baseline required");
   const tag = `v${metadata.version}`, release = await get(`releases/tags/${tag}`);
-  if (!release || release.draft !== false || release.prerelease !== false || release.tag_name !== tag || !release.published_at) throw new Error("Completed stable GitHub release required");
+  if (!release || release.draft !== false || release.prerelease !== false || release.tag_name !== tag || !release.published_at) throw new Error(`Completed stable GitHub release required: npm latest ${metadata.version} (gitHead ${metadata.gitHead}) has no finished ${tag} release. Re-run the failed "release / publish" job of the CI run for ${metadata.gitHead}; the gate answers "resumed" and finishes the tag and release without republishing. The next master push also finishes it. See docs/how-to/release-cli.md.`);
   let object = (await get(`git/ref/tags/${tag}`))?.object;
   if (object?.type === "tag") object = (await get(`git/tags/${object.sha}`))?.object;
   if (object?.type !== "commit" || object.sha !== metadata.gitHead) throw new Error("Registry and release tag source differ");
