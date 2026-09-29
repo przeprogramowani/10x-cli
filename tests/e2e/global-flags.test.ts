@@ -29,6 +29,17 @@ describe("e2e: global flags", () => {
     expect(output).toContain("doctor");
   });
 
+  it("no args exits 0 with command list", () => {
+    const result = runCli([]);
+    expect(result.exitCode).toBe(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("10x");
+    expect(output).toContain("auth");
+    expect(output).toContain("get");
+    expect(output).toContain("list");
+    expect(output).toContain("doctor");
+  });
+
   it("unknown option on a command exits 2 with usage error", () => {
     const result = runCli(["auth", "--nonexistent-flag"]);
     expect(result.exitCode).toBe(2);
