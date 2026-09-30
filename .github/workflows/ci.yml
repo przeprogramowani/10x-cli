@@ -60,7 +60,10 @@ jobs:
       - name: Smoke tests (binary + package)
         run: bun test tests/smoke/
 
+  # Windows is the slowest leg, so PRs skip it; every master push still runs it
+  # and `release` waits on its success. Only master/main pushes trigger `push`.
   check-windows:
+    if: github.event_name == 'push'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -186,35 +189,37 @@ jobs:
                   "elements": [
                     {
                       "type": "mrkdwn",
-                      "text": "📝 <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|`${{ github.sha }}`> ${{ steps.payload.outputs.commit_msg }}  ·  👤 ${{ github.actor }}  ·  <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|🔗 Workflow>${{ steps.payload.outputs.failed == 'true' && '  ·  🔔 see #alerting' || '' }}"
+                      "text": "📝 <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|`${{ github.sha }}`> ${{ steps.payload.outputs.commit_msg }}  ·  👤 ${{ github.actor }}  ·  <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|🔗 Workflow>${{ needs.release.result == 'failure' && '  ·  🔔 see #alerting' || '' }}"
                     }
                   ]
                 }
               ]
             }
 
+      # #alerting carries production problems only. A test failure on master is
+      # reported above; a failed release can leave a version on npm without its
+      # tag or GitHub release, which blocks every following release PR.
       - name: Post to #alerting
-        if: steps.payload.outputs.failed == 'true'
+        if: needs.release.result == 'failure'
         uses: slackapi/slack-github-action@v2
         with:
           webhook: ${{ secrets.SLACK_ALERTS_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "🚨 10x-cli pipeline failure",
+              "text": "🚨 10x-cli release failure",
               "blocks": [
                 {
                   "type": "header",
                   "text": {
                     "type": "plain_text",
-                    "text": "🚨 10x-cli — FAILURE"
+                    "text": "🚨 10x-cli — RELEASE FAILURE"
                   }
                 },
                 {
                   "type": "section",
                   "fields": [
-                    { "type": "mrkdwn", "text": "*Tests (Linux/Windows)*\n${{ needs.check.result == 'success' && needs.check-windows.result == 'success' && '✅ passed' || '❌ failed' }}" },
-                    { "type": "mrkdwn", "text": "*npm + release*\n${{ needs.release.result == 'failure' && '❌ failed' || needs.release.outputs.proceed == 'true' && format('✅ v{0}', needs.release.outputs.version) || format('⏭️ {0}', needs.release.outputs.reason) }}" }
+                    { "type": "mrkdwn", "text": "*npm + release*\n❌ failed${{ needs.release.outputs.version != '' && format(' (v{0}, {1})', needs.release.outputs.version, needs.release.outputs.reason) || '' }}" }
                   ]
                 },
                 {

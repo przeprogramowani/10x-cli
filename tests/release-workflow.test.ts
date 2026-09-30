@@ -54,6 +54,16 @@ describe("one publication path", () => {
     // is read-only by default, so the write grant has to be declared here.
     expect(release.permissions.contents).toBe("write");
   });
+
+  // Windows is skipped on pull requests only. A master push must still run it,
+  // and `release` keeps its default success() gate on both legs.
+  it("runs the Windows leg on pushes only, and never lets release skip it", () => {
+    const windows = workflow.jobs["check-windows"];
+    const runs = (event: string) => Function("github", `return (${windows.if})`)({ event_name: event });
+    expect(runs("push")).toBe(true);
+    expect(runs("pull_request")).toBe(false);
+    expect(workflow.jobs.release.if).not.toContain("always()");
+  });
 });
 
 describe("the notification reports the publication that actually exists", () => {
@@ -87,6 +97,18 @@ describe("the notification reports the publication that actually exists", () => 
     expect(rendered).toContain("needs.release.outputs.proceed");
     expect(rendered).toContain("needs.release.outputs.reason");
     expect(rendered).toContain("needs.release.outputs.version");
+  });
+
+  // #alerting is for production problems. Test failures stay in #observability;
+  // only a failed release (possibly a half-finished publication) pages.
+  it("sends only a failed release to #alerting", () => {
+    const steps = workflow.jobs["notify-slack"].steps;
+    const alerting = steps.filter((step: any) => JSON.stringify(step).includes("SLACK_ALERTS_WEBHOOK_URL"));
+    expect(alerting).toHaveLength(1);
+    expect(alerting[0].if).toBe("needs.release.result == 'failure'");
+    const observability = steps.find((step: any) => step.with?.webhook === "${{ secrets.SLACK_WEBHOOK_URL }}");
+    expect(observability.if).toBeUndefined();
+    expect(observability.with.payload).toContain("needs.release.result == 'failure' && '  ·  🔔 see #alerting'");
   });
 
   it("keeps the commit message out of the payload expression", () => {
