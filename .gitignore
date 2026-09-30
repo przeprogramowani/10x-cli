@@ -10,4 +10,7 @@ tests/e2e/.env.test
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/verify-10x-cli/
 .quality-local/
