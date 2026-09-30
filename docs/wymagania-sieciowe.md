@@ -137,7 +137,7 @@ Ważne jest zestawienie TLS (niekoniecznie HTTP 200). Na urządzeniu: `10x docto
 | `10x bench-kit` | `Could not download the template from https://github.com/przeprogramowani/10x-bench-kit.` |
 | zły certyfikat / intercept | `network_error` i komunikat runtime |
 
-Kody wyjścia: `0` sukces, `1` błąd, `2` użycie, `3` brak sesji, `4` brak uprawnień, `5` nie znaleziono. `doctor` przy martwym API: **78**.
+Kody wyjścia: `0` sukces, `1` błąd, `2` użycie, `3` brak sesji, `4` brak uprawnień, `5` nie znaleziono. `doctor` kończy się kodem **78**, gdy którekolwiek sprawdzenie się nie powiedzie (także przy niedostępnym API albo braku logowania); jego koperta JSON nadal ma `status: "ok"`, a `data.overall: "error"` i nieudane sprawdzenia wskazują problem. Same ostrzeżenia kończą się kodem `0`.
 
 ---
 
