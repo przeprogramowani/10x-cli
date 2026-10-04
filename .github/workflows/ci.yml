@@ -45,6 +45,11 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Workflow lint (actionlint)
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" -color
+
       - name: Validate packaged CLI helpers and shared references
         run: bun run validate:cli-skills
 
