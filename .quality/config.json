@@ -39,7 +39,8 @@
         "bun",
         "run",
         "--bun",
-        "node_modules/oxlint/bin/oxlint"
+        "node_modules/oxlint/bin/oxlint",
+        "--deny-warnings"
       ],
       "cwd": ".",
       "levels": [

@@ -156,7 +156,7 @@ async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile): P
         orphan.profile.toolId,
       ];
       saveToolConfig({
-        ...(existing ?? {}),
+        ...existing,
         tool: existing?.tool ?? newProfile.toolId,
         acknowledgedOrphans: nextAcks,
       });

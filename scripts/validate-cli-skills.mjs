@@ -10,7 +10,7 @@ function tree(root, prefix = "", files = new Map()) {
   if (!lstatSync(root).isDirectory()) throw new Error(`Nonregular directory: ${root}`);
   for (const name of readdirSync(root).sort()) {
     const path = prefix ? `${prefix}/${name}` : name;
-    if (!/^[A-Za-z0-9_.\/-]+$/.test(path) || path.split("/").some((s) => s === ".git" || s === "..")) throw new Error(`Unsafe skill path: ${path}`);
+    if (!/^[A-Za-z0-9_./-]+$/.test(path) || path.split("/").some((s) => s === ".git" || s === "..")) throw new Error(`Unsafe skill path: ${path}`);
     const full = join(root, name);
     const stat = lstatSync(full);
     if (stat.isDirectory()) tree(full, path, files);
@@ -40,7 +40,7 @@ export function validateCliSkills(repoRoot, { packedPaths } = {}) {
         if (ref.startsWith("/") || ref.includes("\\") || relative.startsWith("/") || relative.split("/").includes("..") || relative.includes("\\") || !files.has(relative)) throw new Error(`Dangling local link: ${name}/${path} -> ${ref}`);
       }
       if (packedPaths && !packedPaths.has(`skills/${name}/${path}`)) throw new Error(`Missing from npm package: skills/${name}/${path}`);
-      for (const match of content.matchAll(/(?:\]\(|["`])((?:\.\/)?(?:references|templates|scripts|assets)\/[A-Za-z0-9_.\/-]+\.[A-Za-z0-9]+)(?:#[^\s)`"]*)?[)`"]/g)) {
+      for (const match of content.matchAll(/(?:\]\(|["`])((?:\.\/)?(?:references|templates|scripts|assets)\/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)(?:#[^\s)`"]*)?[)`"]/g)) {
         const ref = match[1].replace(/^\.\//, "");
         if (!files.has(ref) && !files.has(posix.normalize(posix.join(posix.dirname(path), ref)))) throw new Error(`Dangling support reference: ${name}/${path} -> ${ref}`);
       }
