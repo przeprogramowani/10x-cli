@@ -32,7 +32,10 @@ Preconditions:
   `upstream-updated`, prompt `skipped-conflict`, rules `upstream-updated`, config
   `unchanged`. The two snapshots are identical.
 - **Apply.** Run `$V cli sync -- sync --tool claude-code`. Same buckets with
-  `data.dryRun` `false`; `totals.resources.skippedConflict` is `1`.
+  `data.dryRun` `false`; `totals.resources.skippedConflict` is `1`; `m1l1` reports `status`
+  `updated`, so `totals.conflicts` is `0` while `totals.lessonsWithConflicts` is `1`.
+  In a TTY run (`$V tty`) the summary ends with `To replace edited skills and prompts:
+  10x sync --force.`
 - **State.** `.claude/skills/verify-fixture-skill/SKILL.md` ends with `Fixture skill v2`;
   `CLAUDE.md` holds `Fixture rule v2`; the prompt still holds `# Fixture prompt v1` and
   `local edit`.
@@ -51,8 +54,10 @@ Preconditions:
 ## Gotchas
 
 - `lessons[].status` is `updated` when anything was updated, even if another resource of
-  that lesson was a `skipped-conflict`; `totals.conflicts` then stays `0`. Read
-  `totals.resources.skippedConflict` or the per-resource buckets to prove preservation.
+  that lesson was a `skipped-conflict`. `totals.conflicts` counts only lessons whose status
+  is `conflicts`; `totals.lessonsWithConflicts` counts every lesson with a preserved local
+  edit, and the `--force` hint follows it. CLI builds without `lessonsWithConflicts`
+  (before #72) leave it out: fall back to `totals.resources.skippedConflict`.
 - The first `sync` right after a `get` may still fetch (`fetched: true`): `get` does not
   always record the catalog digest.
 - `sync` never prompts; a TTY run behaves like non-TTY for conflicts.

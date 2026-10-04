@@ -19,6 +19,17 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { paths } from "../../../../src/generated/api-types";
+
+// JSON body of a documented response, so regenerated api-types flag drift here too.
+type Body<P extends keyof paths, M extends "get" | "post", S extends number = 200> =
+  paths[P][M] extends { responses: infer R }
+    ? S extends keyof R ? R[S] extends { content: { "application/json": infer J } } ? J : never : never
+    : never;
+type Bundle = Body<"/api/lessons/{course}/{lessonId}", "get">;
+type ErrorCode =
+  | "invalid_json" | "session_not_found" | "unauthorized" | "course_not_found"
+  | "module_not_found" | "lesson_not_found" | "module_locked" | "artifact_not_found" | "not_found";
 
 const runDir = process.argv[2];
 if (!runDir) {
@@ -47,7 +58,7 @@ const modules = [
   { module: 2, title: "Fixture module 2 (locked)", releaseAt: "2099-01-01T00:00:00.000Z", stateOverride: "locked" as const, effectiveState: "locked" as const },
 ];
 
-function bundle(l: Lesson) {
+function bundle(l: Lesson): Bundle {
   const v = `v${l.version}`;
   const base = { lessonId: l.lessonId, module: l.module, lesson: l.lesson, title: l.title, summary: l.summary };
   if (l.lessonId === "m1l1")
@@ -65,7 +76,7 @@ function bundle(l: Lesson) {
   };
 }
 const contentHash = (l: Lesson) => createHash("sha256").update(JSON.stringify(bundle(l))).digest("hex");
-const summaryOf = (l: Lesson) => ({
+const summaryOf = (l: Lesson): Body<"/api/catalog/{course}", "get">["lessons"][number] => ({
   lessonId: l.lessonId, module: l.module, lesson: l.lesson, title: l.title, summary: l.summary,
   bundlePath: `${COURSE.slug}/lessons/${l.lessonId}.json`, availableLanguages: ["en"], contentHash: contentHash(l),
 });
@@ -74,13 +85,14 @@ const unlocked = (l: Lesson) => modules.find((m) => m.module === l.module)?.effe
 // Magic-link sessions: pending until /__fake/click.
 const sessions = new Map<string, { email: string; clicked: boolean }>();
 let tokenSeq = 0;
-const tokens = () => ({
+const tokens = (): Body<"/auth/verify", "get"> => ({
   token: `fake-access-${++tokenSeq}`, refresh_token: `fake-refresh-${tokenSeq}`,
   expires_at: new Date(Date.now() + 3600_000).toISOString(),
 });
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", ...headers } });
+const fail = (error: ErrorCode, status: number) => json({ error }, status);
 function signed(data: unknown) {
   const body = JSON.stringify(data);
   const hash = createHash("sha256").update(body).digest("hex");
@@ -120,48 +132,48 @@ async function route(req: Request): Promise<Response> {
   if (path === "/health") return json({ status: "ok" });
   if (path === "/auth/login" && req.method === "POST") {
     const { email } = (await req.json().catch(() => ({}))) as { email?: string };
-    if (!email) return json({ error: "invalid_json" }, 400);
+    if (!email) return fail("invalid_json", 400);
     const id = crypto.randomUUID();
     sessions.set(id, { email, clicked: false });
-    return json({ session_id: id, message: "Magic link sent (fake: POST /__fake/click)" });
+    return json({ session_id: id, message: "check_your_inbox" } satisfies Body<"/auth/login", "post">);
   }
   if (path === "/auth/verify") {
     const s = sessions.get(url.searchParams.get("session") ?? "");
-    if (!s) return json({ error: "session_not_found" }, 404);
-    if (!s.clicked) return json({ status: "pending" }, 202);
+    if (!s) return fail("session_not_found", 404);
+    if (!s.clicked) return json({ status: "pending" } satisfies Body<"/auth/verify", "get", 202>, 202);
     sessions.delete(url.searchParams.get("session")!);
     return json(tokens());
   }
   if (path === "/auth/refresh" && req.method === "POST") return json(tokens());
 
-  if (!authed(req)) return json({ error: "unauthorized" }, 401);
+  if (!authed(req)) return fail("unauthorized", 401);
   if (path === "/api/me/courses")
-    return json({ courses: [{ ...COURSE, available: true }], defaultCourse: COURSE.slug });
+    return json({ courses: [{ ...COURSE, available: true }], defaultCourse: COURSE.slug } satisfies Body<"/api/me/courses", "get">);
 
   // /api/<kind>/<course>/...
   const [, , kind, course, a, b, c] = p;
-  if (!course || !isCourse(course)) return json({ error: "course_not_found" }, 404);
+  if (!course || !isCourse(course)) return fail("course_not_found", 404);
   if (kind === "catalog")
-    return json({ course: COURSE.slug, modules, lessons: lessons.filter(unlocked).map(summaryOf) });
-  if (kind === "modules" && !a) return json({ course: COURSE.slug, modules });
+    return json({ course: COURSE.slug, modules, lessons: lessons.filter(unlocked).map(summaryOf) } satisfies Body<"/api/catalog/{course}", "get">);
+  if (kind === "modules" && !a) return json({ course: COURSE.slug, modules } satisfies Body<"/api/modules/{course}", "get">);
   if (kind === "modules" && a) {
     const m = modules.find((x) => x.module === Number(a));
-    if (!m) return json({ error: "module_not_found" }, 404);
+    if (!m) return fail("module_not_found", 404);
     const ls = m.effectiveState === "unlocked" ? lessons.filter((l) => l.module === m.module) : [];
-    return json({ ...m, lessons: ls.map(({ lessonId, lesson, title, summary }) => ({ lessonId, lesson, title, summary, availableLanguages: ["en"] })) });
+    return json({ ...m, lessons: ls.map(({ lessonId, lesson, title, summary }) => ({ lessonId, lesson, title, summary, availableLanguages: ["en"] })) } satisfies Body<"/api/modules/{course}/{module}", "get">);
   }
   const lesson = lessons.find((l) => l.lessonId === a);
-  if (!lesson) return json({ error: "lesson_not_found" }, 404);
-  if (!unlocked(lesson)) return json({ error: "module_locked" }, 403);
+  if (!lesson) return fail("lesson_not_found", 404);
+  if (!unlocked(lesson)) return fail("module_locked", 403);
   if (kind === "lessons") return signed(bundle(lesson));
   if (kind === "artifacts" && b && c) {
-    const bd = bundle(lesson) as Record<string, unknown>;
-    const list = (bd[b] ?? []) as { name: string }[];
+    const bd = bundle(lesson) as unknown as Record<string, { name: string }[] | undefined>;
+    const list = bd[b] ?? [];
     const item = list.find((x) => x.name === c);
-    if (!item) return json({ error: "artifact_not_found" }, 404);
+    if (!item) return fail("artifact_not_found", 404);
     return signed({ type: b, ...item });
   }
-  return json({ error: "not_found" }, 404);
+  return fail("not_found", 404);
 }
 
 const server = Bun.serve({
