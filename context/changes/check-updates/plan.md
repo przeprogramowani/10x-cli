@@ -226,8 +226,8 @@ Existing manifests have no `toolkit` field; `10x changelog` falls back to the ne
 
 #### Automated
 
-- [x] 1.1 Tests pass
-- [x] 1.2 Typecheck and lint pass
+- [x] 1.1 Tests pass — 47268ae
+- [x] 1.2 Typecheck and lint pass — 47268ae
 
 #### Manual
 
@@ -237,8 +237,8 @@ Existing manifests have no `toolkit` field; `10x changelog` falls back to the ne
 
 #### Automated
 
-- [ ] 2.1 Tests pass
-- [ ] 2.2 Typecheck, lint and the offline quality gate pass
+- [x] 2.1 Tests pass
+- [x] 2.2 Typecheck, lint and the offline quality gate pass
 
 #### Manual
 
