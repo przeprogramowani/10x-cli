@@ -248,8 +248,8 @@ Existing manifests have no `toolkit` field; `10x changelog` falls back to the ne
 
 #### Automated
 
-- [x] 3.1 Skill validation passes
-- [x] 3.2 Full offline gate passes
+- [x] 3.1 Skill validation passes — 020f536
+- [x] 3.2 Full offline gate passes — 020f536
 - [ ] 3.3 Generated types include `/api/changelog` and typecheck passes
 
 #### Manual
