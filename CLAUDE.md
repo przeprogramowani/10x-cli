@@ -93,6 +93,13 @@ Profile migration preserves course and both ownership ledgers. It copies to the 
 - Reports include skill/prompt changes, managed-rule conflicts, config outcomes, removals, and preserved local files with reasons. Configs remain create-only; existing templates are not adopted or assigned a hash inferred from their local content.
 - A complete, conflict-free `get` may retain an existing catalog digest for the same language/tool representation. Filtered or conflicted updates invalidate it. When a shared artifact changes, invalidate other affected lessons' representation metadata as well.
 
+## `10x changelog` & toolkit baseline
+
+`commands/changelog.ts` is read-only and shows 10x-toolkit release notes (`GET /api/changelog`), not local staleness — that stays `sync --dry-run`'s job. Its baseline is the manifest's optional `toolkit: { version, recordedAt }` (additive within schema 3; a malformed value is dropped on read).
+
+- **Recording** (`lib/toolkit-baseline.ts`) runs after a real `sync` with no errored lesson and not aborted (skipped conflicts still count), and after an unfiltered, non-dry-run `get`. It fetches `limit=1` and calls `recordToolkitVersion()`, which re-reads the manifest right before writing so ownership written during the run is never clobbered. It is strictly best-effort: 404/network/empty/invalid responses leave the manifest untouched and never change output, JSON envelope or exit code (only `--verbose` mentions it).
+- **Resolution** in `changelog`: `--since vX.Y.Z` (→ `since`, exclusive) or `YYYY-MM-DD` (→ `sinceDate`, inclusive) > `toolkit.version` > newest lesson `appliedAt` / `lastApplied` > none (limit 5 + "Run 10x sync" hint). A 404 maps to `changelog_unsupported` (exit 1). `ChangelogResponse` is hand-written in `api-content.ts` until generated types include the route.
+
 ## Conventions worth knowing
 
 - TypeScript is `strict` + `noUncheckedIndexedAccess` + `noImplicitOverride`. Index access on arrays/records returns `T | undefined` — handle it.

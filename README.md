@@ -173,6 +173,7 @@ remain visible. Full lesson downloads and other commands remain available below.
 | `10x list` | Browse modules and lessons in your course |
 | `10x get <ref>` | Fetch a lesson and apply artifacts to your workspace |
 | `10x sync` | Bulk-download / refresh lessons and report what changed upstream |
+| `10x changelog` | Show 10x-toolkit release notes since your last sync |
 | `10x doctor` | Diagnose auth, API connectivity, and local config |
 | `10x bench` | Live top-10 AI model leaderboard from [10xbench.ai](https://10xbench.ai) — no login needed |
 | `10x bench-kit <action>` | Create (`init`) and update (`update`) a company benchmark instance from the [10x-bench-kit](https://github.com/przeprogramowani/10x-bench-kit) template |
@@ -277,6 +278,44 @@ all for skills and prompts. Config templates are create-only. Course rules retai
 **Exit code is worst-outcome:** `0` when everything is clean/unchanged (a skipped
 conflict is reported, not a failure), `1` if any lesson failed to fetch. The full
 report is still emitted on a partial failure.
+
+### `10x changelog`
+
+`10x changelog` shows the **10x-toolkit release notes** — which course skills,
+prompts, rules and config templates changed in each toolkit release — since your
+project's baseline. It describes toolkit releases, not your files: to see what a
+sync would actually download or update in this project, run `10x sync --dry-run`.
+It needs a login and never writes anything.
+
+The baseline is recorded per project: after a successful `10x sync` (not
+`--dry-run`, no failed lessons) or a full, unfiltered `10x get`, the CLI stores the newest
+toolkit release version in the project manifest (`toolkit.version`). If the
+backend cannot answer, nothing is recorded and the sync/get result is unchanged.
+Without a recorded version, `10x changelog` falls back to the date of the last
+lesson applied in the project; in a project with no manifest it shows the latest 5
+releases and suggests running `10x sync`.
+
+| Flag | Description |
+|------|-------------|
+| `--since <ref>` | Ignore the baseline: `vX.Y.Z` lists releases **after** that version; `YYYY-MM-DD` lists releases **from** the start of that UTC day |
+| `--limit <n>` | Maximum number of releases, 1-100 (default 20; 5 without a baseline) |
+
+```bash
+# What changed in the toolkit since this project's last sync
+10x changelog
+
+# Browse history regardless of the baseline
+10x changelog --since v2.55.0
+10x changelog --since 2026-10-01 --limit 50
+```
+
+Releases are listed newest first as `vX.Y.Z — <date>` followed by their notes, or
+`No toolkit changes since <baseline>.` Exit code is `0` whether or not there are
+new releases; an invalid `--since`/`--limit` exits `2`, a missing login `3`. Against
+a backend that does not serve the changelog yet the command fails with
+`changelog_unsupported` (exit `1`); `get` and `sync` keep working. JSON output
+(`--json` or piped) is `{ baseline: { source, version?, date? }, newEntries,
+entries }`, where `source` is `flag`, `sync`, `applied` or `none`.
 
 ### `10x bench`
 

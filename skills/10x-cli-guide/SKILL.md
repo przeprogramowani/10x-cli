@@ -1,6 +1,6 @@
 ---
 name: 10x-cli-guide
-description: "Use when the user wants to download, use or update 10xDevs CLI skills, choose a helper installation channel, inspect course content, switch tool profiles or troubleshoot CLI/auth/content conflicts. Guides filtered get → an actual agent task → sync while preserving local work and course/tool/language context. For first installation or authentication preparation, use an available 10x-cli-setup copy. Does not implement CLI runtime or grant course access."
+description: "Use when the user wants to download, use or update 10xDevs CLI skills, choose a helper installation channel, inspect course content, switch tool profiles, see what changed in 10x-toolkit releases (changelog) or troubleshoot CLI/auth/content conflicts. Guides filtered get → an actual agent task → sync while preserving local work and course/tool/language context. For first installation or authentication preparation, use an available 10x-cli-setup copy. Does not implement CLI runtime or grant course access."
 ---
 
 # 10x-cli: download, use, update
@@ -216,6 +216,22 @@ skill/prompt edits and does not bypass protected rules or safe removal. Config
 templates remain create-only. Cleanup preserves modified/untracked files and
 files owned elsewhere; do not manually sweep a skill directory after sync.
 
+To see what changed in the course toolkit itself, use `changelog`. This command
+is **unreleased**: check the actual runner's `changelog --help` first.
+
+```bash
+10x_cli changelog                      # toolkit releases since this project's last sync
+10x_cli changelog --since v2.55.0      # releases after a version
+10x_cli changelog --since 2026-10-01   # releases from that UTC day on
+```
+
+It lists toolkit release notes (skills, prompts, rules, config templates per
+release), not this project's files: `sync --dry-run` remains the authority for
+what would be downloaded. A successful sync (or full unfiltered get) records the
+newest toolkit version in the project manifest as the baseline; without it the
+command falls back to the last applied lesson's date, or shows the latest 5
+releases. "No toolkit changes" with exit 0 is normal. It never writes files.
+
 Three updates are independent: changing the npm/binary version updates the CLI;
 repeating pinned public `skills add` with a deliberately chosen new retained SHA
 updates a public helper; CLI sync updates CLI-owned course skills. It does not
@@ -276,6 +292,7 @@ visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 | Denied course access | Confirm selected course and membership; changing tool/reinstalling does not grant access. |
 | Locked or unpublished v4 | Inspect module availability/release evidence; do not bypass the gate or fall back to v3. |
 | Unsupported name/missing index | Verify exact CLI package and content release; preserve the error for the release owner. |
+| `changelog_unsupported` | The backend does not serve the toolkit changelog yet; sync/get still work. Retry later; do not treat it as a content failure. |
 | Network/API failure | Keep diagnostics, retry the same context when service returns; no config reset. |
 | Missing `10x-idea-check` after setup | Older helper journeys selected only init/shape/prd. Check the actual commands, selected profile path and manifest; use the idea-check preview/get above to add its complete tree. If the files already exist, read that exact SKILL.md and check the agent's discovery/reload behavior before reinstalling. An absent slash command alone does not prove missing files. |
 | Wrong directory/profile | Recheck cwd and explicit flags; a fresh project may legitimately have no tool directory. |
