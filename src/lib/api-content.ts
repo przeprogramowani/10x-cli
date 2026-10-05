@@ -60,7 +60,8 @@ export interface ChangelogEntry {
   version: string;
   previousVersion: string | null;
   releasedAt: string;
-  model: string;
+  /** Drafting model; null when the toolkit's deterministic fallback wrote the entry. */
+  model: string | null;
   markdown: string;
   artifacts: {
     skills: ChangelogArtifactChange[];
@@ -90,7 +91,8 @@ function isChangelogEntry(value: unknown): value is ChangelogEntry {
   if (e["schemaVersion"] !== undefined && typeof e["schemaVersion"] !== "number") return false;
   if (typeof e["version"] !== "string" || !e["version"]) return false;
   if (e["previousVersion"] !== null && typeof e["previousVersion"] !== "string") return false;
-  if (typeof e["releasedAt"] !== "string" || typeof e["model"] !== "string" || typeof e["markdown"] !== "string") return false;
+  if (typeof e["releasedAt"] !== "string" || typeof e["markdown"] !== "string") return false;
+  if (e["model"] !== null && typeof e["model"] !== "string") return false;
   const artifacts = e["artifacts"];
   if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) return false;
   return CHANGELOG_ARTIFACT_KINDS.every((kind) => {

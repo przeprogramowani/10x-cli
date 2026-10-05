@@ -119,6 +119,9 @@ describe("fetchChangelog — responses", () => {
 describe("validateChangelogResponse", () => {
   it("accepts the contract shape", () => {
     expect(validateChangelogResponse({ entries: [entry()] })).toBe(true);
+    // The toolkit stores model: null for entries its fallback wrote.
+    expect(validateChangelogResponse({ entries: [{ ...entry(), model: null }] })).toBe(true);
+    expect(validateChangelogResponse({ entries: [{ ...entry(), model: 42 }] })).toBe(false);
   });
 
   for (const [label, value] of [
