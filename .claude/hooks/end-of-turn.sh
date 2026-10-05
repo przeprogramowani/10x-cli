@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop: sweep everything this turn changed before the agent finishes; one retry.
-#   - oxlint errors + JSON syntax on every changed file (also catches files
+#   - oxlint (--deny-warnings) + JSON syntax on every changed file (also catches files
 #     rewritten via Bash, which never reach the per-edit hook)
 #   - bun tests related to changed files (full top-level suite takes ~70 s,
 #     so only tests/*.test.ts that import a changed module, or changed tests)
@@ -84,7 +84,7 @@ check_root() {
   done <<<"$CHANGED"
 
   if [ "${#LINT[@]}" -gt 0 ]; then
-    OUT=$(bun run --bun node_modules/oxlint/bin/oxlint --quiet -f unix "${LINT[@]}" 2>&1) || add "oxlint errors in changed files$WHERE:
+    OUT=$(bun run --bun node_modules/oxlint/bin/oxlint --deny-warnings -f unix "${LINT[@]}" 2>&1) || add "oxlint problems in changed files$WHERE:
 $OUT"
   fi
 
