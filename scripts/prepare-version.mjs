@@ -13,6 +13,14 @@ export function validatePullRequest(pr, expectedHead, expectedBase) {
   if (pr.base.sha !== expectedBase) throw new BranchUpdateRequiredError();
   return pr;
 }
+// npm serves a version a few seconds before the GitHub release that completes it.
+export class ReleasePendingError extends Error {
+  constructor(message, version) {
+    super(message);
+    this.name = "ReleasePendingError";
+    this.version = version;
+  }
+}
 export async function publishedBaseline(get, registry = async () => {
   const response = await fetch("https://registry.npmjs.org/@przeprogramowani%2f10x-cli/latest", { signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new Error("Published registry baseline unavailable");
@@ -21,7 +29,7 @@ export async function publishedBaseline(get, registry = async () => {
   const metadata = await registry();
   if (metadata.name !== "@przeprogramowani/10x-cli" || !stableVersion(metadata.version) || !fullSha(metadata.gitHead) || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(metadata.dist?.integrity || "")) throw new Error("Stable published registry baseline required");
   const tag = `v${metadata.version}`, release = await get(`releases/tags/${tag}`);
-  if (!release || release.draft !== false || release.prerelease !== false || release.tag_name !== tag || !release.published_at) throw new Error(`Completed stable GitHub release required: npm latest ${metadata.version} (gitHead ${metadata.gitHead}) has no finished ${tag} release. Re-run the failed "release / publish" job of the CI run for ${metadata.gitHead}; the gate answers "resumed" and finishes the tag and release without republishing. The next master push also finishes it. See docs/how-to/release-cli.md.`);
+  if (!release || release.draft !== false || release.prerelease !== false || release.tag_name !== tag || !release.published_at) throw new ReleasePendingError(`Completed stable GitHub release required: npm latest ${metadata.version} (gitHead ${metadata.gitHead}) has no finished ${tag} release. Re-run the failed "release / publish" job of the CI run for ${metadata.gitHead}; the gate answers "resumed" and finishes the tag and release without republishing. The next master push also finishes it. See docs/how-to/release-cli.md.`, metadata.version);
   let object = (await get(`git/ref/tags/${tag}`))?.object;
   if (object?.type === "tag") object = (await get(`git/tags/${object.sha}`))?.object;
   if (object?.type !== "commit" || object.sha !== metadata.gitHead) throw new Error("Registry and release tag source differ");
@@ -33,6 +41,22 @@ const versionParts = (v) => v.split(".").map(Number);
 export function compareVersions(a, b) {
   const [x, y] = [versionParts(a), versionParts(b)];
   return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+}
+export const RELEASE_WAIT = { attempts: 40, intervalMs: 30_000 };
+const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A Prepare run that starts after npm has master's version but before its
+// GitHub release is published waits for the release instead of failing (VG39).
+// An unfinished release of any other version is not in progress: fail at once.
+export async function awaitPublishedBaseline(getBaseline, masterVersion, { sleep = defaultSleep, log = console.log, attempts = RELEASE_WAIT.attempts, intervalMs = RELEASE_WAIT.intervalMs } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await getBaseline();
+    } catch (error) {
+      if (!(error instanceof ReleasePendingError) || error.version !== masterVersion || attempt >= attempts) throw error;
+      log(`Prepare: npm has v${masterVersion} from master but its GitHub release is not finished; waiting ${intervalMs / 1000}s (${attempt + 1}/${attempts})`);
+      await sleep(intervalMs);
+    }
+  }
 }
 // Master's package.json is ahead of npm while its release run is publishing.
 // A version calculated from the old baseline then collides with the one being
@@ -52,14 +76,13 @@ async function awaitMasterRelease(masterVersion, baseline, { getBaseline, sleep,
   }
   throw new Error(`Release of v${masterVersion} from master has not completed after ${attempts} checks; re-run Prepare CLI version once it is published`);
 }
-export async function preparePullRequest({ number, runId, runAttempt, workflowSha, bootstrap = false }, { get, calculate, readPackage, baseline: getBaseline, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, releaseWait = { attempts: 40, intervalMs: 30_000 } }) {
+export async function preparePullRequest({ number, runId, runAttempt, workflowSha, bootstrap = false }, { get, calculate, readPackage, baseline: getBaseline, sleep = defaultSleep, log = console.log, releaseWait = RELEASE_WAIT }) {
   const pr = await get(`pulls/${number}`), master = (await get("git/ref/heads/master"))?.object?.sha;
   validatePullRequest(pr, pr?.head?.sha, master);
-  const head = pr.head.sha;
-  let baseline = await getBaseline();
+  const head = pr.head.sha, masterVersion = JSON.parse(await readPackage(master)).version;
+  let baseline = await awaitPublishedBaseline(getBaseline, masterVersion, { sleep, log, ...releaseWait });
   let calculation = await calculate({ head, master, baseline });
   if (!calculation) return null;
-  const masterVersion = JSON.parse(await readPackage(master)).version;
   if (stableVersion(masterVersion) && compareVersions(calculation.version, masterVersion) <= 0) {
     log(`Prepare: v${calculation.version} for PR #${number} is not above master's v${masterVersion}`);
     baseline = await awaitMasterRelease(masterVersion, baseline, { getBaseline, sleep, log, ...releaseWait });
@@ -228,7 +251,7 @@ async function main() {
     git("fetch", "--no-tags", "origin", head);
     const master = (await get("git/ref/heads/master"))?.object?.sha;
     git("fetch", "origin", "+refs/heads/master:refs/remotes/origin/master", "--tags");
-    const baseline = await publishedBaseline(get);
+    const baseline = await awaitPublishedBaseline(() => publishedBaseline(get), JSON.parse(git("show", `${master}:package.json`)).version);
     let record;
     if (bootstrap) {
       const result = await calculateVersion({ head, master, baseline });

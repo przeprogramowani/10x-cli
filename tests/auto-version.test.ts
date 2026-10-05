@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BranchUpdateRequiredError, calculateVersion, packageWithVersion } from "../scripts/auto-version.mjs";
-import { preparePullRequest, validatePullRequest, verifyMergedPreparation, reconcileVersionEvent } from "../scripts/prepare-version.mjs";
+import { awaitPublishedBaseline, preparePullRequest, publishedBaseline, ReleasePendingError, validatePullRequest, verifyMergedPreparation, reconcileVersionEvent } from "../scripts/prepare-version.mjs";
 const sha = (c: string) => c.repeat(40);
 function fixture() {
   const cwd = mkdtempSync(join(tmpdir(), "release-number-"));
@@ -238,4 +238,71 @@ describe("stale PR version preparation", () => {
       expect(updated?.baseSha).toBe(master); expect(updated?.inputHead).toBe(staleHead); expect(updated?.version).toBe("1.1.0");
     } finally { f.cleanup(); }
   }, 30000);
+});
+
+// #75: Prepare started ~10 s before the v1.26.4 GitHub release was published,
+// while npm already served 1.26.4, and failed before any waiting (VG39).
+describe("npm ahead of the GitHub release that completes it", () => {
+  const released = (version: string) => ({ tag_name: `v${version}`, draft: false, prerelease: false, published_at: "2026-10-05T08:45:52Z" });
+  const setup = (npmVersion: string, releaseAfterReads: number) => {
+    let reads = 0;
+    const sleeps: number[] = [], logs: string[] = [];
+    const get = async (path: string): Promise<any> => {
+      if (path === `releases/tags/v${npmVersion}`) return ++reads > releaseAfterReads ? released(npmVersion) : null;
+      if (path === `git/ref/tags/v${npmVersion}`) return { object: { type: "commit", sha: sha("e") } };
+      if (path === "git/ref/heads/master") return { object: { sha: sha("f") } };
+      if (path === `compare/${sha("e")}...${sha("f")}`) return { merge_base_commit: { sha: sha("e") } };
+      throw new Error(`unexpected read ${path}`);
+    };
+    const registry = async () => ({ name: "@przeprogramowani/10x-cli", version: npmVersion, gitHead: sha("e"), dist: { integrity: "sha512-AAAA" } });
+    const baseline = () => publishedBaseline(get, registry);
+    const wait = { sleep: async (ms: number) => { sleeps.push(ms); }, log: (line: string) => logs.push(line), attempts: 5, intervalMs: 1000 };
+    return { baseline, wait, sleeps, logs };
+  };
+
+  it("waits for the release of master's version that npm already serves", async () => {
+    const t = setup("1.26.4", 3);
+    const baseline = await awaitPublishedBaseline(t.baseline, "1.26.4", t.wait);
+    expect(baseline).toEqual({ version: "1.26.4", tag: "v1.26.4", sha: sha("e"), gitHead: sha("e") });
+    expect(t.sleeps).toEqual([1000, 1000, 1000]);
+    expect(t.logs[0]).toContain("npm has v1.26.4 from master but its GitHub release is not finished");
+  });
+
+  it("keeps the existing error when the release never appears", async () => {
+    const t = setup("1.26.4", Infinity);
+    await expect(awaitPublishedBaseline(t.baseline, "1.26.4", t.wait)).rejects.toThrow(/^Completed stable GitHub release required: npm latest 1\.26\.4 /);
+    expect(t.sleeps.length).toBe(5);
+  });
+
+  it("fails at once when the unfinished release is not master's", async () => {
+    const t = setup("1.26.3", Infinity);
+    await expect(awaitPublishedBaseline(t.baseline, "1.26.4", t.wait)).rejects.toThrow(ReleasePendingError);
+    expect(t.sleeps).toEqual([]);
+  });
+
+  it("lets preparePullRequest number the PR after the release instead of failing", async () => {
+    const repo = { full_name: "przeprogramowani/10x-cli" };
+    const pr = { number: 75, state: "open", head: { sha: sha("a"), ref: "ci/slack", repo }, base: { sha: sha("b"), ref: "master", repo } };
+    const pending = new ReleasePendingError("Completed stable GitHub release required: npm latest 1.26.4", "1.26.4");
+    const answers: Array<Error | object> = [pending, pending, { version: "1.26.4", tag: "v1.26.4", sha: sha("c"), gitHead: sha("c") }];
+    let i = 0;
+    const writes: any[] = [], sleeps: number[] = [];
+    const record = await preparePullRequest({ number: 75, runId: "1", runAttempt: 1, workflowSha: sha("b") }, {
+      get: async (path: string, method = "GET", body?: any): Promise<any> => {
+        if (method !== "GET") { writes.push({ path, body }); return { sha: sha("d") }; }
+        if (path.startsWith("pulls/")) return pr;
+        if (path === "git/ref/heads/master") return { object: { sha: sha("b") } };
+        return { tree: { sha: sha("c") } };
+      },
+      calculate: async ({ baseline }: any) => { const [a, b, c] = baseline.version.split(".").map(Number); return { version: `${a}.${b}.${c + 1}` }; },
+      readPackage: async () => '{"version":"1.26.4"}',
+      baseline: async () => { const next = answers[Math.min(i++, answers.length - 1)]; if (next instanceof Error) throw next; return next; },
+      sleep: async (ms: number) => { sleeps.push(ms); },
+      log: () => {},
+      releaseWait: { attempts: 5, intervalMs: 1000 },
+    });
+    expect(record?.version).toBe("1.26.5");
+    expect(sleeps.length).toBe(2);
+    expect(JSON.parse(writes.find((w) => w.path === "git/blobs")?.body.content).version).toBe("1.26.5");
+  });
 });
