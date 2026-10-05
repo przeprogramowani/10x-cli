@@ -123,8 +123,10 @@ export function outputError(
 export function sanitize(s: string): string {
   return s
     // CSI: ESC [ <params> <intermediates> <final>
+    // oxlint-disable-next-line no-control-regex -- matching control characters is the point
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     // All remaining C0 + C1 control characters (including bare ESC / BEL).
+    // oxlint-disable-next-line no-control-regex -- matching control characters is the point
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 }
 

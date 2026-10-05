@@ -126,7 +126,7 @@ describe.skipIf(process.platform === "win32")("claude code hooks", () => {
       const end = runHook("Stop", repo, stop(repo));
       expect(end.stderr).not.toContain("No such file");
       expect(end.code).toBe(2);
-      expect(end.stderr).toContain("oxlint errors in changed files");
+      expect(end.stderr).toContain("oxlint problems in changed files");
     });
   });
 
@@ -144,8 +144,16 @@ describe.skipIf(process.platform === "win32")("claude code hooks", () => {
       writeFileSync(join(repo, "src/dup.ts"), "export const o = { a: 1, a: 2 };\n");
       const r = runHook("PostToolUse", repo, edit(join(repo, "src/dup.ts")));
       expect(r.code).toBe(2);
-      expect(r.stderr).toContain("oxlint reported errors in src/dup.ts");
+      expect(r.stderr).toContain("oxlint reported problems in src/dup.ts");
       expect(r.stderr).toContain("src/dup.ts:1:");
+    });
+
+    it("blocks a warning, as `bun run lint --deny-warnings` does in CI", () => {
+      writeFileSync(join(repo, "src/unused.ts"), "const unusedProbe = 1;\nexport {};\n");
+      const r = runHook("PostToolUse", repo, edit(join(repo, "src/unused.ts")));
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("src/unused.ts:1:");
+      expect(r.stderr).toContain("no-unused-vars");
     });
 
     it("blocks invalid JSON with the parser's message", () => {
@@ -221,7 +229,7 @@ describe.skipIf(process.platform === "win32")("claude code hooks", () => {
 
       const r = runHook("Stop", main, stop(main, { session_id: "s-roots" }));
       expect(r.code).toBe(2);
-      expect(r.stderr).toContain(`oxlint errors in changed files (in ${sibling})`);
+      expect(r.stderr).toContain(`oxlint problems in changed files (in ${sibling})`);
 
       // Another session never touched the sibling: its Stop checks only its own checkout.
       expect(runHook("Stop", main, stop(main, { session_id: "s-other" }))).toEqual({ code: 0, stderr: "" });

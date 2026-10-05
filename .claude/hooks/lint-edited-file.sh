@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PostToolUse (Write|Edit): check only the file the agent just edited.
-#   JS/TS  -> oxlint errors (.oxlintrc.json; warnings stay warnings, as in CI)
+#   JS/TS  -> oxlint errors and warnings (--deny-warnings, as `bun run lint` in CI)
 #   JSON   -> JSON.parse (same as the quality:fast config-changed check)
 # Exit 2 + stderr is the only combination Claude sees. Exit 1 + stderr is a
 # non-blocking hook error shown to the user: used when the hook cannot check.
@@ -41,8 +41,8 @@ case "$REL" in
       exit 1
     fi
     # Relative path so ignorePatterns (dist, src/generated) still apply.
-    if ! OUTPUT=$(bun run --bun node_modules/oxlint/bin/oxlint --quiet -f unix "$REL" 2>&1); then
-      echo "oxlint reported errors in $REL:" >&2
+    if ! OUTPUT=$(bun run --bun node_modules/oxlint/bin/oxlint --deny-warnings -f unix "$REL" 2>&1); then
+      echo "oxlint reported problems in $REL:" >&2
       printf '%s\n' "$OUTPUT" >&2
       exit 2
     fi ;;

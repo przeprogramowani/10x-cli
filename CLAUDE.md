@@ -14,7 +14,7 @@ Runtime is **Bun** (≥ Node 20 declared in `package.json` for the published bin
 bun install
 bun run dev -- <args>      # run CLI from source, e.g. `bun run dev -- --help`
 bun run typecheck          # tsc --noEmit
-bun run lint               # oxlint (config in .oxlintrc.json)
+bun run lint               # oxlint --deny-warnings (config in .oxlintrc.json)
 bun test                   # bun:test runner; tests live in tests/
 bun test tests/smoke.test.ts   # single file
 bun run build              # node-target ESM bundle → dist/index.mjs
