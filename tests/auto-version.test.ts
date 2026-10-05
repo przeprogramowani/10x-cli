@@ -54,8 +54,54 @@ describe("deterministic same-PR numbering", () => {
     expect(() => validatePullRequest({ ...pr, head: { ...pr.head, repo: { full_name: "attacker/cli" } } }, sha("a"), sha("b"))).toThrow();
     expect(() => validatePullRequest(pr, sha("f"), sha("b"))).toThrow();
     writes.length = 0;
-    await preparePullRequest({ number: 42, runId: "1", runAttempt: 1, workflowSha: sha("b") }, { ...dependencies, readPackage: async () => '{"version":"1.1.0"}' });
+    // The PR already carries the calculated version; master (sha b) is still at the released 1.0.0.
+    await preparePullRequest({ number: 42, runId: "1", runAttempt: 1, workflowSha: sha("b") }, { ...dependencies, readPackage: async (at: string) => at === sha("b") ? '{"version":"1.0.0"}' : '{"version":"1.1.0"}' });
     expect(writes).toEqual([]);
+  });
+  // #73: a push to master reconciled open PRs while master's release of 1.26.2
+  // was still running, so npm latest was 1.26.1 and #73 was handed 1.26.2 (VG31).
+  describe("a release from master still in progress", () => {
+    const repo = { full_name: "przeprogramowani/10x-cli" };
+    const pr = { number: 73, state: "open", head: { sha: sha("a"), ref: "chore/lint", repo }, base: { sha: sha("b"), ref: "master", repo } };
+    const at = (version: string) => ({ version, tag: `v${version}`, sha: sha("c"), gitHead: sha("c") });
+    const setup = (baselines: Array<ReturnType<typeof at> | Error>) => {
+      const writes: Array<{ path: string; method: string; body: any }> = [], logs: string[] = [], sleeps: number[] = [];
+      let i = 0;
+      const deps = {
+        get: async (path: string, method = "GET", body?: any): Promise<any> => {
+          if (method !== "GET") { writes.push({ path, method, body }); return { sha: sha("d") }; }
+          if (path.startsWith("pulls/")) return pr;
+          if (path === "git/ref/heads/master") return { object: { sha: sha("b") } };
+          return { tree: { sha: sha("c") } };
+        },
+        // Patch bump from whatever baseline it is given.
+        calculate: async ({ baseline }: any) => { const [a, b, c] = baseline.version.split(".").map(Number); return { version: `${a}.${b}.${c + 1}` }; },
+        readPackage: async () => '{"version":"1.26.2"}', // master and the PR both carry master's unreleased 1.26.2
+        baseline: async () => { const next = baselines[Math.min(i++, baselines.length - 1)]; if (next instanceof Error) throw next; return next; },
+        sleep: async (ms: number) => { sleeps.push(ms); },
+        log: (line: string) => logs.push(line),
+        releaseWait: { attempts: 5, intervalMs: 1000 },
+      };
+      return { deps, writes, logs, sleeps };
+    };
+
+    it("waits for the release to finish and numbers the PR after it", async () => {
+      const t = setup([at("1.26.1"), at("1.26.1"), new Error("Completed stable GitHub release required"), at("1.26.2")]);
+      const record = await preparePullRequest({ number: 73, runId: "1", runAttempt: 1, workflowSha: sha("b") }, t.deps);
+      expect(record?.version).toBe("1.26.3");
+      expect(record?.baseline.version).toBe("1.26.2");
+      expect(JSON.parse(t.writes.find((w) => w.path === "git/blobs")?.body.content).version).toBe("1.26.3");
+      expect(t.sleeps.length).toBe(3);
+      expect(t.logs.join("\n")).toContain("release of v1.26.2 from master is in progress");
+      expect(t.logs.join("\n")).toContain("PR #73 gets v1.26.3");
+    });
+
+    it("gives up without writing when the release does not finish", async () => {
+      const t = setup([at("1.26.1")]);
+      await expect(preparePullRequest({ number: 73, runId: "1", runAttempt: 1, workflowSha: sha("b") }, t.deps)).rejects.toThrow(/v1\.26\.2 from master has not completed/);
+      expect(t.writes).toEqual([]);
+      expect(t.sleeps.length).toBe(5);
+    });
   });
   it("binds squash numbering to original prepared PR and rejects baseline advancement", async () => {
     const baseline = { version: "1.0.0", tag: "v1.0.0", sha: sha("c"), gitHead: sha("c") };
@@ -97,11 +143,12 @@ describe("published-baseline completion wake", () => {
       const actionsGet = async (path: string) => { actionReads.push(path); return get(path); };
       const prepare = async (hint: any) => {
         reconcileCalls++;
-        return preparePullRequest({ number: hint.number, runId: "201", runAttempt: 1, workflowSha: master }, { get, calculate: (input: any) => calculateVersion({ cwd: f.cwd, ...input }), readPackage: async () => readFileSync(join(f.cwd, "package.json"), "utf8"), baseline: async () => baseline });
+        return preparePullRequest({ number: hint.number, runId: "201", runAttempt: 1, workflowSha: master }, { get, calculate: (input: any) => calculateVersion({ cwd: f.cwd, ...input }), readPackage: async () => readFileSync(join(f.cwd, "package.json"), "utf8"), baseline: async () => baseline, sleep: async () => {}, log: () => {}, releaseWait: { attempts: 1, intervalMs: 0 } });
       };
       const env = { GITHUB_REPOSITORY: repo.full_name, GITHUB_REF: "refs/heads/master", GITHUB_EVENT_NAME: "push" };
-      const before = await reconcileVersionEvent({ env, event: {} }, { get: writerGet, actionsGet, prepare, baseline: async () => baseline });
-      expect(before[0].version).toBe("1.1.0"); expect(writes).toEqual([]);
+      // Master's v1.1.0 is not on npm yet: the PR must not be handed it (VG31).
+      await expect(reconcileVersionEvent({ env, event: {} }, { get: writerGet, actionsGet, prepare, baseline: async () => baseline })).rejects.toThrow(/v1\.1\.0 from master has not completed/);
+      expect(writes).toEqual([]);
       baseline = { version: "1.1.0", tag: "v1.1.0", sha: master, gitHead: master };
       const after = await reconcileVersionEvent({ env: { ...env, GITHUB_EVENT_NAME: "workflow_run" }, event: { workflow_run: { id: 200 } } }, { get: writerGet, actionsGet, prepare, baseline: async () => baseline });
       expect(after[0].inputHead).toBe(head); expect(after[0].baseSha).toBe(master); expect(after[0].version).toBe("1.1.1");

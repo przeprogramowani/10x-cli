@@ -154,3 +154,26 @@ describe("version preparation stays a trusted, narrow writer", () => {
     expect(workflow.jobs["version-bootstrap"].steps.some((s: any) => JSON.stringify(s).includes("RELEASE_TOKEN"))).toBe(false);
   });
 });
+
+describe("step and job names render as written", () => {
+  // An unquoted `name: Post to #alerting` is a YAML comment from ` #` on, so the
+  // run page showed both Slack steps as "Post to" (VG33).
+  const prepare = parse(readFileSync(new URL("../.github/workflows/prepare-version.yml", import.meta.url), "utf8"));
+  const names = Object.entries({ "ci.yml": workflow, "publish-npm.yml": publish, "prepare-version.yml": prepare }).flatMap(([file, wf]) =>
+    Object.entries(wf.jobs as Record<string, any>).flatMap(([id, job]) => [
+      ...(job.name ? [[`${file} ${id}`, String(job.name)]] : []),
+      ...((job.steps ?? []) as Array<{ name?: string }>).filter((s) => s.name).map((s) => [`${file} ${id}`, String(s.name)]),
+    ]),
+  );
+
+  it("never ends a name with a dangling ' to'", () => {
+    expect(names.length).toBeGreaterThan(10);
+    for (const [where = "", name = ""] of names) expect(name.endsWith(" to"), `${where}: "${name}"`).toBe(false);
+  });
+
+  it("names the Slack channel each notification step posts to", () => {
+    const steps = (workflow.jobs["notify-slack"].steps as Array<{ name?: string }>).map((s) => s.name);
+    expect(steps).toContain("Post to #observability");
+    expect(steps).toContain("Post to #alerting");
+  });
+});

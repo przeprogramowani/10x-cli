@@ -156,7 +156,15 @@ export async function runPublishGate({ env = process.env, fetchFn = fetch, log =
   appendIfSet(env.GITHUB_STEP_SUMMARY, `${gateSummaryLine(decision, sourceSha)}\n`);
   log(JSON.stringify(decision));
   if (decision.proceed) return decision;
-  log(`::warning::${decision.version} is already on the registry from ${decision.registryGitHead}, not ${sourceSha}; a manual publication overtook the automation`);
+  // Same verdict either way; the cause differs. A push whose version came from
+  // an ancestor is just a commit without a version bump; anything else means
+  // someone published outside this pipeline.
+  const unbumped = trigger === "push" && sha(decision.registryGitHead) && (await isAncestor(decision.registryGitHead, sourceSha));
+  const cause = unbumped
+    ? `${decision.version} was published from ${decision.registryGitHead}, an ancestor of ${sourceSha}; this push has no version bump, so there is nothing to publish`
+    : `${decision.version} is already on the registry from ${decision.registryGitHead}, not ${sourceSha}; a manual publication overtook the automation`;
+  appendIfSet(env.GITHUB_STEP_SUMMARY, `${cause}\n`);
+  log(`${unbumped ? "::notice::" : "::warning::"}${cause}`);
   if (trigger === "dispatch") throw new Error(`Dispatch asked to publish ${decision.version} from ${sourceSha}, but the registry holds it from ${decision.registryGitHead}`);
   return decision;
 }

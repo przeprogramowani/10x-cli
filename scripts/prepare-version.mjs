@@ -29,12 +29,45 @@ export async function publishedBaseline(get, registry = async () => {
   if (!fullSha(master) || (await get(`compare/${object.sha}...${master}`))?.merge_base_commit?.sha !== object.sha) throw new Error("Published baseline is not on master");
   return { version: metadata.version, tag, sha: object.sha, gitHead: metadata.gitHead };
 }
-export async function preparePullRequest({ number, runId, runAttempt, workflowSha, bootstrap = false }, { get, calculate, readPackage, baseline: getBaseline }) {
+const versionParts = (v) => v.split(".").map(Number);
+export function compareVersions(a, b) {
+  const [x, y] = [versionParts(a), versionParts(b)];
+  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+}
+// Master's package.json is ahead of npm while its release run is publishing.
+// A version calculated from the old baseline then collides with the one being
+// released, so wait for the release to land and number the PR after it (VG31).
+async function awaitMasterRelease(masterVersion, baseline, { getBaseline, sleep, log, attempts, intervalMs }) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    log(`Prepare: release of v${masterVersion} from master is in progress (npm baseline v${baseline.version}); waiting ${intervalMs / 1000}s (${attempt}/${attempts})`);
+    await sleep(intervalMs);
+    try {
+      baseline = await getBaseline();
+    } catch (error) {
+      if (!/Completed stable GitHub release required/.test(error?.message)) throw error;
+      log(`Prepare: v${masterVersion} is on its way: ${error.message}`);
+      continue;
+    }
+    if (compareVersions(baseline.version, masterVersion) >= 0) return baseline;
+  }
+  throw new Error(`Release of v${masterVersion} from master has not completed after ${attempts} checks; re-run Prepare CLI version once it is published`);
+}
+export async function preparePullRequest({ number, runId, runAttempt, workflowSha, bootstrap = false }, { get, calculate, readPackage, baseline: getBaseline, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, releaseWait = { attempts: 40, intervalMs: 30_000 } }) {
   const pr = await get(`pulls/${number}`), master = (await get("git/ref/heads/master"))?.object?.sha;
   validatePullRequest(pr, pr?.head?.sha, master);
-  const head = pr.head.sha, baseline = await getBaseline();
-  const calculation = await calculate({ head, master, baseline });
+  const head = pr.head.sha;
+  let baseline = await getBaseline();
+  let calculation = await calculate({ head, master, baseline });
   if (!calculation) return null;
+  const masterVersion = JSON.parse(await readPackage(master)).version;
+  if (stableVersion(masterVersion) && compareVersions(calculation.version, masterVersion) <= 0) {
+    log(`Prepare: v${calculation.version} for PR #${number} is not above master's v${masterVersion}`);
+    baseline = await awaitMasterRelease(masterVersion, baseline, { getBaseline, sleep, log, ...releaseWait });
+    calculation = await calculate({ head, master, baseline });
+    if (!calculation) return null;
+    if (compareVersions(calculation.version, masterVersion) <= 0) throw new Error(`Calculated v${calculation.version} is not above master's released v${masterVersion}`);
+  }
+  log(`Prepare: PR #${number} gets v${calculation.version} (baseline v${baseline.version}, master v${masterVersion})`);
   const original = await readPackage(head);
   const content = packageWithVersion(original, calculation.version);
   validatePullRequest(await get(`pulls/${number}`), head, master);
@@ -202,7 +235,11 @@ async function main() {
       if (!result) return null;
       if (JSON.parse(git("show", `${head}:package.json`)).version !== result.version) throw new Error("Automatically prepared bootstrap version must be committed before CI");
       record = { schemaVersion: 1, repository: CLI_REPOSITORY, kind: "bootstrap", runId: process.env.GITHUB_RUN_ID, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), workflowSha: head, prNumber: hint.number, inputHead: head, preparedHead: head, baseSha: master, baseline, version: result.version };
-    } else record = await preparePullRequest({ number: hint.number, runId: process.env.GITHUB_RUN_ID, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), workflowSha: process.env.GITHUB_SHA }, { get, calculate: calculateVersion, readPackage: async (sha) => git("show", `${sha}:package.json`), baseline: () => publishedBaseline(get) });
+    } else record = await preparePullRequest({ number: hint.number, runId: process.env.GITHUB_RUN_ID, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), workflowSha: process.env.GITHUB_SHA }, { get, calculate: (input) => {
+      // A release that finished while Prepare waited brings a tag this checkout has not fetched.
+      git("fetch", "origin", "--tags");
+      return calculateVersion(input);
+    }, readPackage: async (sha) => git("show", `${sha}:package.json`), baseline: () => publishedBaseline(get) });
     if (record) {
       const directory = resolve(process.env.VERSION_RECORD_DIR, String(hint.number)); mkdirSync(directory, { recursive: true });
       writeFileSync(resolve(directory, "version-preparation.json"), JSON.stringify(record));

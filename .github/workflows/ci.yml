@@ -166,7 +166,7 @@ jobs:
             echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Post to #observability
+      - name: "Post to #observability"
         uses: slackapi/slack-github-action@v2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -204,7 +204,7 @@ jobs:
       # #alerting carries production problems only. A test failure on master is
       # reported above; a failed release can leave a version on npm without its
       # tag or GitHub release, which blocks every following release PR.
-      - name: Post to #alerting
+      - name: "Post to #alerting"
         if: needs.release.result == 'failure'
         uses: slackapi/slack-github-action@v2
         with:

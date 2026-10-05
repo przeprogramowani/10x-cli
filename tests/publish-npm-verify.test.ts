@@ -195,6 +195,31 @@ describe("the publish gate decides before anything is packed", () => {
     expect(readFileSync(join(dir, "dispatch.md"), "utf8")).toContain(sha("d"));
   });
 
+  // #70: an ordinary master push without a version bump was announced as
+  // "a manual publication overtook the automation" (VG32).
+  it("tells an unbumped push apart from a manual publication that overtook the automation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gate-"));
+    const run = async (isAncestor: (a: string, d: string) => Promise<boolean>, name: string) => {
+      const lines: string[] = [];
+      const summary = join(dir, `${name}.md`);
+      const decision = await runPublishGate({ env: { CLI_SHA: sha("a"), TRIGGER: "push", VERSION: "1.22.1", GITHUB_STEP_SUMMARY: summary }, fetchFn: registry(complete), log: (line: string) => lines.push(line), isAncestor, releaseComplete: async () => true });
+      expect(decision.reason).toBe(GATE_REASONS.conflict); // the exported verdict does not change
+      return { text: lines.join("\n"), summary: readFileSync(summary, "utf8") };
+    };
+
+    const unbumped = await run(async (a, d) => a === sha("d") && d === sha("a"), "unbumped");
+    expect(unbumped.text).toContain("::notice::");
+    expect(unbumped.text).toContain("no version bump");
+    expect(unbumped.text).not.toContain("overtook");
+    expect(unbumped.summary).toContain("no version bump");
+
+    const overtaken = await run(async () => false, "overtaken");
+    expect(overtaken.text).toContain("::warning::");
+    expect(overtaken.text).toContain("a manual publication overtook the automation");
+    expect(overtaken.text).not.toContain("no version bump");
+    expect(overtaken.summary).toContain("overtook");
+  });
+
   it("writes the summary line on the branches that do proceed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gate-"));
     for (const [name, fetchFn, reason] of [["publish", absent, GATE_REASONS.publish], ["resume", registry(complete), GATE_REASONS.resume]] as const) {
