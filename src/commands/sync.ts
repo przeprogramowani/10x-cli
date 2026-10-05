@@ -531,6 +531,11 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
   const buckets = countBuckets(outcomes);
   const lessonsErrored = outcomes.filter((o) => o.status === "errored").length;
   const lessonsConflicts = outcomes.filter((o) => o.status === "conflicts").length;
+  // A lesson whose other resources updated reports status "updated", so count
+  // preserved conflicts from the resources rather than from the status.
+  const lessonsWithConflicts = outcomes.filter((o) =>
+    o.resources.some((r) => r.bucket === "skipped-conflict"),
+  ).length;
 
   if (ctx.json) {
     output(ctx, "", {
@@ -548,6 +553,7 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
         updated: outcomes.filter((o) => o.status === "updated").length,
         unchanged: outcomes.filter((o) => o.status === "unchanged").length,
         conflicts: lessonsConflicts,
+        lessonsWithConflicts,
         errored: lessonsErrored,
         excluded: exclusions.length,
         resources: {
@@ -601,7 +607,7 @@ function renderReport(ctx: OutputContext, profile: ToolProfile, input: ReportInp
       `${buckets.unchanged} unchanged, ${buckets["skipped-conflict"]} skipped (conflicts), ` +
       `${buckets.removed} removed, ${buckets["preserved-local"]} preserved locally.`,
   );
-  if (lessonsConflicts > 0 && !input.force) {
+  if (lessonsWithConflicts > 0 && !input.force) {
     lines.push("To replace edited skills and prompts: 10x sync --force. Resolve rule conflicts with 10x get <lesson> --type rules.");
   }
 
