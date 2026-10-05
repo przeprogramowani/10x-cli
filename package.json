@@ -28,6 +28,7 @@
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
     "lint": "bun run --bun node_modules/oxlint/bin/oxlint . .claude/skills/*/scripts",
+    "lint:workflows": "node .quality/native.mjs actionlint",
     "validate:cli-skills": "node scripts/validate-cli-skills.mjs",
     "quality:fast": "node .quality/run.mjs fast",
     "quality:affected": "node .quality/run.mjs affected",

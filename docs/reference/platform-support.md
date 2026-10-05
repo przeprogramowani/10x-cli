@@ -113,7 +113,7 @@ are still detected so existing 10x artifacts can be migrated.
 
 ## CI testing
 
-The CLI is tested on both Ubuntu and Windows in CI:
+The CLI is tested on both Ubuntu and Windows in CI. Pull requests run the Ubuntu jobs only; `check-windows` runs on every push to `master`, and publication waits on it:
 
 | Test level | Ubuntu | Windows |
 |------------|--------|---------|

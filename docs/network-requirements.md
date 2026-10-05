@@ -137,7 +137,7 @@ TLS handshake matters (HTTP 200 is not required). On the device: `10x doctor`.
 | `10x bench-kit` | `Could not download the template from https://github.com/przeprogramowani/10x-bench-kit.` |
 | bad certificate / intercept | `network_error` plus the runtime message |
 
-Exit codes: `0` success, `1` error, `2` usage, `3` auth required, `4` forbidden, `5` not found. `doctor` with a dead API: **78**.
+Exit codes: `0` success, `1` error, `2` usage, `3` auth required, `4` forbidden, `5` not found. `doctor` exits **78** when any check fails (including an unreachable API or a missing sign-in); its JSON envelope still has `status: "ok"`, with `data.overall: "error"` and the failing checks. Warnings alone exit `0`.
 
 ---
 
