@@ -11,6 +11,9 @@ push to master
             └─ release   one GitHub release: tarball + all five binaries
 ```
 
+Pull requests run `check` only; `check-windows` runs on master pushes, so a
+Windows-only regression first shows up after merge and blocks that release.
+
 Nothing waits on the Toolkit. There is no lease, no coordinator and no release
 dispatch on `ci.yml`. The only manual entry point is `publish-npm.yml`, kept as
 an emergency hatch and described at the end.

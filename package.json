@@ -1,6 +1,6 @@
 {
   "name": "@przeprogramowani/10x-cli",
-  "version": "1.26.1",
+  "version": "1.26.2",
   "description": "Open-source CLI for 10xDevs course content",
   "repository": {
     "type": "git",
@@ -27,7 +27,8 @@
     "generate-types": "bun run scripts/generate-types.ts",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
-    "lint": "bun run --bun node_modules/oxlint/bin/oxlint --deny-warnings .",
+    "lint": "bun run --bun node_modules/oxlint/bin/oxlint --deny-warnings . .claude/skills/*/scripts",
+    "lint:workflows": "node .quality/native.mjs actionlint",
     "validate:cli-skills": "node scripts/validate-cli-skills.mjs",
     "quality:fast": "node .quality/run.mjs fast",
     "quality:affected": "node .quality/run.mjs affected",

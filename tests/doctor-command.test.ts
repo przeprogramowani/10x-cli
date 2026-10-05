@@ -382,4 +382,15 @@ describe("10x doctor — JSON envelope shape", () => {
     expect(report.warned).toBe(statuses.filter((s) => s === "warn").length);
     expect(report.failed).toBeGreaterThanOrEqual(1);
   });
+
+  it("a failing check exits 78 with a status: 'ok' envelope, not an error envelope", async () => {
+    healthyApi(); // only the auth check fails
+
+    const { stdout, exitCode } = await runDoctor(["doctor", "--json"]);
+    expect(exitCode).toBe(78);
+    const envelope = JSON.parse(stdout) as Record<string, unknown>;
+    expect(Object.keys(envelope).sort()).toEqual(["data", "status"]);
+    expect(envelope.status).toBe("ok");
+    expect(envelope.data).toMatchObject({ overall: "error", failed: 1 });
+  });
 });

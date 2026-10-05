@@ -11,7 +11,18 @@ if (process.argv[2] === 'toolchain') {
   console.log('Bun 1.3.8 and npm 11.12.1 verified');
   process.exit(0);
 }
-if (process.argv[2] !== 'unit') throw new Error('Expected unit');
+if (process.argv[2] === 'actionlint') {
+  // Workflow lint. Optional locally (skipped with a notice when the binary is absent);
+  // CI installs a pinned actionlint and runs it directly, so it never skips there.
+  const result = spawnSync('actionlint', process.argv.slice(3), { stdio: 'inherit', env: process.env });
+  if (result.error?.code === 'ENOENT') {
+    console.log('actionlint not installed: workflow lint skipped (CI runs it). Install: https://github.com/rhysd/actionlint');
+    process.exit(0);
+  }
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
+}
+if (process.argv[2] !== 'unit') throw new Error('Expected unit or actionlint');
 const files = readdirSync('tests').filter(name => name.endsWith('.test.ts')).sort().map(name => `./tests/${name}`);
 if (!files.length) throw new Error('No unit/integration test suites discovered in tests/');
 const child = spawnSync('bun', ['test', ...files], { stdio: 'inherit', env: process.env });

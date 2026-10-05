@@ -7,5 +7,10 @@ coverage/
 .env.local
 tests/e2e/.env.test
 .vitest-cache/
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/verify-10x-cli/
 .quality-local/

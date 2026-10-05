@@ -112,6 +112,20 @@
       "countPattern": "^\\s*(\\d+) pass$"
     },
     {
+      "id": "workflows",
+      "command": [
+        "node",
+        ".quality/native.mjs",
+        "actionlint"
+      ],
+      "cwd": ".",
+      "levels": [
+        "gate"
+      ],
+      "timeoutMs": 60000,
+      "next": "Fix the reported workflow diagnostics and rerun this check."
+    },
+    {
       "id": "build",
       "command": [
         "bun",

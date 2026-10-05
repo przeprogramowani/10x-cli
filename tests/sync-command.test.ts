@@ -385,6 +385,37 @@ describe("10x sync — conflicts", () => {
     expect(readFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "utf8")).toBe("locally edited");
   });
 
+  it("counts a conflict in a lesson that also updated, and prints the --force hint", async () => {
+    const withPrompt = (v: string): LessonBundle => ({
+      ...makeBundle("m1l1", v),
+      prompts: [{ name: "plan", content: `prompt ${v}` }],
+    });
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" })]), {
+      m1l1: withPrompt("v1"),
+    });
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+
+    // Skill edited locally (conflict) while the prompt only moves upstream (update).
+    writeFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "locally edited");
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h2" })]), {
+      m1l1: withPrompt("v2"),
+    });
+    const json = await runSyncCmd(["--tool", "claude-code"]);
+    const data = envelope(json.stdout).data as {
+      lessons: Array<{ status: string }>;
+      totals: Record<string, unknown>;
+    };
+    expect(data.lessons[0]!.status).toBe("updated");
+    expect(data.totals).toMatchObject({ updated: 1, conflicts: 0, lessonsWithConflicts: 1 });
+
+    // Same state, human mode: the remediation hint must still be printed.
+    process.stdout.isTTY = true;
+    const human = await runSyncCmd(["--tool", "claude-code"]);
+    expect(human.stderr).toContain("skipped skills/auth-skill (SKILL.md) — you edited it");
+    expect(human.stderr).toContain("To replace edited skills and prompts: 10x sync --force.");
+    expect(readFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "utf8")).toBe("locally edited");
+  });
+
   it("--force overwrites the conflicted file with upstream", async () => {
     wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" })]), {
       m1l1: makeBundle("m1l1", "v1"),
