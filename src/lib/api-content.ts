@@ -45,6 +45,85 @@ export async function fetchCourses(token: string): Promise<ApiResult<CourseDisco
   return result;
 }
 
+/**
+ * Toolkit release changelog (`GET /api/changelog`). Hand-written until the
+ * generated types include the route; replace with `paths["/api/changelog"]`
+ * once `bun run generate-types` picks it up.
+ */
+export type ChangelogArtifactStatus = "added" | "modified" | "removed" | "renamed";
+export interface ChangelogArtifactChange {
+  name: string;
+  status: ChangelogArtifactStatus;
+}
+export interface ChangelogEntry {
+  schemaVersion?: number;
+  version: string;
+  previousVersion: string | null;
+  releasedAt: string;
+  model: string;
+  markdown: string;
+  artifacts: {
+    skills: ChangelogArtifactChange[];
+    prompts: ChangelogArtifactChange[];
+    rules: ChangelogArtifactChange[];
+    configTemplates: ChangelogArtifactChange[];
+  };
+}
+export interface ChangelogResponse {
+  entries: ChangelogEntry[];
+}
+export interface ChangelogQuery {
+  /** Exclusive lower bound by version (`vX.Y.Z`). */
+  since?: string;
+  /** Inclusive lower bound by date (`YYYY-MM-DD` or ISO datetime). */
+  sinceDate?: string;
+  /** 1–100; the backend defaults to 20. */
+  limit?: number;
+}
+
+const CHANGELOG_STATUSES: readonly string[] = ["added", "modified", "removed", "renamed"];
+const CHANGELOG_ARTIFACT_KINDS = ["skills", "prompts", "rules", "configTemplates"] as const;
+
+function isChangelogEntry(value: unknown): value is ChangelogEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const e = value as Record<string, unknown>;
+  if (e["schemaVersion"] !== undefined && typeof e["schemaVersion"] !== "number") return false;
+  if (typeof e["version"] !== "string" || !e["version"]) return false;
+  if (e["previousVersion"] !== null && typeof e["previousVersion"] !== "string") return false;
+  if (typeof e["releasedAt"] !== "string" || typeof e["model"] !== "string" || typeof e["markdown"] !== "string") return false;
+  const artifacts = e["artifacts"];
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) return false;
+  return CHANGELOG_ARTIFACT_KINDS.every((kind) => {
+    const list = (artifacts as Record<string, unknown>)[kind];
+    return Array.isArray(list) && list.every((item) => {
+      if (!item || typeof item !== "object") return false;
+      const change = item as Record<string, unknown>;
+      return typeof change["name"] === "string" && typeof change["status"] === "string" && CHANGELOG_STATUSES.includes(change["status"]);
+    });
+  });
+}
+
+export function validateChangelogResponse(value: unknown): value is ChangelogResponse {
+  if (!value || typeof value !== "object") return false;
+  const entries = (value as Record<string, unknown>)["entries"];
+  return Array.isArray(entries) && entries.every(isChangelogEntry);
+}
+
+export async function fetchChangelog(token: string, query: ChangelogQuery = {}): Promise<ApiResult<ChangelogResponse>> {
+  const params = new URLSearchParams();
+  if (query.since !== undefined) params.set("since", query.since);
+  if (query.sinceDate !== undefined) params.set("sinceDate", query.sinceDate);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  const qs = params.toString();
+  const result = await apiGet<ChangelogResponse>(`/api/changelog${qs ? `?${qs}` : ""}`, { token });
+  if (!result.ok) {
+    if (result.status === 404) return { ...result, code: "changelog_unsupported", error: "The backend does not support the toolkit changelog yet." };
+    return result;
+  }
+  if (!validateChangelogResponse(result.data)) return { ok: false, status: 0, code: "changelog_invalid", error: "Invalid toolkit changelog response." };
+  return result;
+}
+
 /** Module summary as returned by /api/catalog/:course and /api/modules/:course. */
 export interface ModuleSummary {
   module: number;

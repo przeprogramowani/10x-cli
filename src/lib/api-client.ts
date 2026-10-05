@@ -105,6 +105,7 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   module_locked: "This module is not available yet.",
   signing_failed: "Could not sign the download URL. Try again in a moment.",
   invalid_json: "The server received a malformed request.",
+  changelog_unsupported: "The backend does not support the toolkit changelog yet.",
   // Auth
   unauthorized: "You are not signed in. Run `10x auth` first.",
   no_membership: "No active course membership was found for this email.",

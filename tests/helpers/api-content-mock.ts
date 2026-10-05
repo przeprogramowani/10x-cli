@@ -18,6 +18,8 @@ import type {
   CourseDiscovery,
   ReleaseSelection,
   CatalogResponse,
+  ChangelogQuery,
+  ChangelogResponse,
   HealthResponse,
   LessonBundle,
   ModuleDetailResponse,
@@ -39,6 +41,18 @@ const realFetchLesson = real.fetchLesson;
 const realFetchArtifact = real.fetchArtifact;
 const realFetchHealth = real.fetchHealth;
 const realApiBaseUrl = real.apiBaseUrl;
+const realFetchChangelog = real.fetchChangelog;
+const realValidateChangelogResponse = real.validateChangelogResponse;
+
+/**
+ * Default changelog outcome: an older backend without the route. Keeps every
+ * sync/get test offline (the real adapter would hit the network) and leaves
+ * manifests exactly as before the toolkit-baseline feature. Set the impl to
+ * null to exercise the real HTTP adapter against a stubbed globalThis.fetch.
+ */
+export function changelogUnsupportedFixture(): ApiResult<ChangelogResponse> {
+  return { ok: false, status: 404, code: "changelog_unsupported", error: "The backend does not support the toolkit changelog yet." };
+}
 
 type HealthOutcome = ApiResult<HealthResponse> & { latencyMs: number };
 
@@ -78,6 +92,9 @@ export interface ApiContentMockState {
       ) => Promise<ApiResult<ArtifactResponse>> | ApiResult<ArtifactResponse>);
   fetchHealthImpl: null | (() => Promise<HealthOutcome> | HealthOutcome);
   apiBaseUrlImpl: null | (() => string);
+  fetchChangelogImpl:
+    | null
+    | ((token: string, query: ChangelogQuery) => Promise<ApiResult<ChangelogResponse>> | ApiResult<ChangelogResponse>);
 }
 
 export const apiContentMockState: ApiContentMockState = {
@@ -89,6 +106,7 @@ export const apiContentMockState: ApiContentMockState = {
   fetchArtifactImpl: null,
   fetchHealthImpl: null,
   apiBaseUrlImpl: null,
+  fetchChangelogImpl: changelogUnsupportedFixture,
 };
 
 mock.module("../../src/lib/api-content", () => ({
@@ -140,6 +158,11 @@ mock.module("../../src/lib/api-content", () => ({
       : realFetchHealth(options),
   apiBaseUrl: () =>
     apiContentMockState.apiBaseUrlImpl ? apiContentMockState.apiBaseUrlImpl() : realApiBaseUrl(),
+  validateChangelogResponse: realValidateChangelogResponse,
+  fetchChangelog: (token: string, query: ChangelogQuery = {}) =>
+    apiContentMockState.fetchChangelogImpl
+      ? Promise.resolve(apiContentMockState.fetchChangelogImpl(token, query))
+      : realFetchChangelog(token, query),
 }));
 
 export function resetApiContentMock(): void {
@@ -151,4 +174,5 @@ export function resetApiContentMock(): void {
   apiContentMockState.fetchArtifactImpl = null;
   apiContentMockState.fetchHealthImpl = null;
   apiContentMockState.apiBaseUrlImpl = null;
+  apiContentMockState.fetchChangelogImpl = changelogUnsupportedFixture;
 }
