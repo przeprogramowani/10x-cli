@@ -61,17 +61,38 @@ export function assertPackMatchesRegistry({ metadata, tarballBytes, expectedInte
   return { version: metadata.version, gitHead: metadata.gitHead, expectedIntegrity, registryIntegrity: metadata.dist.integrity, actualIntegrity, sourceSha };
 }
 
-export async function downloadTarball(metadata, fetchFn = fetch) {
-  const response = await fetchFn(metadata.dist.tarball, { signal: AbortSignal.timeout(60000) });
-  if (!response.ok) throw new Error("Registry tarball unavailable");
-  return Buffer.from(await response.arrayBuffer());
+/**
+ * The tarball can trail its metadata: v1.29.0's metadata was complete about 45 s
+ * after `npm publish`, its tarball 404'd for about five minutes. Only a 404 means
+ * "not yet"; any other failure stops at once. `deadline` lets a caller share one
+ * budget with the metadata wait so both fit the 20-minute publish job.
+ */
+export async function downloadTarball(metadata, fetchFn = fetch, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(), log = console.error, deadline, initialDelayMs = DEFAULT_WAIT.initialDelayMs, maxDelayMs = DEFAULT_WAIT.maxDelayMs } = {}) {
+  const until = deadline ?? now() + DEFAULT_WAIT.timeoutMs;
+  let delay = initialDelayMs, attempt = 0;
+  while (true) {
+    attempt += 1;
+    // Same unique query as the metadata poll: never be answered with a stored 404.
+    const response = await fetchFn(`${metadata.dist.tarball}?t=${now()}`, { signal: AbortSignal.timeout(60000) });
+    if (response.ok) {
+      if (attempt > 1) log(`registry tarball ready for ${metadata.version} after ${attempt} attempt(s)`);
+      return Buffer.from(await response.arrayBuffer());
+    }
+    if (response.status !== 404) throw new Error(`Registry tarball unavailable (HTTP ${response.status}); never republish`);
+    const remaining = until - now();
+    if (remaining <= 0) throw new Error(`Registry tarball for ${metadata.version} was not served before the deadline after ${attempt} attempt(s); never republish`);
+    log(`registry tarball wait attempt ${attempt}: status=404 next=${Math.min(delay, remaining)}ms`);
+    await sleep(Math.min(delay, remaining));
+    delay = Math.min(delay * 2, maxDelayMs);
+  }
 }
 
 export async function classifyPublishDecision({ version, expectedIntegrity, sourceSha, fetchFn = fetch, wait }) {
+  const deadline = (wait?.now ?? Date.now)() + (wait?.timeoutMs ?? DEFAULT_WAIT.timeoutMs);
   const { status, body } = await fetchVersionMetadata(version, fetchFn);
   if (status === 404 || (body && body.error === "Not found")) return { action: "publish" };
   const metadata = metadataIsComplete(body) ? body : await waitForPublishedMetadata(version, { fetchFn, ...wait });
-  const bytes = await downloadTarball(metadata, fetchFn);
+  const bytes = await downloadTarball(metadata, fetchFn, { ...wait, deadline });
   const result = assertPackMatchesRegistry({ metadata, tarballBytes: bytes, expectedIntegrity, sourceSha });
   return { action: "resume", result };
 }
@@ -181,8 +202,10 @@ async function decide() {
 
 async function verify() {
   const out = process.env.OUT, sourceSha = process.env.CLI_SHA, c = candidate(out);
+  // One budget for both waits (DEFAULT_WAIT.timeoutMs), inside the 20-minute job.
+  const deadline = Date.now() + DEFAULT_WAIT.timeoutMs;
   const metadata = await waitForPublishedMetadata(c.version);
-  const bytes = await downloadTarball(metadata);
+  const bytes = await downloadTarball(metadata, fetch, { deadline });
   const result = assertPackMatchesRegistry({ metadata, tarballBytes: bytes, expectedIntegrity: c.integrity, sourceSha });
   writeFileSync(`${out}/published-result.json`, JSON.stringify(result));
   console.log(JSON.stringify(result));
