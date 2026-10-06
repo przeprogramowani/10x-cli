@@ -83,8 +83,9 @@ function bundle(l: Lesson): Bundle {
 // Toolkit release changelog, newest-first like the real endpoint.
 const releaseEntry = (version: string, previousVersion: string | null, releasedAt: string): ChangelogEntry => ({
   schemaVersion: 1, version, previousVersion, releasedAt, model: "fake-model",
+  highlights: [`Fixture change in ${version}.`],
   markdown: `### Skills\n\n- verify-fixture-skill: fixture change in ${version}.\n`,
-  artifacts: { skills: [{ name: "verify-fixture-skill", status: "modified" }], prompts: [], rules: [], configTemplates: [] },
+  artifacts: { skills: [{ name: "verify-fixture-skill", status: "modified", summary: null }], prompts: [], rules: [], configTemplates: [] },
 });
 const changelog: ChangelogEntry[] = [
   releaseEntry("v2.59.2", "v2.59.1", "2026-10-05T09:00:00.000Z"),

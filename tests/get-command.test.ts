@@ -860,7 +860,7 @@ describe("10x get — toolkit baseline recording", () => {
 
   const latest: ApiResult<ChangelogResponse> = {
     ok: true, status: 200, responseHeaders: new Headers(), rawBody: "",
-    data: { entries: [{ version: "v2.59.2", previousVersion: "v2.59.1", releasedAt: "2026-10-05T10:00:00.000Z", model: "m", markdown: "notes", artifacts: { skills: [], prompts: [], rules: [], configTemplates: [] } }] },
+    data: { entries: [{ schemaVersion: 1, version: "v2.59.2", previousVersion: "v2.59.1", releasedAt: "2026-10-05T10:00:00.000Z", model: "m", highlights: ["Notes."], markdown: "notes", artifacts: { skills: [], prompts: [], rules: [], configTemplates: [] } }] },
   };
 
   it("records the newest toolkit version after a complete apply", async () => {

@@ -404,6 +404,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changelog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Release changelog entries
+         * @description Toolkit release changelog, newest first by semver, limited to the releases the caller's course grants receive (a frozen course stops at its cutoff release). `since` is an exclusive version bound; `sinceDate` is an inclusive `releasedAt >=` bound. They are mutually exclusive.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    since?: string;
+                    sinceDate?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Matching changelog entries, newest first (empty when nothing is published) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            entries: {
+                                /** @enum {number} */
+                                schemaVersion: 1;
+                                version: string;
+                                previousVersion: string | null;
+                                /** Format: date-time */
+                                releasedAt: string;
+                                model: string | null;
+                                highlights: string[];
+                                markdown: string;
+                                artifacts: {
+                                    skills: {
+                                        name: string;
+                                        /** @enum {string} */
+                                        status: "added" | "modified" | "removed" | "renamed";
+                                        summary: string | null;
+                                    }[];
+                                    prompts: {
+                                        name: string;
+                                        /** @enum {string} */
+                                        status: "added" | "modified" | "removed" | "renamed";
+                                        summary: string | null;
+                                    }[];
+                                    rules: {
+                                        name: string;
+                                        /** @enum {string} */
+                                        status: "added" | "modified" | "removed" | "renamed";
+                                        summary: string | null;
+                                    }[];
+                                    configTemplates: {
+                                        name: string;
+                                        /** @enum {string} */
+                                        status: "added" | "modified" | "removed" | "renamed";
+                                        summary: string | null;
+                                    }[];
+                                };
+                            }[];
+                        };
+                    };
+                };
+                /** @description Malformed query, or both `since` and `sinceDate` */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description The token grants no registered course (`course_access_denied`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description Changelog index unreadable, corrupt or schema-invalid */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/courses/{course}/migration-map": {
         parameters: {
             query?: never;

@@ -45,34 +45,9 @@ export async function fetchCourses(token: string): Promise<ApiResult<CourseDisco
   return result;
 }
 
-/**
- * Toolkit release changelog (`GET /api/changelog`). Hand-written until the
- * generated types include the route; replace with `paths["/api/changelog"]`
- * once `bun run generate-types` picks it up.
- */
-export type ChangelogArtifactStatus = "added" | "modified" | "removed" | "renamed";
-export interface ChangelogArtifactChange {
-  name: string;
-  status: ChangelogArtifactStatus;
-}
-export interface ChangelogEntry {
-  schemaVersion?: number;
-  version: string;
-  previousVersion: string | null;
-  releasedAt: string;
-  /** Drafting model; null when the toolkit's deterministic fallback wrote the entry. */
-  model: string | null;
-  markdown: string;
-  artifacts: {
-    skills: ChangelogArtifactChange[];
-    prompts: ChangelogArtifactChange[];
-    rules: ChangelogArtifactChange[];
-    configTemplates: ChangelogArtifactChange[];
-  };
-}
-export interface ChangelogResponse {
-  entries: ChangelogEntry[];
-}
+/** Toolkit release changelog (`GET /api/changelog`), limited to the caller's course grants. */
+export type ChangelogResponse = paths["/api/changelog"]["get"]["responses"][200]["content"]["application/json"];
+export type ChangelogEntry = ChangelogResponse["entries"][number];
 export interface ChangelogQuery {
   /** Exclusive lower bound by version (`vX.Y.Z`). */
   since?: string;
@@ -88,11 +63,12 @@ const CHANGELOG_ARTIFACT_KINDS = ["skills", "prompts", "rules", "configTemplates
 function isChangelogEntry(value: unknown): value is ChangelogEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const e = value as Record<string, unknown>;
-  if (e["schemaVersion"] !== undefined && typeof e["schemaVersion"] !== "number") return false;
+  if (e["schemaVersion"] !== 1) return false;
   if (typeof e["version"] !== "string" || !e["version"]) return false;
   if (e["previousVersion"] !== null && typeof e["previousVersion"] !== "string") return false;
   if (typeof e["releasedAt"] !== "string" || typeof e["markdown"] !== "string") return false;
   if (e["model"] !== null && typeof e["model"] !== "string") return false;
+  if (!Array.isArray(e["highlights"]) || !e["highlights"].every((h) => typeof h === "string")) return false;
   const artifacts = e["artifacts"];
   if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) return false;
   return CHANGELOG_ARTIFACT_KINDS.every((kind) => {
@@ -100,7 +76,8 @@ function isChangelogEntry(value: unknown): value is ChangelogEntry {
     return Array.isArray(list) && list.every((item) => {
       if (!item || typeof item !== "object") return false;
       const change = item as Record<string, unknown>;
-      return typeof change["name"] === "string" && typeof change["status"] === "string" && CHANGELOG_STATUSES.includes(change["status"]);
+      return typeof change["name"] === "string" && typeof change["status"] === "string" && CHANGELOG_STATUSES.includes(change["status"])
+        && (change["summary"] === null || typeof change["summary"] === "string");
     });
   });
 }

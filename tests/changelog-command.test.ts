@@ -156,12 +156,14 @@ function writeProjectManifest(manifest: CliManifest, manifestDir = ".claude"): v
 
 function makeEntry(version: string, releasedAt: string, markdown = `## ${version}\n\n- Changed things\n`): ChangelogEntry {
   return {
+    schemaVersion: 1,
     version,
     previousVersion: null,
     releasedAt,
     model: "test-model",
+    highlights: ["Changed things."],
     markdown,
-    artifacts: { skills: [{ name: "10x-plan", status: "modified" }], prompts: [], rules: [], configTemplates: [] },
+    artifacts: { skills: [{ name: "10x-plan", status: "modified", summary: null }], prompts: [], rules: [], configTemplates: [] },
   };
 }
 
@@ -378,6 +380,14 @@ describe("10x changelog — API errors", () => {
     const { stdout, exitCode } = await runChangelog(["changelog", "--json"]);
     expect(exitCode).toBe(1);
     parseErr(stdout, "network_error");
+  });
+
+  it("a token without course access exits with course_access_denied", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchChangelogImpl = () => ({ ok: false, status: 403, code: "course_access_denied", error: "Forbidden" });
+    const { stdout, exitCode } = await runChangelog(["changelog", "--json"]);
+    expect(exitCode).toBe(4);
+    parseErr(stdout, "course_access_denied");
   });
 
   it("a rejected session exits 3", async () => {
