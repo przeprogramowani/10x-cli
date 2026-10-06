@@ -227,7 +227,7 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
   // Baseline for `10x changelog`: only after a finished, real pull with no
   // errored lesson (a skipped conflict still counts — that content was offered).
   if (!dryRun && !controller.signal.aborted && !outcomes.some((o) => o.status === "errored")) {
-    await recordLatestToolkitVersion(ctx, auth.access_token, join(process.cwd(), profile.manifestDir));
+    await recordLatestToolkitVersion(ctx, auth.access_token, join(process.cwd(), profile.manifestDir), course);
   }
 
   renderReport(ctx, profile, {

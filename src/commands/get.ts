@@ -215,7 +215,7 @@ export async function runGet(
 
   // Baseline for `10x changelog`: only after a complete (unfiltered) real apply.
   if (!dryRun && !isFiltered) {
-    await recordLatestToolkitVersion(ctx, auth.access_token, join(process.cwd(), profile.manifestDir));
+    await recordLatestToolkitVersion(ctx, auth.access_token, join(process.cwd(), profile.manifestDir), course);
   }
 
   renderGetResult(ctx, bundle, writeResult, dryRun, profile, {

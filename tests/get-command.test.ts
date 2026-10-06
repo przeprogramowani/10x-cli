@@ -872,7 +872,7 @@ describe("10x get — toolkit baseline recording", () => {
 
     expect(exitCode ?? 0).toBe(0);
     expect(Object.keys(parseOk<Record<string, unknown>>(stdout))).toEqual(GET_ENVELOPE_KEYS);
-    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    expect(changelogCalls).toEqual([{ limit: 1, course: "10xdevs3" }]);
     const manifest = readManifest(join(projectRoot, ".claude"))!;
     expect(manifest.toolkit?.version).toBe("v2.59.2");
     expect(Object.keys(manifest.lessons!)).toEqual(["m1l1"]);
@@ -887,7 +887,7 @@ describe("10x get — toolkit baseline recording", () => {
 
     expect(exitCode ?? 0).toBe(0);
     expect(Object.keys(parseOk<Record<string, unknown>>(stdout))).toEqual(GET_ENVELOPE_KEYS);
-    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    expect(changelogCalls).toEqual([{ limit: 1, course: "10xdevs3" }]);
     expect(readManifest(join(projectRoot, ".claude"))!.toolkit).toBeUndefined();
   });
 

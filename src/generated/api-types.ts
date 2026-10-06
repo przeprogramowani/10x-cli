@@ -413,13 +413,14 @@ export interface paths {
         };
         /**
          * Release changelog entries
-         * @description Toolkit release changelog, newest first by semver, limited to the releases the caller's course grants receive (a frozen course stops at its cutoff release). `since` is an exclusive version bound; `sinceDate` is an inclusive `releasedAt >=` bound. They are mutually exclusive.
+         * @description Toolkit release changelog, newest first by semver, limited to the releases the requested `course` received, or without it those of every course the caller is granted (a frozen course stops at its cutoff release). `since` is an exclusive version bound; `sinceDate` is an inclusive `releasedAt >=` bound. They are mutually exclusive.
          */
         get: {
             parameters: {
                 query?: {
                     since?: string;
                     sinceDate?: string;
+                    course?: string;
                     limit?: number;
                 };
                 header?: never;
@@ -486,8 +487,19 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The token grants no registered course (`course_access_denied`) */
+                /** @description The token grants no registered course, or not the requested `course` (`course_access_denied`) */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description `course` names no registered course (`course_not_found`) */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };

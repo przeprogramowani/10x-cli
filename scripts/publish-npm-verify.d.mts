@@ -3,7 +3,7 @@ export function metadataIsComplete(meta: any): boolean;
 export function fetchVersionMetadata(version: string, fetchFn?: typeof fetch, options?: { fresh?: boolean }): Promise<{ status: number; body: any }>;
 export function waitForPublishedMetadata(version: string, options?: any): Promise<any>;
 export function assertPackMatchesRegistry(input: any): any;
-export function downloadTarball(metadata: any, fetchFn?: typeof fetch): Promise<Buffer>;
+export function downloadTarball(metadata: any, fetchFn?: typeof fetch, options?: { sleep?: (ms: number) => Promise<void>; now?: () => number; log?: (line: string) => void; deadline?: number; initialDelayMs?: number; maxDelayMs?: number }): Promise<Buffer>;
 export function classifyPublishDecision(input: any): Promise<any>;
 /** The registry state a gate decision reports; `conflict` is the only non-proceeding one. `sha` is the source to build: the candidate, or the registry's gitHead when finishing an unfinished release. */
 export type PublishGateDecision = { version: string; proceed: boolean; reason: string; registryGitHead: string | null; sha: string };

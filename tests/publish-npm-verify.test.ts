@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { assertPackMatchesRegistry, classifyPublishDecision, classifyPublishGate, DEFAULT_WAIT, gateSummaryLine, GATE_REASONS, githubReleaseComplete, metadataIsComplete, runPublishGate, waitForPublishedMetadata } from "../scripts/publish-npm-verify.mjs";
+import { assertPackMatchesRegistry, classifyPublishDecision, classifyPublishGate, DEFAULT_WAIT, downloadTarball, gateSummaryLine, GATE_REASONS, githubReleaseComplete, metadataIsComplete, runPublishGate, waitForPublishedMetadata } from "../scripts/publish-npm-verify.mjs";
 
 const sha = (c: string) => c.repeat(40);
 const integrity = "sha512-UpH51iLC2WQmjhzVj2HbfOu+79ob0EtcQ3XI2epIHrEq3Vl8NxnBoqjCSHCRVdvUNXCgmmCC8kU/06IW/lsGew==";
@@ -49,13 +49,46 @@ describe("publish-npm registry wait and resume", () => {
     const matching = "sha512-" + createHash("sha512").update(bytes).digest("base64");
     const meta = { version: "1.22.1", gitHead: sha("d"), dist: { tarball, integrity: matching } };
     const fetchFn = async (url: string) => {
-      if (String(url) === tarball) return { ok: true, arrayBuffer: async () => bytes };
+      if (String(url).startsWith(`${tarball}?t=`)) return { ok: true, arrayBuffer: async () => bytes };
       return { status: 200, text: async () => JSON.stringify(meta), ok: true };
     };
     const decision = await classifyPublishDecision({ version: "1.22.1", expectedIntegrity: matching, sourceSha: sha("d"), fetchFn: fetchFn as any });
     expect(decision.action).toBe("resume");
     expect(decision.result?.gitHead).toBe(sha("d"));
     expect(decision.result?.actualIntegrity).toBe(matching);
+  });
+});
+
+describe("the tarball may trail its metadata", () => {
+  const clock = (step: number) => { let t = 0; return () => (t += step); };
+  const waits = { sleep: async () => {}, initialDelayMs: 1, maxDelayMs: 1 };
+
+  it("polls a 404 tarball with a unique URL until it is served", async () => {
+    const urls: string[] = [];
+    const log: string[] = [];
+    let calls = 0;
+    const fetchFn = async (url: string) => {
+      urls.push(String(url));
+      return ++calls < 3 ? { ok: false, status: 404 } : { ok: true, status: 200, arrayBuffer: async () => Buffer.from("bytes") };
+    };
+    const bytes = await downloadTarball(complete, fetchFn as any, { ...waits, now: clock(1), log: (m: string) => log.push(m), deadline: 100 });
+    expect(bytes.toString()).toBe("bytes");
+    expect(urls).toHaveLength(3);
+    expect(new Set(urls).size).toBe(3);
+    expect(urls.every((u) => u.startsWith(`${tarball}?t=`))).toBe(true);
+    expect(log.at(-1)).toContain("registry tarball ready for 1.22.1 after 3 attempt(s)");
+  });
+
+  it("stops at the deadline without republishing", async () => {
+    const fetchFn = async () => ({ ok: false, status: 404 });
+    await expect(downloadTarball(complete, fetchFn as any, { ...waits, now: clock(50), log: () => {}, deadline: 100 })).rejects.toThrow(/not served before the deadline.*never republish/);
+  });
+
+  it("fails at once on anything but a 404", async () => {
+    let calls = 0;
+    const fetchFn = async () => { calls += 1; return { ok: false, status: 403 }; };
+    await expect(downloadTarball(complete, fetchFn as any, { ...waits, now: clock(1), log: () => {}, deadline: 100 })).rejects.toThrow(/HTTP 403.*never republish/);
+    expect(calls).toBe(1);
   });
 });
 
