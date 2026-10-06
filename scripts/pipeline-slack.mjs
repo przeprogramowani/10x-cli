@@ -165,17 +165,19 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
 const STAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 const SIGNAL = /error|fail|missing|differ|expected|cannot|not found|denied|timed? ?out|✗|×/i;
 const GENERIC = /^Process completed with exit code \d+\.?$/;
-// Test-runner tallies and passing lines that merely mention a failure word.
+// Test-runner tallies, passing lines that merely mention a failure word, and
+// Playwright's dot-reporter progress (`··°×`).
 const NOISE =
-  /^(\(pass\)|✓|ok |\d+ (tests? )?(fail|failed|pass|passed|skip|skipped)\b|Ran \d+ tests)/i;
+  /^(\(pass\)|✓|ok |\d+ (tests? )?(fail|failed|pass|passed|skip|skipped)\b|Ran \d+ tests|[·°×±✘]{2,})/i;
 
-// The first failing step's own output: the lines between the end of its
-// `##[group]Run …` header and its `##[error]`. Prefer lines that look like an
-// error, skip stack frames, keep at most three.
+// The first failing step's own output: its first specific `##[error]` with
+// the error lines of that annotation (a multi-line annotation continues on
+// lines without a timestamp), then the error-looking lines between the end of
+// the step's `##[group]Run …` header and that `##[error]`. Skips stack frames
+// and test-runner noise, keeps at most three.
 export function excerptFromLog(raw) {
-  const lines = String(raw ?? "")
-    .split(/\r?\n/)
-    .map((l) => l.replace(STAMP, "").replace(ANSI, ""));
+  const rawLines = String(raw ?? "").split(/\r?\n/);
+  const lines = rawLines.map((l) => l.replace(STAMP, "").replace(ANSI, ""));
   const errAt = lines.findIndex((l) => l.startsWith("##[error]"));
   if (errAt < 0) return [];
   let start = Math.max(0, errAt - 200);
@@ -187,7 +189,13 @@ export function excerptFromLog(raw) {
   }
   const out = [];
   const own = lines[errAt].slice("##[error]".length).trim();
-  if (own && !GENERIC.test(own)) out.push(own);
+  if (own && !GENERIC.test(own)) {
+    out.push(own);
+    for (let i = errAt + 1; i < lines.length && !STAMP.test(rawLines[i]); i++) {
+      const l = lines[i].trim();
+      if (SIGNAL.test(l) && !NOISE.test(l) && !/^at\s/.test(l)) out.push(l);
+    }
+  }
   const body = lines
     .slice(start, errAt)
     .map((l) => l.trim())
