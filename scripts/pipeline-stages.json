@@ -1,0 +1,12 @@
+{
+  "$comment": "Stages of .github/workflows/ci.yml as #pipelines shows them (pipeline-slack.mjs, the same file as in 10x-toolkit). `needs` mirrors the workflow; tests/pipeline-slack.test.ts fails when they drift.",
+  "stages": [
+    { "name": "Tests", "jobs": ["check", "check-windows"] },
+    { "name": "Release", "jobs": ["release"] }
+  ],
+  "jobs": {
+    "check": { "needs": [] },
+    "check-windows": { "needs": [] },
+    "release": { "needs": ["check", "check-windows"] }
+  }
+}

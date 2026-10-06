@@ -111,9 +111,13 @@ describe("the notification reports the publication that actually exists", () => 
     const pipelines = slack[0];
     expect(pipelines.with.webhook).toBe("${{ secrets.SLACK_WEBHOOK_URL }}");
     expect(pipelines.if).toBeUndefined();
-    expect(pipelines.with.payload).toContain("needs.release.result == 'failure' && '🚨 10x-cli release failure'");
-    expect(pipelines.with.payload).toContain("needs.release.result == 'failure' && ' — RELEASE FAILURE'");
-    expect(pipelines.with.payload).not.toContain("#alerting");
+    // The #pipelines message is rendered by scripts/pipeline-slack.mjs; it leads
+    // with 🚨 RELEASE FAILURE exactly when the release failed.
+    expect(pipelines.with["payload-file-path"]).toBe("${{ runner.temp }}/pipelines-message.json");
+    const render = steps.find((step: any) => step.name === "Render #pipelines message");
+    expect(render.if).toBeUndefined();
+    expect(render.env.SEVERITY).toBe("${{ needs.release.result == 'failure' && 'RELEASE FAILURE' || '' }}");
+    expect(JSON.stringify(workflow.jobs["notify-slack"])).not.toContain("#alerting");
   });
 
   it("keeps the commit message out of the payload expression", () => {
