@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
@@ -183,6 +183,7 @@ interface OkEnvelope {
   status: "ok";
   data: {
     baseline: { source: string; version?: string; date?: string; recordedAt?: string };
+    course: string | null;
     newEntries: number;
     entries: ChangelogEntry[];
   };
@@ -231,7 +232,7 @@ describe("10x changelog — baseline resolution", () => {
 
     const { stdout, exitCode } = await runChangelog(["changelog", "--json"]);
     expect(exitCode ?? 0).toBe(0);
-    expect(queries).toEqual([{ since: "v2.59.2", limit: 20 }]);
+    expect(queries).toEqual([{ since: "v2.59.2", course: "10xdevs3", limit: 20 }]);
     const data = parseOk(stdout);
     expect(data.baseline).toEqual({ source: "sync", version: "v2.59.2", recordedAt: "2026-10-05T10:00:00.000Z" });
     expect(data.newEntries).toBe(1);
@@ -245,7 +246,7 @@ describe("10x changelog — baseline resolution", () => {
 
     const { stdout, exitCode } = await runChangelog(["changelog", "--json"]);
     expect(exitCode ?? 0).toBe(0);
-    expect(queries).toEqual([{ sinceDate: "2026-09-15T12:30:00.000Z", limit: 20 }]);
+    expect(queries).toEqual([{ sinceDate: "2026-09-15T12:30:00.000Z", course: "10xdevs3", limit: 20 }]);
     const data = parseOk(stdout);
     expect(data.baseline).toEqual({ source: "applied", date: "2026-09-15T12:30:00.000Z" });
     expect(data.newEntries).toBe(0);
@@ -259,7 +260,7 @@ describe("10x changelog — baseline resolution", () => {
     respondWith([]);
 
     const { stdout } = await runChangelog(["changelog", "--json"]);
-    expect(queries).toEqual([{ sinceDate: "2026-09-20T08:00:00.000Z", limit: 20 }]);
+    expect(queries).toEqual([{ sinceDate: "2026-09-20T08:00:00.000Z", course: "10xdevs3", limit: 20 }]);
     expect(parseOk(stdout).baseline).toEqual({ source: "applied", date: "2026-09-20T08:00:00.000Z" });
   });
 
@@ -271,7 +272,7 @@ describe("10x changelog — baseline resolution", () => {
     respondWith([]);
 
     const { stdout } = await runChangelog(["changelog", "--json"]);
-    expect(queries).toEqual([{ since: "v2.20.0", limit: 20 }]);
+    expect(queries).toEqual([{ since: "v2.20.0", course: "10xdevs3", limit: 20 }]);
     expect(parseOk(stdout).baseline).toEqual({ source: "sync", version: "v2.20.0", recordedAt: "2026-10-02T00:00:00.000Z" });
   });
 
@@ -314,7 +315,7 @@ describe("10x changelog — --since flag", () => {
 
     const { stdout, exitCode } = await runChangelog(["changelog", "--json", "--since", "v2.55.0"]);
     expect(exitCode ?? 0).toBe(0);
-    expect(queries).toEqual([{ since: "v2.55.0", limit: 20 }]);
+    expect(queries).toEqual([{ since: "v2.55.0", course: "10xdevs3", limit: 20 }]);
     expect(parseOk(stdout).baseline).toEqual({ source: "flag", version: "v2.55.0" });
   });
 
@@ -413,7 +414,7 @@ describe("10x changelog — human output", () => {
     const { stdout, stderr, exitCode } = await withHumanTTY(() => runChangelog(["changelog"]));
     expect(exitCode ?? 0).toBe(0);
     expect(stdout).toBe("");
-    expect(stderr).toContain("This project is on toolkit v2.59.2 (recorded by 10x sync on 2026-10-05)");
+    expect(stderr).toContain("This 10xdevs3 project is on toolkit v2.59.2 (recorded by 10x sync on 2026-10-05)");
     expect(stderr).toContain("You're up to date — no toolkit changes since then.");
     expect(stderr).not.toContain("Run 10x sync");
   });
@@ -439,7 +440,7 @@ describe("10x changelog — human output", () => {
 
     const { stderr, exitCode } = await withHumanTTY(() => runChangelog(["changelog"]));
     expect(exitCode ?? 0).toBe(0);
-    expect(stderr).toContain("This project is on toolkit v2.59.2 (recorded by 10x sync on 2026-10-05) — 2 newer releases:");
+    expect(stderr).toContain("This 10xdevs3 project is on toolkit v2.59.2 (recorded by 10x sync on 2026-10-05) — 2 newer releases:");
     expect(stderr).toContain("v2.61.0 — 2026-10-07\n  • Plans now have sharper phases.");
     expect(stderr).toContain("  Skills\n    ~ 10x-plan\n      Sharper phases.\n    + 10x-ray (new)");
     expect(stderr).toContain("  Rules\n    - old-rule (removed)");
@@ -479,5 +480,70 @@ describe("renderEntry", () => {
       if (priorNoColor === undefined) delete process.env["NO_COLOR"];
       else process.env["NO_COLOR"] = priorNoColor;
     }
+  });
+});
+
+describe("10x changelog — course scope", () => {
+  it("scopes to the project's course from a binding file even without a manifest", async () => {
+    writeValidAuth();
+    writeFileSync(join(project, ".10x-cli.json"), `${JSON.stringify({ version: 1, course: "10xdevs4" })}\n`);
+    respondWith([]);
+    const { stdout } = await runChangelog(["changelog", "--json"]);
+    expect(queries).toEqual([{ course: "10xdevs4", limit: 5 }]);
+    expect(parseOk(stdout).course).toBe("10xdevs4");
+  });
+
+  it("--course overrides the project's course", async () => {
+    writeValidAuth();
+    writeProjectManifest(makeManifest());
+    respondWith([]);
+    await runChangelog(["changelog", "--json", "--course", "10xdevs4"]);
+    expect(queries[0]).toMatchObject({ course: "10xdevs4" });
+  });
+
+  it("--course needs a value", async () => {
+    writeValidAuth();
+    // One CLI run per test: the capture helper restores process.exit a tick after resolving.
+    const { stdout, exitCode } = await runChangelog(["changelog", "--json", "--course", " "]);
+    expect(exitCode).toBe(2);
+    parseErr(stdout, "invalid_course");
+  });
+
+  it("outside a project it sends no course and reports null", async () => {
+    writeValidAuth();
+    respondWith([]);
+    const { stdout } = await runChangelog(["changelog", "--json"]);
+    expect(queries).toEqual([{ limit: 5 }]);
+    expect(parseOk(stdout).course).toBeNull();
+  });
+
+  it("a project whose manifests disagree on the course stops, as get/sync do", async () => {
+    writeValidAuth();
+    writeProjectManifest(makeManifest());
+    writeProjectManifest(makeManifest({ tool: "cursor", course: "10xdevs4" }), ".cursor");
+    respondWith([]);
+    const { stdout, exitCode } = await runChangelog(["changelog", "--json"]);
+    expect(exitCode).toBe(1);
+    parseErr(stdout, "course_binding_conflict");
+    expect(queries).toEqual([]);
+  });
+
+  it("names the project's course when the account lacks it", async () => {
+    writeValidAuth();
+    writeProjectManifest(makeManifest());
+    apiContentMockState.fetchChangelogImpl = () => ({ ok: false, status: 403, code: "course_access_denied", error: "Forbidden" });
+    const { stdout, exitCode } = await runChangelog(["changelog", "--json"]);
+    expect(exitCode).toBe(4);
+    const error = parseErr(stdout, "course_access_denied");
+    expect(error.message).toContain("10xdevs3");
+    expect(error.hint).toContain("This project uses 10xdevs3");
+  });
+
+  it("an unknown --course is a usage error", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchChangelogImpl = () => ({ ok: false, status: 404, code: "course_not_found", error: "Not found" });
+    const { stdout, exitCode } = await runChangelog(["changelog", "--json", "--course", "10xdevs9"]);
+    expect(exitCode).toBe(2);
+    parseErr(stdout, "course_not_found");
   });
 });

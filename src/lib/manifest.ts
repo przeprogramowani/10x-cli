@@ -137,6 +137,18 @@ export function recordToolkitVersion(dir: string, version: string, now: Date): b
 }
 
 /**
+ * Drop a recorded toolkit version (re-reading first, as above). Returns true
+ * only when one was removed.
+ */
+export function clearToolkitVersion(dir: string): boolean {
+  const manifest = readManifest(dir);
+  if (!manifest?.toolkit) return false;
+  delete manifest.toolkit;
+  writeManifest(dir, manifest);
+  return true;
+}
+
+/**
  * Write the manifest to `<dir>/.10x-cli-manifest.json`, creating `<dir>`
  * first if it doesn't already exist.
  */

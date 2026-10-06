@@ -222,6 +222,7 @@ is **unreleased**: check the actual runner's `changelog --help` first.
 ```bash
 10x_cli changelog                      # toolkit releases since this project's last sync
 10x_cli changelog --since v2.55.0      # releases after a version
+10x_cli changelog --course 10xdevs4    # another course than this project's
 10x_cli changelog --since 2026-10-01   # releases from that UTC day on
 ```
 
