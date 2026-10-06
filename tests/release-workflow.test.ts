@@ -99,16 +99,21 @@ describe("the notification reports the publication that actually exists", () => 
     expect(rendered).toContain("needs.release.outputs.version");
   });
 
-  // #alerting is for production problems. Test failures stay in #pipelines;
-  // only a failed release (possibly a half-finished publication) pages.
-  it("sends only a failed release to #alerting", () => {
+  // Operator decision 2026-10-06: CI, build and release failures go to
+  // #pipelines only. The alerts webhook (#observability) is not for CI, and a
+  // failed release must stand out there instead of pointing elsewhere.
+  it("posts every outcome, including a failed release, to #pipelines only", () => {
+    const source = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+    expect(source.includes("SLACK_ALERTS_WEBHOOK_URL"), "ci.yml must not post to the alerts webhook").toBe(false);
     const steps = workflow.jobs["notify-slack"].steps;
-    const alerting = steps.filter((step: any) => JSON.stringify(step).includes("SLACK_ALERTS_WEBHOOK_URL"));
-    expect(alerting).toHaveLength(1);
-    expect(alerting[0].if).toBe("needs.release.result == 'failure'");
-    const pipelines = steps.find((step: any) => step.with?.webhook === "${{ secrets.SLACK_WEBHOOK_URL }}");
+    const slack = steps.filter((step: any) => step.uses?.startsWith("slackapi/slack-github-action@"));
+    expect(slack).toHaveLength(1);
+    const pipelines = slack[0];
+    expect(pipelines.with.webhook).toBe("${{ secrets.SLACK_WEBHOOK_URL }}");
     expect(pipelines.if).toBeUndefined();
-    expect(pipelines.with.payload).toContain("needs.release.result == 'failure' && '  ·  🔔 see #alerting'");
+    expect(pipelines.with.payload).toContain("needs.release.result == 'failure' && '🚨 10x-cli release failure'");
+    expect(pipelines.with.payload).toContain("needs.release.result == 'failure' && ' — RELEASE FAILURE'");
+    expect(pipelines.with.payload).not.toContain("#alerting");
   });
 
   it("keeps the commit message out of the payload expression", () => {
@@ -156,7 +161,7 @@ describe("version preparation stays a trusted, narrow writer", () => {
 });
 
 describe("step and job names render as written", () => {
-  // An unquoted `name: Post to #alerting` is a YAML comment from ` #` on, so the
+  // An unquoted `name: Post to #pipelines` is a YAML comment from ` #` on, so the
   // run page showed both Slack steps as "Post to" (VG33).
   const prepare = parse(readFileSync(new URL("../.github/workflows/prepare-version.yml", import.meta.url), "utf8"));
   const names = Object.entries({ "ci.yml": workflow, "publish-npm.yml": publish, "prepare-version.yml": prepare }).flatMap(([file, wf]) =>
@@ -174,7 +179,6 @@ describe("step and job names render as written", () => {
   it("names the Slack channel each notification step posts to", () => {
     const steps = (workflow.jobs["notify-slack"].steps as Array<{ name?: string }>).map((s) => s.name);
     expect(steps).toContain("Post to #pipelines");
-    expect(steps).toContain("Post to #alerting");
   });
 });
 
