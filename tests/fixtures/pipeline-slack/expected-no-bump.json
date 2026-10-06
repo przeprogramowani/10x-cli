@@ -1,0 +1,28 @@
+{
+  "text": "🟢 10x-cli SUCCESS 7481119",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "🟢 *10x-cli* SUCCESS · <https://github.com/przeprogramowani/10x-cli/commit/7481119a50ce36ae990b55c77892abc5c5f16773|7481119> · <https://github.com/przeprogramowani/10x-cli/pull/79|#79> test(validate): stop waiting out the real 60s npm pack deadline"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "✅ Tests    ➖ Release (version-already-published-from-other-sha)"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "👤 psmyrdek · ⏱ 2m 08s · <https://github.com/przeprogramowani/10x-cli/actions/runs/37427546786|Run>"
+        }
+      ]
+    }
+  ]
+}
