@@ -108,12 +108,12 @@ describe("the notification reports the publication that actually exists", () => 
     expect(alerting[0].if).toBe("needs.release.result == 'failure'");
     const pipelines = steps.find((step: any) => step.with?.webhook === "${{ secrets.SLACK_WEBHOOK_URL }}");
     expect(pipelines.if).toBeUndefined();
-    // The #pipelines message is rendered by scripts/pipeline-slack.mjs; it says
-    // "also sent to #alerting" exactly when the step above posts there.
+    // The #pipelines message is rendered by scripts/pipeline-slack.mjs; it leads
+    // with 🚨 RELEASE FAILURE exactly when the release failed.
     expect(pipelines.with["payload-file-path"]).toBe("${{ runner.temp }}/pipelines-message.json");
     const render = steps.find((step: any) => step.name === "Render #pipelines message");
     expect(render.if).toBeUndefined();
-    expect(render.env.ALERTING).toBe(`\${{ ${alerting[0].if} }}`);
+    expect(render.env.SEVERITY).toBe(`\${{ ${alerting[0].if} && 'RELEASE FAILURE' || '' }}`);
   });
 
   it("keeps the commit message out of the payload expression", () => {

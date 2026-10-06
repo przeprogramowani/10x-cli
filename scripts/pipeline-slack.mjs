@@ -3,8 +3,8 @@
 // 10x-cli and przeprogramowani-edu: keep the file identical across the three
 // repos and put repo-specific facts in pipeline-stages.json and the step env.
 //
-// It only renders. Whether the run failed, which channel hears about it and
-// when #alerting is paged stay in the workflow (and its contract tests); this
+// It only renders. Whether the run failed and how severe it is stay in the
+// workflow (and its contract tests); this
 // script turns the run into one message: status, commit, PR, stages, and for a
 // failure the job, the step and the first error lines from that job's log.
 //
@@ -13,7 +13,10 @@
 // Env: GITHUB_* (set by Actions), GITHUB_TOKEN (actions: read), NEEDS_JSON,
 // PIPELINE_FAILED, HEAD_COMMIT_MESSAGE, COMMIT_AUTHOR, and optionally STATUS,
 // STATUS_LABEL, STAGE_NOTES_JSON, STAGE_STATES_JSON, FACTS_JSON, DETAILS_JSON, OPERATOR_ACTION,
-// SUPERSEDED_BY, ALERTING.
+// SUPERSEDED_BY, SEVERITY.
+// SEVERITY ("PRODUCTION DEPLOY FAILURE", …) marks a failure that needs a human
+// now: the message and its push text start with "🚨 <SEVERITY> · ". #pipelines
+// is the only channel CI posts to, so this is how such a failure stands out.
 // It never fails the step: any API or log problem degrades to a message built
 // from `needs` alone, and the message says the excerpt is unavailable.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -250,7 +253,8 @@ export function buildMessage(m) {
   const { title, pr } = splitPr(m.commitMessage);
   const sha7 = m.sha.slice(0, 7);
   const prPart = pr ? `${link(`${base}/pull/${pr}`, `#${pr}`)} ` : "";
-  const head = `${st.emoji} *${esc(repoName)}* ${esc(label)} · ${link(`${base}/commit/${m.sha}`, sha7)} · ${prPart}${esc(shortTitle(title))}`;
+  const sev = m.severity ? `🚨 ${m.severity} · ` : "";
+  const head = `${esc(sev)}${st.emoji} *${esc(repoName)}* ${esc(label)} · ${link(`${base}/commit/${m.sha}`, sha7)} · ${prPart}${esc(shortTitle(title))}`;
   const blocks = [{ type: "section", text: { type: "mrkdwn", text: head } }];
 
   const stages = m.stages ?? [];
@@ -330,7 +334,6 @@ export function buildMessage(m) {
       `⏭️ ships with ${link(`${base}/commit/${m.supersededBy}`, m.supersededBy.slice(0, 7))}`,
     );
   }
-  if (m.alerting) ctx.push("🔔 also sent to #alerting");
   const runUrl = `${base}/actions/runs/${m.runId}${m.attempt > 1 ? `/attempts/${m.attempt}` : ""}`;
   ctx.push(link(runUrl, "Run"));
   blocks.push({
@@ -346,7 +349,7 @@ export function buildMessage(m) {
       ? ` — ${m.facts[0].text}`
       : "";
   return {
-    text: `${st.emoji} ${repoName} ${label} ${sha7}${why}`.replace(/[<>`]/g, ""),
+    text: `${sev}${st.emoji} ${repoName} ${label} ${sha7}${why}`.replace(/[<>`]/g, ""),
     blocks,
   };
 }
@@ -440,7 +443,7 @@ export async function collect(env, config, gh, now = Date.now()) {
     details: parseJson(env.DETAILS_JSON, []),
     operatorAction: env.OPERATOR_ACTION || undefined,
     supersededBy: env.SUPERSEDED_BY || undefined,
-    alerting: env.ALERTING === "true",
+    severity: env.SEVERITY || undefined,
   };
 }
 

@@ -71,7 +71,7 @@ function envFor(run: Run, extra: Record<string, string> = {}) {
     STATUS_LABEL: released ? `RELEASED v${version}` : "",
     STAGE_NOTES_JSON: JSON.stringify({ Release: note }),
     STAGE_STATES_JSON: JSON.stringify({ Release: run.release === "success" && proceed !== "true" ? "na" : "" }),
-    ALERTING: String(run.release === "failure"),
+    SEVERITY: run.release === "failure" ? "RELEASE FAILURE" : "",
     ...extra,
   };
 }
@@ -113,7 +113,7 @@ describe("#pipelines message for real 10x-cli runs", () => {
     expect(text).not.toContain("#alerting");
   });
 
-  it("a failed release says it also went to #alerting and names the called workflow's job", async () => {
+  it("a failed release leads with 🚨 RELEASE FAILURE and names the called workflow's job", async () => {
     const run = { ...RUNS.released!, failed: true, release: "failure" };
     const failPublish = (jobs: any[]) =>
       jobs.map((j) =>
@@ -125,11 +125,11 @@ describe("#pipelines message for real 10x-cli runs", () => {
       );
     const payload = await message(run, {}, client(run, failPublish));
     const text = allText(payload);
-    expect(payload.text).toStartWith("🔴 10x-cli FAILED");
+    expect(payload.text).toStartWith("🚨 RELEASE FAILURE · 🔴 10x-cli FAILED");
     expect(text).toContain("❌ Release");
     expect(text).toContain("|release / publish> › `Publish the exact directory once`");
     expect(text).toContain("_(log excerpt unavailable)_");
-    expect(text).toContain("🔔 also sent to #alerting");
+    expect(text).not.toContain("#alerting");
   });
 
   it("still reports from `needs` when the API is unavailable", async () => {
@@ -187,6 +187,6 @@ describe("the workflow feeds the renderer", () => {
     expect(render.env.STATUS_LABEL).toContain("format('RELEASED v{0}', needs.release.outputs.version)");
     expect(render.env.STAGE_STATES_JSON).toBe(`{"Release": "\${{ needs.release.result == 'success' && needs.release.outputs.proceed != 'true' && 'na' || '' }}"}`);
     expect(render.env.STAGE_NOTES_JSON).toContain("needs.release.outputs.reason");
-    expect(render.env.ALERTING).toBe("${{ needs.release.result == 'failure' }}");
+    expect(render.env.SEVERITY).toBe("${{ needs.release.result == 'failure' && 'RELEASE FAILURE' || '' }}");
   });
 });

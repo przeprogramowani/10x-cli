@@ -199,7 +199,9 @@ jobs:
             {"Release": "${{ needs.release.outputs.proceed == 'true' && format('v{0}{1}', needs.release.outputs.version, needs.release.outputs.reason == 'resumed-unfinished-release' && ' (resumed-unfinished-release)' || '') || needs.release.outputs.reason != '' && format('({0})', needs.release.outputs.reason) || '' }}"}
           STAGE_STATES_JSON: >-
             {"Release": "${{ needs.release.result == 'success' && needs.release.outputs.proceed != 'true' && 'na' || '' }}"}
-          ALERTING: ${{ needs.release.result == 'failure' }}
+          # A failed release can leave a version on npm without its tag or GitHub
+          # release, which blocks every following release PR: flagged 🚨.
+          SEVERITY: ${{ needs.release.result == 'failure' && 'RELEASE FAILURE' || '' }}
         run: node scripts/pipeline-slack.mjs scripts/pipeline-stages.json "$RUNNER_TEMP/pipelines-message.json"
 
       - name: "Post to #pipelines"
