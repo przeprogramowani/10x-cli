@@ -177,3 +177,31 @@ describe("step and job names render as written", () => {
     expect(steps).toContain("Post to #alerting");
   });
 });
+
+describe("only a superseded pull-request run is cancelled", () => {
+  // A shared group for master pushes would make GitHub drop pending runs (one
+  // pending run per group), and with them the releases they carry.
+  it("groups pull requests by number and every other run by its own run id", () => {
+    expect(workflow.concurrency.group).toBe("ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}");
+  });
+
+  it("cancels in progress for pull_request only", () => {
+    expect(workflow.concurrency["cancel-in-progress"]).toBe("${{ github.event_name == 'pull_request' }}");
+    for (const [name, job] of Object.entries(workflow.jobs) as Array<[string, any]>) expect(job.concurrency, `${name} has its own concurrency`).toBeUndefined();
+  });
+
+  it("never cancels the version writer or the publication", () => {
+    const prepare = parse(readFileSync(new URL("../.github/workflows/prepare-version.yml", import.meta.url), "utf8"));
+    expect(prepare.concurrency).toBeUndefined();
+    expect(prepare.jobs.prepare.concurrency["cancel-in-progress"]).toBe(false);
+    expect(publish.concurrency["cancel-in-progress"]).toBe(false);
+  });
+
+  // A cancelled PR run must stay silent in #pipelines and #alerting.
+  it("notifies Slack from master pushes only", () => {
+    expect(workflow.jobs["notify-slack"].if).toContain("github.event_name == 'push'");
+    expect(workflow.jobs["notify-slack"].if).toContain("github.ref == 'refs/heads/master'");
+    const slackJobs = Object.entries(workflow.jobs as Record<string, any>).filter(([, job]) => JSON.stringify(job).includes("slack-github-action")).map(([name]) => name);
+    expect(slackJobs).toEqual(["notify-slack"]);
+  });
+});
