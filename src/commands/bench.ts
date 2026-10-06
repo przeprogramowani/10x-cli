@@ -6,7 +6,7 @@ import {
   type LeaderboardEntry,
   type LeaderboardResponse,
 } from "../lib/bench-client";
-import { formatReleaseAt } from "../lib/format";
+import { formatReleaseAt, paint, STYLE } from "../lib/format";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -108,29 +108,6 @@ function handleBenchError(
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-
-/**
- * Minimal hand-rolled ANSI styling. Colors are used only on the human path
- * (stderr) and only when stderr is an interactive terminal and NO_COLOR is
- * unset — piped/redirected stderr and CI logs stay plain.
- */
-function colorsEnabled(): boolean {
-  return process.env["NO_COLOR"] === undefined && process.stderr.isTTY === true;
-}
-
-const STYLE = {
-  bold: "1",
-  dim: "2",
-  red: "31",
-  green: "32",
-  yellow: "33",
-  cyan: "36",
-} as const;
-
-function paint(style: string, text: string): string {
-  if (!colorsEnabled()) return text;
-  return `\u001b[${style}m${text}\u001b[0m`;
-}
 
 /** Same thresholds as the score badges on 10xbench.ai. */
 function scoreStyle(percentage: number): string {
