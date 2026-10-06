@@ -11,6 +11,14 @@ permissions:
   actions: read
   pull-requests: read
 
+# A new push to a PR supersedes its running check: the first run of every PR
+# fails by design until Prepare commits the version bump, so cancelling it
+# only removes a red run. Pushes keep a group of their own (run_id) and never
+# cancel: a shared master group would drop pending runs and their releases.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
