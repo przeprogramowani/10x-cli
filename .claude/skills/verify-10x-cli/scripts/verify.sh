@@ -13,6 +13,7 @@
 #   wait-screen <regex> [s] wait until the PTY screen matches (default 20 s)
 #   click                   "click" the newest pending magic link (fake mailbox)
 #   bump <lessonId>         publish a new upstream version of a fixture lesson
+#   changelog <action>      fake toolkit changelog: release (newer entry) | off (route 404s) | on
 #   snapshot <label>        save file tree + sha256 of project and config dirs
 #   note <text>             append a line to the run's notes.md
 #   down                    stop what this run started, delete scratch, keep evidence
@@ -174,6 +175,17 @@ case "$CMD" in
     curl -fsS -X POST "$API_URL/__fake/bump?lesson=${1:?lessonId}"; echo
     ;;
 
+  changelog)
+    load_run
+    case "${1:-}" in
+      release) curl -fsS -X POST "$API_URL/__fake/changelog/release" ;;
+      off) curl -fsS -X POST "$API_URL/__fake/changelog/route?enabled=0" ;;
+      on) curl -fsS -X POST "$API_URL/__fake/changelog/route?enabled=1" ;;
+      *) die "usage: verify.sh changelog release|off|on" ;;
+    esac
+    echo
+    ;;
+
   snapshot)
     load_run
     OUT="$EVID/$(next_seq)-${1:?label}.tree.txt"
@@ -201,6 +213,6 @@ case "$CMD" in
     ;;
 
   *)
-    sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     ;;
 esac

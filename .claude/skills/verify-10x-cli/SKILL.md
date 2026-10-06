@@ -1,6 +1,6 @@
 ---
 name: verify-10x-cli
-description: Drive the real `10x` CLI (@przeprogramowani/10x-cli) end to end the way a learner does — login, list, get, sync, doctor — against a local fake delivery API with isolated config and project dirs, and capture stdout/stderr/exit codes, PTY screens and file-tree hashes as proof. Use after changing a command, the writer, conflict handling, auth or the API client, when unit tests pass but you need to see the shipped behaviour, or when asked to "verify", "run the CLI", "prove it works".
+description: Drive the real `10x` CLI (@przeprogramowani/10x-cli) end to end the way a learner does — login, list, get, sync, changelog, doctor — against a local fake delivery API with isolated config and project dirs, and capture stdout/stderr/exit codes, PTY screens and file-tree hashes as proof. Use after changing a command, the writer, conflict handling, auth or the API client, when unit tests pass but you need to see the shipped behaviour, or when asked to "verify", "run the CLI", "prove it works".
 ---
 
 # Verify 10x-cli
@@ -78,7 +78,9 @@ $V screen <label>                    # save the screen as evidence
 $V wait-screen '10x exited'          # the PTY prints "[10x exited <code>]" when done
 ```
 
-Fake-world actions: `$V click` (the learner clicks the newest magic link), `$V bump <lesson>`.
+Fake-world actions: `$V click` (the learner clicks the newest magic link), `$V bump <lesson>`,
+`$V changelog release|off|on` (publish a newer toolkit release; remove / restore the
+changelog route).
 State proof: `$V snapshot <label>` (sha256 of every file in project + config dirs).
 Narrative: `$V note "<text>"` appends to the run's `notes.md`.
 

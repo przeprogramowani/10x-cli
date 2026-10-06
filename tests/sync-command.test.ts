@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
 import type { ApiResult } from "../src/lib/api-client";
-import type { CatalogResponse, LessonBundle, LessonSummary } from "../src/lib/api-content";
+import type { CatalogResponse, ChangelogQuery, ChangelogResponse, LessonBundle, LessonSummary } from "../src/lib/api-content";
 import { AUTH_FILE_VERSION, type AuthData, saveAuth } from "../src/lib/config";
 import { MANIFEST_FILENAME } from "../src/lib/manifest";
 import { apiContentMockState, resetApiContentMock } from "./helpers/api-content-mock";
@@ -712,5 +712,151 @@ describe("sync cumulative variants converge", () => {
       expect(fetched).toEqual(["m1l1"]);
       expect(readFileSync(join(tmp, "CLAUDE.md"), "utf8")).toContain("rules-m1l1");
     } finally { process.argv = argv; }
+  });
+});
+
+describe("10x sync — toolkit baseline recording", () => {
+  let changelogCalls: ChangelogQuery[];
+
+  function changelogReturns(result: ApiResult<ChangelogResponse>): void {
+    changelogCalls = [];
+    apiContentMockState.fetchChangelogImpl = (_token, query) => {
+      changelogCalls.push(query);
+      return result;
+    };
+  }
+
+  function latest(version: string): ApiResult<ChangelogResponse> {
+    return {
+      ok: true, status: 200, responseHeaders: new Headers(), rawBody: "",
+      data: { entries: [{ version, previousVersion: null, releasedAt: "2026-10-05T10:00:00.000Z", model: "m", markdown: "notes", artifacts: { skills: [], prompts: [], rules: [], configTemplates: [] } }] },
+    };
+  }
+
+  function manifestPath(): string {
+    return join(tmp, ".claude", MANIFEST_FILENAME);
+  }
+
+  async function seedM1l1(): Promise<void> {
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" })]), { m1l1: makeBundle("m1l1", "v1") });
+    await runSyncCmd(["--all", "--tool", "claude-code"]); // default fixture: unsupported → nothing recorded
+    expect(readManifestFile()["toolkit"]).toBeUndefined();
+  }
+
+  it("records the newest toolkit version after a sync where every lesson was unchanged", async () => {
+    await seedM1l1();
+    changelogReturns(latest("v2.59.2"));
+    fetched = [];
+
+    const res = await runSyncCmd(["--tool", "claude-code"]);
+
+    expect(res.exitCode).toBeUndefined();
+    expect(fetched).toEqual([]);
+    expect((envelope(res.stdout).data.lessons as Array<{ status: string }>)[0]!.status).toBe("unchanged");
+    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    const toolkit = readManifestFile()["toolkit"] as { version: string; recordedAt: string };
+    expect(toolkit.version).toBe("v2.59.2");
+    expect(Number.isNaN(Date.parse(toolkit.recordedAt))).toBe(false);
+    // Lesson ownership written earlier is retained alongside the baseline.
+    expect(Object.keys(readManifestFile()["lessons"] as object)).toEqual(["m1l1"]);
+  });
+
+  it("keeps the JSON envelope identical whether or not the version was recorded", async () => {
+    await seedM1l1();
+    const withoutRoute = await runSyncCmd(["--tool", "claude-code"]);
+    changelogReturns(latest("v2.59.2"));
+    const withRoute = await runSyncCmd(["--tool", "claude-code"]);
+    expect(envelope(withRoute.stdout)).toEqual(envelope(withoutRoute.stdout));
+    expect(withRoute.exitCode).toBe(withoutRoute.exitCode);
+  });
+
+  it("records after a lesson apply in the same run", async () => {
+    changelogReturns(latest("v2.59.2"));
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" })]), { m1l1: makeBundle("m1l1", "v1") });
+    await runSyncCmd(["--all", "--tool", "claude-code"]);
+    const manifest = readManifestFile() as { toolkit?: { version: string }; lessons: Record<string, { catalogContentHash?: string }> };
+    expect(manifest.toolkit?.version).toBe("v2.59.2");
+    expect(manifest.lessons["m1l1"]!.catalogContentHash).toBe("h1");
+  });
+
+  it("a skipped conflict does not block recording", async () => {
+    await seedM1l1();
+    writeFileSync(join(tmp, ".claude/skills/auth-skill/SKILL.md"), "locally edited");
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h2" })]), { m1l1: makeBundle("m1l1", "v2") });
+    changelogReturns(latest("v2.59.2"));
+    const res = await runSyncCmd(["--tool", "claude-code"]);
+    expect(res.exitCode).toBeUndefined();
+    expect((envelope(res.stdout).data.totals as { lessonsWithConflicts: number }).lessonsWithConflicts).toBe(1);
+    expect((readManifestFile()["toolkit"] as { version: string }).version).toBe("v2.59.2");
+  });
+
+  it("does not record on --dry-run", async () => {
+    await seedM1l1();
+    const before = readFileSync(manifestPath(), "utf8");
+    changelogReturns(latest("v2.59.2"));
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h2" })]), { m1l1: makeBundle("m1l1", "v2") });
+
+    const res = await runSyncCmd(["--dry-run", "--tool", "claude-code"]);
+
+    expect(res.exitCode).toBeUndefined();
+    expect(changelogCalls).toEqual([]);
+    expect(readFileSync(manifestPath(), "utf8")).toBe(before);
+  });
+
+  it("does not record when a lesson errored", async () => {
+    await seedM1l1();
+    changelogReturns(latest("v2.59.2"));
+    // m1l2 has no bundle → wire() returns 404 for it.
+    wire(
+      makeCatalog([
+        lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" }),
+        lessonSummary({ lessonId: "m1l2", module: 1, lesson: 2, contentHash: "h2" }),
+      ]),
+      { m1l1: makeBundle("m1l1", "v1") },
+    );
+
+    const res = await runSyncCmd(["--all", "--tool", "claude-code"]);
+
+    expect(res.exitCode).toBe(1);
+    expect(changelogCalls).toEqual([]);
+    expect(readManifestFile()["toolkit"]).toBeUndefined();
+  });
+
+  it("an unsupported backend (404) leaves the manifest bytes and exit code unchanged", async () => {
+    await seedM1l1();
+    const before = readFileSync(manifestPath(), "utf8");
+    changelogReturns({ ok: false, status: 404, code: "changelog_unsupported", error: "unsupported" });
+
+    const res = await runSyncCmd(["--tool", "claude-code"]);
+
+    expect(res.exitCode).toBeUndefined();
+    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    expect(envelope(res.stdout).status).toBe("ok");
+    expect(readFileSync(manifestPath(), "utf8")).toBe(before);
+  });
+
+  it("network failures and an empty changelog leave the manifest untouched and stay silent in human mode", async () => {
+    await seedM1l1();
+    const before = readFileSync(manifestPath(), "utf8");
+    process.stdout.isTTY = true;
+    for (const result of [
+      { ok: false, status: 0, code: "network_error", error: "offline" } as ApiResult<ChangelogResponse>,
+      { ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data: { entries: [] } } as ApiResult<ChangelogResponse>,
+    ]) {
+      changelogReturns(result);
+      const res = await runSyncCmd(["--tool", "claude-code"]);
+      expect(res.exitCode).toBeUndefined();
+      expect(res.stderr).not.toContain("toolkit");
+      expect(res.stderr).not.toContain("changelog");
+      expect(readFileSync(manifestPath(), "utf8")).toBe(before);
+    }
+  });
+
+  it("is a no-op without a manifest (nothing synced)", async () => {
+    changelogReturns(latest("v2.59.2"));
+    wire(makeCatalog([lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" })]), { m1l1: makeBundle("m1l1", "v1") });
+    const res = await runSyncCmd(["--tool", "claude-code"]); // default mode: no downloaded lessons
+    expect(res.exitCode).toBeUndefined();
+    expect(existsSync(manifestPath())).toBe(false);
   });
 });

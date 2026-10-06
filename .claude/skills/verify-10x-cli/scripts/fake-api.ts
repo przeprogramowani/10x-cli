@@ -15,11 +15,15 @@
 //   POST /__fake/click?session=<id>  "click" the magic link for a session
 //   POST /__fake/bump?lesson=<id>    publish a new upstream version of a lesson
 //   GET  /__fake/requests            request log (also <run-dir>/requests.log)
+//   POST /__fake/changelog/release   publish a newer toolkit release (next patch, released now)
+//   POST /__fake/changelog/route?enabled=<0|1>  remove / restore GET /api/changelog (404 = older backend)
 
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { paths } from "../../../../src/generated/api-types";
+// Not in the generated types yet (toolkit release-changelog); the CLI's hand-written shape.
+import type { ChangelogEntry } from "../../../../src/lib/api-content";
 
 // JSON body of a documented response, so regenerated api-types flag drift here too.
 type Body<P extends keyof paths, M extends "get" | "post", S extends number = 200> =
@@ -29,7 +33,8 @@ type Body<P extends keyof paths, M extends "get" | "post", S extends number = 20
 type Bundle = Body<"/api/lessons/{course}/{lessonId}", "get">;
 type ErrorCode =
   | "invalid_json" | "session_not_found" | "unauthorized" | "course_not_found"
-  | "module_not_found" | "lesson_not_found" | "module_locked" | "artifact_not_found" | "not_found";
+  | "module_not_found" | "lesson_not_found" | "module_locked" | "artifact_not_found" | "not_found"
+  | "invalid_query";
 
 const runDir = process.argv[2];
 if (!runDir) {
@@ -75,6 +80,62 @@ function bundle(l: Lesson): Bundle {
     prompts: [], rules: [], configs: [],
   };
 }
+// Toolkit release changelog, newest-first like the real endpoint.
+const releaseEntry = (version: string, previousVersion: string | null, releasedAt: string): ChangelogEntry => ({
+  schemaVersion: 1, version, previousVersion, releasedAt, model: "fake-model",
+  markdown: `### Skills\n\n- verify-fixture-skill: fixture change in ${version}.\n`,
+  artifacts: { skills: [{ name: "verify-fixture-skill", status: "modified" }], prompts: [], rules: [], configTemplates: [] },
+});
+const changelog: ChangelogEntry[] = [
+  releaseEntry("v2.59.2", "v2.59.1", "2026-10-05T09:00:00.000Z"),
+  releaseEntry("v2.59.1", "v2.59.0", "2026-10-03T09:00:00.000Z"),
+  releaseEntry("v2.59.0", "v2.58.1", "2026-10-01T09:00:00.000Z"),
+];
+let changelogRoute = true;
+const semver = (v: string) => /^v(\d+)\.(\d+)\.(\d+)$/.exec(v)?.slice(1).map(Number);
+const semverGt = (a: number[], b: number[]) => {
+  for (let i = 0; i < 3; i++) if (a[i]! !== b[i]!) return a[i]! > b[i]!;
+  return false;
+};
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+/** Lower bound in ms: date-only = start of that UTC day; ISO datetime as given. */
+function sinceDateMs(raw: string): number | undefined {
+  const d = DATE_ONLY.exec(raw);
+  if (d) {
+    const [y, m, day] = d.slice(1).map(Number) as [number, number, number];
+    const t = Date.UTC(y, m - 1, day);
+    const back = new Date(t);
+    return back.getUTCFullYear() === y && back.getUTCMonth() === m - 1 && back.getUTCDate() === day ? t : undefined;
+  }
+  if (!DATE_TIME.test(raw)) return undefined;
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? t : undefined;
+}
+/** GET /api/changelog?since=vX.Y.Z | sinceDate=<date> & limit=1-100 (default 20). */
+function changelogResponse(q: URLSearchParams): Response {
+  const since = q.get("since");
+  const sinceDate = q.get("sinceDate");
+  const limitRaw = q.get("limit");
+  if (since !== null && sinceDate !== null) return fail("invalid_query", 400);
+  let limit = 20;
+  if (limitRaw !== null) {
+    if (!/^\d+$/.test(limitRaw) || Number(limitRaw) < 1 || Number(limitRaw) > 100) return fail("invalid_query", 400);
+    limit = Number(limitRaw);
+  }
+  let entries = changelog;
+  if (since !== null) {
+    const floor = semver(since);
+    if (!floor) return fail("invalid_query", 400);
+    entries = entries.filter((e) => semverGt(semver(e.version)!, floor)); // exclusive
+  } else if (sinceDate !== null) {
+    const floor = sinceDateMs(sinceDate);
+    if (floor === undefined) return fail("invalid_query", 400);
+    entries = entries.filter((e) => Date.parse(e.releasedAt) >= floor); // inclusive
+  }
+  return json({ entries: entries.slice(0, limit) });
+}
+
 const contentHash = (l: Lesson) => createHash("sha256").update(JSON.stringify(bundle(l))).digest("hex");
 const summaryOf = (l: Lesson): Body<"/api/catalog/{course}", "get">["lessons"][number] => ({
   lessonId: l.lessonId, module: l.module, lesson: l.lesson, title: l.title, summary: l.summary,
@@ -128,6 +189,19 @@ async function route(req: Request): Promise<Response> {
     return json({ lessonId: l.lessonId, version: l.version, contentHash: contentHash(l) });
   }
 
+  if (path === "/__fake/changelog/release" && req.method === "POST") {
+    const latest = changelog[0]!;
+    const [maj, min, pat] = semver(latest.version)!;
+    const releasedAt = new Date(Math.max(Date.now(), Date.parse(latest.releasedAt) + 60_000)).toISOString();
+    const entry = releaseEntry(`v${maj}.${min}.${pat! + 1}`, latest.version, releasedAt);
+    changelog.unshift(entry);
+    return json({ version: entry.version, releasedAt: entry.releasedAt });
+  }
+  if (path === "/__fake/changelog/route" && req.method === "POST") {
+    changelogRoute = url.searchParams.get("enabled") !== "0";
+    return json({ changelogRoute });
+  }
+
   // --- public API ---
   if (path === "/health") return json({ status: "ok" });
   if (path === "/auth/login" && req.method === "POST") {
@@ -147,6 +221,7 @@ async function route(req: Request): Promise<Response> {
   if (path === "/auth/refresh" && req.method === "POST") return json(tokens());
 
   if (!authed(req)) return fail("unauthorized", 401);
+  if (path === "/api/changelog") return changelogRoute ? changelogResponse(url.searchParams) : fail("not_found", 404);
   if (path === "/api/me/courses")
     return json({ courses: [{ ...COURSE, available: true }], defaultCourse: COURSE.slug } satisfies Body<"/api/me/courses", "get">);
 

@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
 import type { ApiResult } from "../src/lib/api-client";
-import type { LessonBundle } from "../src/lib/api-content";
+import type { ChangelogQuery, ChangelogResponse, LessonBundle } from "../src/lib/api-content";
 import { applyBundle } from "../src/lib/writer";
 import { readManifest } from "../src/lib/manifest";
 import { AUTH_FILE_VERSION, type AuthData, saveAuth, readToolConfig, saveToolConfig } from "../src/lib/config";
@@ -841,5 +841,88 @@ describe("helper launch commands match the released lesson filter", () => {
     const invalid = await runGet(["get", "10x-init", "--course", "10xdevs4"]);
     expect(invalid.exitCode).toBe(2); parseErr(invalid.stdout, "invalid_lesson_ref");
     expect(fetches).toBe(8);
+  });
+});
+
+describe("10x get — toolkit baseline recording", () => {
+  let changelogCalls: ChangelogQuery[];
+
+  function changelogReturns(result: ApiResult<ChangelogResponse>): void {
+    changelogCalls = [];
+    apiContentMockState.fetchChangelogImpl = (_token, query) => {
+      changelogCalls.push(query);
+      return result;
+    };
+  }
+
+  // The get JSON envelope is unchanged by recording: same keys with or without the route.
+  const GET_ENVELOPE_KEYS = ["course", "selectionReason", "lessonId", "title", "summary", "tool", "language", "languageFallback", "dry_run", "writes", "counts"];
+
+  const latest: ApiResult<ChangelogResponse> = {
+    ok: true, status: 200, responseHeaders: new Headers(), rawBody: "",
+    data: { entries: [{ version: "v2.59.2", previousVersion: "v2.59.1", releasedAt: "2026-10-05T10:00:00.000Z", model: "m", markdown: "notes", artifacts: { skills: [], prompts: [], rules: [], configTemplates: [] } }] },
+  };
+
+  it("records the newest toolkit version after a complete apply", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    changelogReturns(latest);
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--json"]);
+
+    expect(exitCode ?? 0).toBe(0);
+    expect(Object.keys(parseOk<Record<string, unknown>>(stdout))).toEqual(GET_ENVELOPE_KEYS);
+    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    const manifest = readManifest(join(projectRoot, ".claude"))!;
+    expect(manifest.toolkit?.version).toBe("v2.59.2");
+    expect(Object.keys(manifest.lessons!)).toEqual(["m1l1"]);
+  });
+
+  it("an unsupported backend (404) leaves a fresh manifest without a baseline", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    changelogReturns({ ok: false, status: 404, code: "changelog_unsupported", error: "unsupported" });
+
+    const { stdout, exitCode } = await runGet(["get", "m1l1", "--json"]);
+
+    expect(exitCode ?? 0).toBe(0);
+    expect(Object.keys(parseOk<Record<string, unknown>>(stdout))).toEqual(GET_ENVELOPE_KEYS);
+    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    expect(readManifest(join(projectRoot, ".claude"))!.toolkit).toBeUndefined();
+  });
+
+  it("does not record on --dry-run", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    changelogReturns(latest);
+
+    const { exitCode } = await runGet(["get", "m1l1", "--dry-run", "--json"]);
+
+    expect(exitCode ?? 0).toBe(0);
+    expect(changelogCalls).toEqual([]);
+    expect(existsSync(join(projectRoot, ".claude", ".10x-cli-manifest.json"))).toBe(false);
+  });
+
+  it("does not record after a filtered (--type) apply", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonOk(makeBundle());
+    changelogReturns(latest);
+
+    const { exitCode } = await runGet(["get", "m1l1", "--type", "prompts", "--json"]);
+
+    expect(exitCode ?? 0).toBe(0);
+    expect(changelogCalls).toEqual([]);
+    expect(readManifest(join(projectRoot, ".claude"))!.toolkit).toBeUndefined();
+  });
+
+  it("does not record when the lesson fetch fails", async () => {
+    writeValidAuth();
+    apiContentMockState.fetchLessonImpl = () => lessonErr(404, "lesson_not_found", "missing");
+    changelogReturns(latest);
+
+    const { exitCode } = await runGet(["get", "m1l1", "--json"]);
+
+    expect(exitCode).toBe(5);
+    expect(changelogCalls).toEqual([]);
   });
 });

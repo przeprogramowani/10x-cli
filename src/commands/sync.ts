@@ -47,6 +47,7 @@ import {
 } from "../lib/writer";
 import { resolveCourseRulesFlag } from "./get";
 import { isLessonFresh } from "../lib/sync-freshness";
+import { recordLatestToolkitVersion } from "../lib/toolkit-baseline";
 
 const SUPPORTED_LANGS = ["en", "pl"];
 
@@ -221,6 +222,12 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
     }
   } finally {
     process.removeListener("SIGINT", onSigint);
+  }
+
+  // Baseline for `10x changelog`: only after a finished, real pull with no
+  // errored lesson (a skipped conflict still counts — that content was offered).
+  if (!dryRun && !controller.signal.aborted && !outcomes.some((o) => o.status === "errored")) {
+    await recordLatestToolkitVersion(ctx, auth.access_token, join(process.cwd(), profile.manifestDir));
   }
 
   renderReport(ctx, profile, {

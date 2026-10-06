@@ -76,6 +76,17 @@ export interface CliManifest {
   };
   lessons?: Record<string, LessonFilesEntry>;
   managedRules?: ManagedRules;
+  /**
+   * Newest 10x-toolkit release seen by the last successful pull (`sync` /
+   * `get`); the baseline for `10x changelog`. Additive within schema 3: older
+   * CLIs ignore it, and a malformed value is dropped on read.
+   */
+  toolkit?: ToolkitBaseline;
+}
+
+export interface ToolkitBaseline {
+  version: string;
+  recordedAt: string;
 }
 
 /**
@@ -101,7 +112,28 @@ export function readManifest(dir: string): CliManifest | null {
     return null;
   }
   if (!isManifest(parsed)) return null;
+  // A malformed optional baseline never invalidates lesson ownership.
+  if (parsed.toolkit !== undefined && !isToolkitBaseline(parsed.toolkit)) delete parsed.toolkit;
   return parsed;
+}
+
+export function isToolkitBaseline(value: unknown): value is ToolkitBaseline {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v["version"] === "string" && v["version"].length > 0 && typeof v["recordedAt"] === "string";
+}
+
+/**
+ * Record the newest toolkit release version in an existing manifest. Re-reads
+ * immediately before writing so ownership written earlier in the same run is
+ * never overwritten by a stale copy. No-op (returns false) without a manifest.
+ */
+export function recordToolkitVersion(dir: string, version: string, now: Date): boolean {
+  const manifest = readManifest(dir);
+  if (!manifest) return false;
+  manifest.toolkit = { version, recordedAt: now.toISOString() };
+  writeManifest(dir, manifest);
+  return true;
 }
 
 /**

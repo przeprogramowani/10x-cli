@@ -19,6 +19,7 @@ import { readToolConfig } from "../lib/config";
 import { resolveToolProfile, prepareToolForWrite } from "../lib/tool-prompt";
 import { contentToolId, type ToolProfile } from "../lib/tool-profile";
 import { applyBundle, planBundle, detectOrphanedArtifacts, type WriteResult } from "../lib/writer";
+import { recordLatestToolkitVersion } from "../lib/toolkit-baseline";
 
 const ARTIFACT_TYPES = ["skills", "prompts", "rules", "configs"] as const;
 type ArtifactType = (typeof ARTIFACT_TYPES)[number];
@@ -211,6 +212,11 @@ export async function runGet(
       applyCourseRules,
     });
   } catch (error) { reportCourseError(ctx, error); }
+
+  // Baseline for `10x changelog`: only after a complete (unfiltered) real apply.
+  if (!dryRun && !isFiltered) {
+    await recordLatestToolkitVersion(ctx, auth.access_token, join(process.cwd(), profile.manifestDir));
+  }
 
   renderGetResult(ctx, bundle, writeResult, dryRun, profile, {
     course,
