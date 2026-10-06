@@ -287,9 +287,16 @@ project's baseline. It describes toolkit releases, not your files: to see what a
 sync would actually download or update in this project, run `10x sync --dry-run`.
 It needs a login and never writes anything.
 
+The changelog follows the project's course, the same one `get` and `sync` use
+(`.10x-cli.json`, or the course in a tool manifest): a 10xDevs 3.0 project lists only
+releases that reached 3.0, even when your account also has 4.0. Outside a project it
+lists the releases of every course you have. A project whose files disagree on the
+course stops with `course_binding_conflict`, as `get`/`sync` do.
+
 The baseline is recorded per project: after a successful `10x sync` (not
 `--dry-run`, no failed lessons) or a full, unfiltered `10x get`, the CLI stores the newest
-toolkit release version in the project manifest (`toolkit.version`). If the
+toolkit release of the project's course in the project manifest (`toolkit.version`), or
+removes a stored one when that course has no published release. If the
 backend cannot answer, nothing is recorded and the sync/get result is unchanged.
 Without a recorded version, `10x changelog` falls back to the date of the last
 lesson applied in the project; in a project with no manifest it shows the latest 5
@@ -298,6 +305,7 @@ releases and suggests running `10x sync`.
 | Flag | Description |
 |------|-------------|
 | `--since <ref>` | Ignore the baseline: `vX.Y.Z` lists releases **after** that version; `YYYY-MM-DD` lists releases **from** the start of that UTC day |
+| `--course <course>` | Show one course's releases instead of this project's course (e.g. `10xdevs4`) |
 | `--limit <n>` | Maximum number of releases, 1-100 (default 20; 5 without a baseline) |
 
 ```bash
@@ -316,11 +324,11 @@ and the changed skills, prompts, rules and config templates with a status mark
 (`+` new, `~` changed, `-` removed, `>` renamed) and a one-line summary. Colours are
 used only on an interactive terminal and respect `NO_COLOR`. Exit code is `0`
 whether or not there are new releases; an invalid `--since`/`--limit` exits `2`, a
-missing login `3`, and an account without course access `4`. Against
+missing login `3`, and an account without access to the course `4`. Against
 a backend that does not serve the changelog yet the command fails with
 `changelog_unsupported` (exit `1`); `get` and `sync` keep working. JSON output
 (`--json` or piped) is `{ baseline: { source, version?, date?, recordedAt? },
-newEntries, entries }`, where `source` is `flag`, `sync`, `applied` or `none`.
+course, newEntries, entries }` (`course` is `null` outside a project), where `source` is `flag`, `sync`, `applied` or `none`.
 
 ### `10x bench`
 

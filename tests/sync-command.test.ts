@@ -753,7 +753,7 @@ describe("10x sync — toolkit baseline recording", () => {
     expect(res.exitCode).toBeUndefined();
     expect(fetched).toEqual([]);
     expect((envelope(res.stdout).data.lessons as Array<{ status: string }>)[0]!.status).toBe("unchanged");
-    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    expect(changelogCalls).toEqual([{ limit: 1, course: "10xdevs3" }]);
     const toolkit = readManifestFile()["toolkit"] as { version: string; recordedAt: string };
     expect(toolkit.version).toBe("v2.59.2");
     expect(Number.isNaN(Date.parse(toolkit.recordedAt))).toBe(false);
@@ -830,7 +830,7 @@ describe("10x sync — toolkit baseline recording", () => {
     const res = await runSyncCmd(["--tool", "claude-code"]);
 
     expect(res.exitCode).toBeUndefined();
-    expect(changelogCalls).toEqual([{ limit: 1 }]);
+    expect(changelogCalls).toEqual([{ limit: 1, course: "10xdevs3" }]);
     expect(envelope(res.stdout).status).toBe("ok");
     expect(readFileSync(manifestPath(), "utf8")).toBe(before);
   });
@@ -850,6 +850,24 @@ describe("10x sync — toolkit baseline recording", () => {
       expect(res.stderr).not.toContain("changelog");
       expect(readFileSync(manifestPath(), "utf8")).toBe(before);
     }
+  });
+
+  it("a failed lookup keeps a recorded version", async () => {
+    await seedM1l1();
+    const stale = { ...JSON.parse(readFileSync(manifestPath(), "utf8")), toolkit: { version: "v2.59.3", recordedAt: "2026-10-06T10:19:39.687Z" } };
+    writeFileSync(manifestPath(), JSON.stringify(stale));
+    changelogReturns({ ok: false, status: 0, code: "network_error", error: "offline" } as ApiResult<ChangelogResponse>);
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(JSON.parse(readFileSync(manifestPath(), "utf8")).toolkit?.version).toBe("v2.59.3");
+  });
+
+  it("an empty course changelog removes the stale version", async () => {
+    await seedM1l1();
+    const stale = { ...JSON.parse(readFileSync(manifestPath(), "utf8")), toolkit: { version: "v2.59.3", recordedAt: "2026-10-06T10:19:39.687Z" } };
+    writeFileSync(manifestPath(), JSON.stringify(stale));
+    changelogReturns({ ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data: { entries: [] } } as ApiResult<ChangelogResponse>);
+    await runSyncCmd(["--tool", "claude-code"]);
+    expect(JSON.parse(readFileSync(manifestPath(), "utf8")).toolkit).toBeUndefined();
   });
 
   it("is a no-op without a manifest (nothing synced)", async () => {

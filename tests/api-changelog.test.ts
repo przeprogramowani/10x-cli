@@ -79,6 +79,12 @@ describe("fetchChangelog — request", () => {
     expect(requests[1]!.url.searchParams.get("limit")).toBe("5");
     expect(requests[2]!.url.search).toBe("");
   });
+
+  it("passes the course scope through", async () => {
+    stubFetch(() => Response.json({ entries: [] }));
+    await fetchChangelog("t", { course: "10xdevs3", limit: 1 });
+    expect(requests[0]!.url.searchParams.get("course")).toBe("10xdevs3");
+  });
 });
 
 describe("fetchChangelog — responses", () => {
@@ -99,6 +105,12 @@ describe("fetchChangelog — responses", () => {
     stubFetch(() => Response.json({ error: "not_found" }, { status: 404 }));
     const result = await fetchChangelog("t", { limit: 1 });
     expect(result).toMatchObject({ ok: false, status: 404, code: "changelog_unsupported" });
+  });
+
+  it("keeps a course_not_found 404 as an answer, not an unsupported backend", async () => {
+    stubFetch(() => Response.json({ error: "course_not_found" }, { status: 404 }));
+    const result = await fetchChangelog("t", { course: "10xdevs9" });
+    expect(result).toMatchObject({ ok: false, status: 404, code: "course_not_found" });
   });
 
   it("passes other API errors through unchanged", async () => {

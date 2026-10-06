@@ -53,6 +53,8 @@ export interface ChangelogQuery {
   since?: string;
   /** Inclusive lower bound by date (`YYYY-MM-DD` or ISO datetime). */
   sinceDate?: string;
+  /** Only releases this course received (the project's course); must be granted. */
+  course?: string;
   /** 1–100; the backend defaults to 20. */
   limit?: number;
 }
@@ -92,11 +94,13 @@ export async function fetchChangelog(token: string, query: ChangelogQuery = {}):
   const params = new URLSearchParams();
   if (query.since !== undefined) params.set("since", query.since);
   if (query.sinceDate !== undefined) params.set("sinceDate", query.sinceDate);
+  if (query.course !== undefined) params.set("course", query.course);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   const qs = params.toString();
   const result = await apiGet<ChangelogResponse>(`/api/changelog${qs ? `?${qs}` : ""}`, { token });
   if (!result.ok) {
-    if (result.status === 404) return { ...result, code: "changelog_unsupported", error: "The backend does not support the toolkit changelog yet." };
+    // A 404 naming the course is an answer from a current backend, not a missing route.
+    if (result.status === 404 && result.code !== "course_not_found") return { ...result, code: "changelog_unsupported", error: "The backend does not support the toolkit changelog yet." };
     return result;
   }
   if (!validateChangelogResponse(result.data)) return { ok: false, status: 0, code: "changelog_invalid", error: "Invalid toolkit changelog response." };

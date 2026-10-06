@@ -9,6 +9,10 @@
  *   3. newest lesson `appliedAt` (or `lastApplied`) as `sinceDate`
  *   4. no manifest → the latest 5 entries, with a hint to run `10x sync`
  *
+ * Course scope: `--course`, else the project's course (`.10x-cli.json` or a
+ * tool manifest, as get/sync read it), else every course the account holds.
+ * Grants only authorize; they never widen a project's scope.
+ *
  * Never prompts and never writes: the manifest is located from the configured
  * tool profile (falling back to the first profile with a readable manifest).
  */
@@ -20,6 +24,7 @@ import { requireAuth } from "../lib/auth-guard";
 import { readToolConfig } from "../lib/config";
 import { paint, STYLE, wrapText } from "../lib/format";
 import { type CliManifest, readManifest } from "../lib/manifest";
+import { CourseBindingError, inspectProjectCourse } from "../lib/project-course";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -34,6 +39,7 @@ import { DEFAULT_TOOL, getToolProfile, PROFILES, type ToolProfile } from "../lib
 
 interface ChangelogFlags extends GlobalFlags {
   since?: unknown;
+  course?: unknown;
   limit?: unknown;
 }
 
@@ -58,6 +64,7 @@ export function registerChangelogCommand(cli: CAC): void {
   cli
     .command("changelog", "Show 10x-toolkit changes since your last sync")
     .option("--since <ref>", "Show changes after a version (vX.Y.Z) or from a date (YYYY-MM-DD)")
+    .option("--course <course>", "Show one course's releases (default: this project's course)")
     .option("--limit <n>", `Maximum number of entries, 1-${MAX_LIMIT} (default: ${DEFAULT_CHANGELOG_LIMIT})`)
     .action(async (options: ChangelogFlags) => {
       const ctx = resolveContext(options);
@@ -69,20 +76,43 @@ export async function runChangelog(ctx: OutputContext, options: ChangelogFlags):
   // Validate usage before touching credentials so bad invocations exit 2.
   const flagBaseline = options.since === undefined ? null : parseSinceFlag(ctx, options.since);
   const explicitLimit = options.limit === undefined ? undefined : parseLimitFlag(ctx, options.limit);
+  const scope = resolveCourseScope(ctx, options.course, process.cwd());
 
   const auth = await requireAuth(ctx);
 
   const baseline = flagBaseline ?? resolveManifestBaseline(ctx, process.cwd());
   const limit = explicitLimit ?? (baseline.source === "none" ? NO_BASELINE_LIMIT : DEFAULT_CHANGELOG_LIMIT);
   const query: ChangelogQuery = { limit };
+  if (scope.course !== undefined) query.course = scope.course;
   if (baseline.version !== undefined) query.since = baseline.version;
   else if (baseline.date !== undefined) query.sinceDate = baseline.date;
 
   verbose(ctx, `fetching changelog ${JSON.stringify(query)}`);
   const result = await fetchChangelog(auth.access_token, query);
-  if (!result.ok) handleChangelogError(ctx, result.status, result.code, result.error);
+  if (!result.ok) handleChangelogError(ctx, result.status, result.code, result.error, scope);
 
-  render(ctx, baseline, result.data.entries);
+  render(ctx, baseline, scope, result.data.entries);
+}
+
+export interface CourseScope {
+  course?: string;
+  source: "flag" | "project" | "none";
+}
+
+/** `--course`, else the project's course; a corrupt or conflicting project stops here, as in get/sync. */
+function resolveCourseScope(ctx: OutputContext, raw: unknown, projectRoot: string): CourseScope {
+  if (raw !== undefined) {
+    const value = typeof raw === "string" ? raw.trim() : "";
+    if (!value) outputError(ctx, "invalid_course", "--course needs a course, e.g. '10xdevs4'.", ExitCodes.USAGE);
+    return { course: value, source: "flag" };
+  }
+  try {
+    const { course } = inspectProjectCourse(projectRoot);
+    return course ? { course, source: "project" } : { source: "none" };
+  } catch (error) {
+    if (error instanceof CourseBindingError) outputError(ctx, error.code, error.message, ExitCodes.ERROR);
+    throw error;
+  }
 }
 
 function parseSinceFlag(ctx: OutputContext, raw: unknown): ChangelogBaseline {
@@ -166,7 +196,7 @@ function newestAppliedAt(manifest: CliManifest): string | undefined {
   return newest === undefined ? undefined : new Date(newest).toISOString();
 }
 
-function handleChangelogError(ctx: OutputContext, status: number, code: string, error: string): never {
+function handleChangelogError(ctx: OutputContext, status: number, code: string, error: string, scope: CourseScope): never {
   if (code === "changelog_unsupported") {
     outputError(
       ctx,
@@ -180,9 +210,15 @@ function handleChangelogError(ctx: OutputContext, status: number, code: string, 
     outputError(
       ctx,
       "course_access_denied",
-      "Your account has no active course access, so there is no toolkit changelog to show.",
+      scope.course
+        ? `Your account does not have access to ${scope.course}, so there is no toolkit changelog to show for it.`
+        : "Your account has no active course access, so there is no toolkit changelog to show.",
       ExitCodes.FORBIDDEN,
+      scope.source === "project" ? `This project uses ${scope.course}; its changelog follows that course.` : undefined,
     );
+  }
+  if (status === 404 && code === "course_not_found") {
+    outputError(ctx, "course_not_found", `Unknown course: ${scope.course}.`, ExitCodes.USAGE, "Use a course id such as '10xdevs4'.");
   }
   if (status === 401) {
     outputError(ctx, "auth_required", "Your session is no longer valid.", ExitCodes.AUTH_REQUIRED, "Run '10x auth' to log in again.");
@@ -203,17 +239,21 @@ const day = (iso: string | undefined) => (iso ?? "").slice(0, 10);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Where this project stands, before any entries. */
-function header(baseline: ChangelogBaseline, count: number): string {
+function header(baseline: ChangelogBaseline, scope: CourseScope, count: number): string {
   const v = paint(STYLE.bold, baseline.version ?? "");
+  const course = scope.course ? paint(STYLE.bold, scope.course) : "";
+  const project = course ? `this ${course} project` : "this project";
   switch (baseline.source) {
     case "sync":
-      return `This project is on toolkit ${v} ${paint(STYLE.dim, `(recorded by 10x sync on ${day(baseline.recordedAt)})`)}${count ? ` — ${plural(count, "newer release")}:` : ""}`;
-    case "flag":
-      return baseline.version ? `Toolkit changes since ${v}:` : `Toolkit changes since ${paint(STYLE.bold, day(baseline.date))}:`;
+      return `T${project.slice(1)} is on toolkit ${v} ${paint(STYLE.dim, `(recorded by 10x sync on ${day(baseline.recordedAt)})`)}${count ? ` — ${plural(count, "newer release")}:` : ""}`;
+    case "flag": {
+      const since = baseline.version ? v : paint(STYLE.bold, day(baseline.date));
+      return `Toolkit changes${course ? ` for ${course}` : ""} since ${since}:`;
+    }
     case "applied":
-      return `No toolkit version recorded in this project — showing changes since your last lesson apply (${day(baseline.date)}):`;
+      return `No toolkit version recorded in ${project} — showing changes since your last lesson apply (${day(baseline.date)}):`;
     case "none":
-      return `No toolkit version recorded in this project — showing the latest ${plural(count, "release")}:`;
+      return `No toolkit version recorded${course ? ` for ${course}` : " in this project"} — showing the latest ${plural(count, "release")}:`;
   }
 }
 
@@ -283,22 +323,22 @@ function pushSyncHint(lines: string[], baseline: ChangelogBaseline): void {
   );
 }
 
-function render(ctx: OutputContext, baseline: ChangelogBaseline, entries: ChangelogEntry[]): void {
+function render(ctx: OutputContext, baseline: ChangelogBaseline, scope: CourseScope, entries: ChangelogEntry[]): void {
   if (ctx.json) {
-    output(ctx, "", { baseline, newEntries: entries.length, entries });
+    output(ctx, "", { baseline, course: scope.course ?? null, newEntries: entries.length, entries });
     return;
   }
 
   if (entries.length === 0) {
     // Only a synced project has a version worth stating when nothing is new.
-    const lines = baseline.source === "sync" ? [header(baseline, 0), emptyMessage(baseline)] : [emptyMessage(baseline)];
+    const lines = baseline.source === "sync" ? [header(baseline, scope, 0), emptyMessage(baseline)] : [emptyMessage(baseline)];
     pushSyncHint(lines, baseline);
     output(ctx, lines.join("\n"), undefined);
     return;
   }
 
   const width = Math.min(process.stderr.columns || 80, MAX_WIDTH);
-  const lines = [header(baseline, entries.length)];
+  const lines = [header(baseline, scope, entries.length)];
   for (const entry of entries) lines.push("", ...renderEntry(entry, width));
   pushSyncHint(lines, baseline);
   output(ctx, lines.join("\n"), undefined);
