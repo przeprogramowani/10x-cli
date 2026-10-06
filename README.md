@@ -309,13 +309,18 @@ releases and suggests running `10x sync`.
 10x changelog --since 2026-10-01 --limit 50
 ```
 
-Releases are listed newest first as `vX.Y.Z — <date>` followed by their notes, or
-`No toolkit changes since <baseline>.` Exit code is `0` whether or not there are
-new releases; an invalid `--since`/`--limit` exits `2`, a missing login `3`. Against
+The output starts with where the project stands (for example `This project is on
+toolkit v2.59.2 (recorded by 10x sync on 2026-10-05) — 2 newer releases:`), then
+lists releases newest first: `vX.Y.Z — <date>`, the release highlights as bullets,
+and the changed skills, prompts, rules and config templates with a status mark
+(`+` new, `~` changed, `-` removed, `>` renamed) and a one-line summary. Colours are
+used only on an interactive terminal and respect `NO_COLOR`. Exit code is `0`
+whether or not there are new releases; an invalid `--since`/`--limit` exits `2`, a
+missing login `3`, and an account without course access `4`. Against
 a backend that does not serve the changelog yet the command fails with
 `changelog_unsupported` (exit `1`); `get` and `sync` keep working. JSON output
-(`--json` or piped) is `{ baseline: { source, version?, date? }, newEntries,
-entries }`, where `source` is `flag`, `sync`, `applied` or `none`.
+(`--json` or piped) is `{ baseline: { source, version?, date?, recordedAt? },
+newEntries, entries }`, where `source` is `flag`, `sync`, `applied` or `none`.
 
 ### `10x bench`
 
