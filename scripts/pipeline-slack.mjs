@@ -239,7 +239,8 @@ export function failuresFromJobs(apiJobs, config) {
 
 // ── message ──────────────────────────────────────────────────────────────────
 
-const excerptBlock = (lines) => lines.map((l) => l.replace(/```/g, "'''")).join("\n");
+// A backtick in a log line would close (or merge with) the code fence.
+const excerptBlock = (lines) => lines.map((l) => l.replace(/`/g, "'")).join("\n");
 
 export function buildMessage(m) {
   const base = `${m.serverUrl}/${m.repo}`;
