@@ -171,6 +171,14 @@ function handleChangelogError(ctx: OutputContext, status: number, code: string, 
       "The changelog endpoint has not been deployed yet. Try again later; '10x sync' still updates your files.",
     );
   }
+  if (status === 403) {
+    outputError(
+      ctx,
+      "course_access_denied",
+      "Your account has no active course access, so there is no toolkit changelog to show.",
+      ExitCodes.FORBIDDEN,
+    );
+  }
   if (status === 401) {
     outputError(ctx, "auth_required", "Your session is no longer valid.", ExitCodes.AUTH_REQUIRED, "Run '10x auth' to log in again.");
   }

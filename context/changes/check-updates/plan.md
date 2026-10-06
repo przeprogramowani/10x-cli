@@ -250,7 +250,7 @@ Existing manifests have no `toolkit` field; `10x changelog` falls back to the ne
 
 - [x] 3.1 Skill validation passes — 020f536
 - [x] 3.2 Full offline gate passes — 020f536
-- [ ] 3.3 Generated types include `/api/changelog` and typecheck passes
+- [x] 3.3 Generated types include `/api/changelog` and typecheck passes — regenerated from the toolkit `feat/changelog-course-cutoff` spec
 
 #### Manual
 

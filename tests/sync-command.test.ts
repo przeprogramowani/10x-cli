@@ -729,7 +729,7 @@ describe("10x sync — toolkit baseline recording", () => {
   function latest(version: string): ApiResult<ChangelogResponse> {
     return {
       ok: true, status: 200, responseHeaders: new Headers(), rawBody: "",
-      data: { entries: [{ version, previousVersion: null, releasedAt: "2026-10-05T10:00:00.000Z", model: "m", markdown: "notes", artifacts: { skills: [], prompts: [], rules: [], configTemplates: [] } }] },
+      data: { entries: [{ schemaVersion: 1, version, previousVersion: null, releasedAt: "2026-10-05T10:00:00.000Z", model: "m", highlights: ["Notes."], markdown: "notes", artifacts: { skills: [], prompts: [], rules: [], configTemplates: [] } }] },
     };
   }
 

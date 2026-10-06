@@ -33,11 +33,12 @@ function entry(overrides: Partial<ChangelogEntry> = {}): ChangelogEntry {
     previousVersion: "v2.59.1",
     releasedAt: "2026-10-05T10:00:00.000Z",
     model: "some/model:free",
+    highlights: ["Updated skill."],
     markdown: "## Changes\n- updated skill",
     artifacts: {
-      skills: [{ name: "10x-plan", status: "modified" }],
+      skills: [{ name: "10x-plan", status: "modified", summary: "Plans are clearer." }],
       prompts: [],
-      rules: [{ name: "course-rules", status: "added" }],
+      rules: [{ name: "course-rules", status: "added", summary: null }],
       configTemplates: [],
     },
     ...overrides,
@@ -81,9 +82,8 @@ describe("fetchChangelog — request", () => {
 });
 
 describe("fetchChangelog — responses", () => {
-  it("returns newest-first entries, accepting a null previousVersion and no schemaVersion", async () => {
-    const { schemaVersion: _schemaVersion, ...unversioned } = entry({ version: "v1.0.0", previousVersion: null });
-    stubFetch(() => Response.json({ entries: [entry(), unversioned] }));
+  it("returns newest-first entries, accepting a null previousVersion", async () => {
+    stubFetch(() => Response.json({ entries: [entry(), entry({ version: "v1.0.0", previousVersion: null })] }));
     const result = await fetchChangelog("t", {});
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -133,6 +133,10 @@ describe("validateChangelogResponse", () => {
     ["missing an artifact kind", { entries: [{ ...entry(), artifacts: { skills: [], prompts: [], rules: [] } }] }],
     ["unknown artifact status", { entries: [{ ...entry(), artifacts: { ...entry().artifacts, skills: [{ name: "x", status: "touched" }] } }] }],
     ["non-numeric schemaVersion", { entries: [{ ...entry(), schemaVersion: "1" }] }],
+    ["missing schemaVersion", { entries: [{ ...entry(), schemaVersion: undefined }] }],
+    ["missing highlights", { entries: [{ ...entry(), highlights: undefined }] }],
+    ["non-string highlight", { entries: [{ ...entry(), highlights: [1] }] }],
+    ["missing artifact summary", { entries: [{ ...entry(), artifacts: { ...entry().artifacts, skills: [{ name: "x", status: "added" }] } }] }],
   ] as const) {
     it(`rejects ${label}`, () => {
       expect(validateChangelogResponse(value)).toBe(false);
