@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { type ChangelogEntry, type ChangelogQuery, fetchChangelog } from "../lib/api-content";
 import { requireAuth } from "../lib/auth-guard";
 import { readToolConfig } from "../lib/config";
+import { paint, STYLE, wrapText } from "../lib/format";
 import { type CliManifest, readManifest } from "../lib/manifest";
 import {
   ExitCodes,
@@ -26,6 +27,7 @@ import {
   output,
   outputError,
   resolveContext,
+  sanitize,
   verbose,
 } from "../lib/output";
 import { DEFAULT_TOOL, getToolProfile, PROFILES, type ToolProfile } from "../lib/tool-profile";
@@ -41,6 +43,8 @@ export interface ChangelogBaseline {
   source: BaselineSource;
   version?: string;
   date?: string;
+  /** When `10x sync` recorded `version` (source "sync" only). */
+  recordedAt?: string;
 }
 
 export const DEFAULT_CHANGELOG_LIMIT = 20;
@@ -142,7 +146,8 @@ function resolveManifestBaseline(ctx: OutputContext, projectRoot: string): Chang
   }
   const { profile, manifest } = found;
   verbose(ctx, `using manifest in ${profile.manifestDir}/`);
-  if (manifest.toolkit) return { source: "sync", version: manifest.toolkit.version };
+  if (manifest.toolkit)
+    return { source: "sync", version: manifest.toolkit.version, recordedAt: manifest.toolkit.recordedAt };
   const applied = newestAppliedAt(manifest);
   if (applied) return { source: "applied", date: applied };
   return { source: "none" };
@@ -194,21 +199,88 @@ function handleChangelogError(ctx: OutputContext, status: number, code: string, 
   outputError(ctx, code || "changelog_failed", error || "Failed to load the toolkit changelog.", ExitCodes.ERROR);
 }
 
-function describeBaseline(baseline: ChangelogBaseline): string {
-  return baseline.version ?? baseline.date ?? "";
+const day = (iso: string | undefined) => (iso ?? "").slice(0, 10);
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Where this project stands, before any entries. */
+function header(baseline: ChangelogBaseline, count: number): string {
+  const v = paint(STYLE.bold, baseline.version ?? "");
+  switch (baseline.source) {
+    case "sync":
+      return `This project is on toolkit ${v} ${paint(STYLE.dim, `(recorded by 10x sync on ${day(baseline.recordedAt)})`)}${count ? ` — ${plural(count, "newer release")}:` : ""}`;
+    case "flag":
+      return baseline.version ? `Toolkit changes since ${v}:` : `Toolkit changes since ${paint(STYLE.bold, day(baseline.date))}:`;
+    case "applied":
+      return `No toolkit version recorded in this project — showing changes since your last lesson apply (${day(baseline.date)}):`;
+    case "none":
+      return `No toolkit version recorded in this project — showing the latest ${plural(count, "release")}:`;
+  }
 }
 
-function describeSource(baseline: ChangelogBaseline): string {
+function emptyMessage(baseline: ChangelogBaseline): string {
   switch (baseline.source) {
-    case "flag":
-      return "from --since";
     case "sync":
-      return "recorded by your last 10x sync";
+      return "You're up to date — no toolkit changes since then.";
+    case "flag":
+      return `No toolkit changes since ${baseline.version ?? day(baseline.date)}.`;
     case "applied":
-      return "last lesson applied in this project";
+      return `No toolkit changes since ${day(baseline.date)}.`;
     case "none":
-      return "no baseline recorded";
+      return "No toolkit changes published yet.";
   }
+}
+
+const MAX_WIDTH = 100;
+
+const CATEGORIES = [
+  ["skills", "Skills"],
+  ["prompts", "Prompts"],
+  ["rules", "Rules"],
+  ["configTemplates", "Config templates"],
+] as const;
+
+type ArtifactStatus = ChangelogEntry["artifacts"]["skills"][number]["status"];
+
+const STATUS: Record<ArtifactStatus, { mark: string; style: string; label?: string }> = {
+  added: { mark: "+", style: STYLE.green, label: "new" },
+  modified: { mark: "~", style: STYLE.yellow },
+  removed: { mark: "-", style: STYLE.red, label: "removed" },
+  renamed: { mark: ">", style: STYLE.cyan, label: "renamed" },
+};
+
+/**
+ * One release, rendered from its structured fields (the `markdown` field is
+ * for JSON consumers). Every string is remote-controlled, so it is sanitized
+ * before it reaches the terminal; wrapping happens before styling so ANSI
+ * codes never count toward the width.
+ */
+export function renderEntry(entry: ChangelogEntry, width: number): string[] {
+  const lines = [`${paint(STYLE.bold, paint(STYLE.cyan, entry.version))} ${paint(STYLE.dim, `— ${entry.releasedAt.slice(0, 10)}`)}`];
+  for (const highlight of entry.highlights) lines.push(...wrapText(sanitize(highlight), width, "  • "));
+  for (const [category, label] of CATEGORIES) {
+    const items = entry.artifacts[category];
+    if (items.length === 0) continue;
+    lines.push("", `  ${paint(STYLE.bold, label)}`);
+    for (const item of items) {
+      const status = STATUS[item.status];
+      const suffix = status.label ? ` ${paint(STYLE.dim, `(${status.label})`)}` : "";
+      lines.push(`    ${paint(status.style, status.mark)} ${paint(STYLE.bold, sanitize(item.name))}${suffix}`);
+      if (item.summary) lines.push(...wrapText(sanitize(item.summary), width, "      "));
+    }
+  }
+  return lines;
+}
+
+/** Without a recorded version, say how to start tracking one. */
+function pushSyncHint(lines: string[], baseline: ChangelogBaseline): void {
+  if (baseline.source !== "none" && baseline.source !== "applied") return;
+  lines.push(
+    "",
+    paint(
+      STYLE.dim,
+      "Run 10x sync to record this project's toolkit version; 10x changelog will then show only what changed since.",
+    ),
+  );
 }
 
 function render(ctx: OutputContext, baseline: ChangelogBaseline, entries: ChangelogEntry[]): void {
@@ -217,32 +289,17 @@ function render(ctx: OutputContext, baseline: ChangelogBaseline, entries: Change
     return;
   }
 
-  const lines: string[] = [];
-  if (baseline.source === "none") {
-    lines.push(`Latest toolkit changes (${describeSource(baseline)})`);
-  } else {
-    lines.push(`Toolkit changes since ${describeBaseline(baseline)} (${describeSource(baseline)})`);
-  }
-  lines.push("");
-
   if (entries.length === 0) {
-    lines.push(
-      baseline.source === "none"
-        ? "No toolkit changes published yet."
-        : `No toolkit changes since ${describeBaseline(baseline)}.`,
-    );
-  } else {
-    entries.forEach((entry, index) => {
-      if (index > 0) lines.push("");
-      lines.push(`${entry.version} — ${entry.releasedAt.slice(0, 10)}`);
-      lines.push("");
-      lines.push(entry.markdown.trimEnd());
-    });
+    // Only a synced project has a version worth stating when nothing is new.
+    const lines = baseline.source === "sync" ? [header(baseline, 0), emptyMessage(baseline)] : [emptyMessage(baseline)];
+    pushSyncHint(lines, baseline);
+    output(ctx, lines.join("\n"), undefined);
+    return;
   }
 
-  if (baseline.source === "none") {
-    lines.push("");
-    lines.push("Run 10x sync to record your baseline.");
-  }
+  const width = Math.min(process.stderr.columns || 80, MAX_WIDTH);
+  const lines = [header(baseline, entries.length)];
+  for (const entry of entries) lines.push("", ...renderEntry(entry, width));
+  pushSyncHint(lines, baseline);
   output(ctx, lines.join("\n"), undefined);
 }

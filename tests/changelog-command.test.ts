@@ -154,7 +154,11 @@ function writeProjectManifest(manifest: CliManifest, manifestDir = ".claude"): v
   writeManifest(join(project, manifestDir), manifest);
 }
 
-function makeEntry(version: string, releasedAt: string, markdown = `## ${version}\n\n- Changed things\n`): ChangelogEntry {
+function makeEntry(
+  version: string,
+  releasedAt: string,
+  overrides: Partial<Pick<ChangelogEntry, "highlights" | "artifacts">> = {},
+): ChangelogEntry {
   return {
     schemaVersion: 1,
     version,
@@ -162,8 +166,9 @@ function makeEntry(version: string, releasedAt: string, markdown = `## ${version
     releasedAt,
     model: "test-model",
     highlights: ["Changed things."],
-    markdown,
+    markdown: `### Highlights\n\n- Changed things.\n`,
     artifacts: { skills: [{ name: "10x-plan", status: "modified", summary: null }], prompts: [], rules: [], configTemplates: [] },
+    ...overrides,
   };
 }
 
@@ -177,7 +182,7 @@ function respondWith(entries: ChangelogEntry[]): void {
 interface OkEnvelope {
   status: "ok";
   data: {
-    baseline: { source: string; version?: string; date?: string };
+    baseline: { source: string; version?: string; date?: string; recordedAt?: string };
     newEntries: number;
     entries: ChangelogEntry[];
   };
@@ -228,7 +233,7 @@ describe("10x changelog — baseline resolution", () => {
     expect(exitCode ?? 0).toBe(0);
     expect(queries).toEqual([{ since: "v2.59.2", limit: 20 }]);
     const data = parseOk(stdout);
-    expect(data.baseline).toEqual({ source: "sync", version: "v2.59.2" });
+    expect(data.baseline).toEqual({ source: "sync", version: "v2.59.2", recordedAt: "2026-10-05T10:00:00.000Z" });
     expect(data.newEntries).toBe(1);
     expect(data.entries).toEqual([entry]);
   });
@@ -267,7 +272,7 @@ describe("10x changelog — baseline resolution", () => {
 
     const { stdout } = await runChangelog(["changelog", "--json"]);
     expect(queries).toEqual([{ since: "v2.20.0", limit: 20 }]);
-    expect(parseOk(stdout).baseline).toEqual({ source: "sync", version: "v2.20.0" });
+    expect(parseOk(stdout).baseline).toEqual({ source: "sync", version: "v2.20.0", recordedAt: "2026-10-02T00:00:00.000Z" });
   });
 
   it("without a manifest requests the latest 5 entries and hints to sync", async () => {
@@ -288,9 +293,9 @@ describe("10x changelog — baseline resolution", () => {
 
     const { stderr, exitCode } = await withHumanTTY(() => runChangelog(["changelog"]));
     expect(exitCode ?? 0).toBe(0);
-    expect(stderr).toContain("no baseline recorded");
+    expect(stderr).toContain("No toolkit version recorded in this project — showing the latest 1 release:");
     expect(stderr).toContain("v2.60.0 — 2026-10-06");
-    expect(stderr).toContain("Run 10x sync to record your baseline");
+    expect(stderr).toContain("Run 10x sync to record this project's toolkit version");
   });
 
   it("an explicit --limit is honoured even without a manifest", async () => {
@@ -400,7 +405,7 @@ describe("10x changelog — API errors", () => {
 });
 
 describe("10x changelog — human output", () => {
-  it("prints 'No toolkit changes since <version>' when nothing is new", async () => {
+  it("states the synced version and that nothing is new", async () => {
     writeValidAuth();
     writeProjectManifest(makeManifest({ toolkit: { version: "v2.59.2", recordedAt: "2026-10-05T10:00:00.000Z" } }));
     respondWith([]);
@@ -408,25 +413,71 @@ describe("10x changelog — human output", () => {
     const { stdout, stderr, exitCode } = await withHumanTTY(() => runChangelog(["changelog"]));
     expect(exitCode ?? 0).toBe(0);
     expect(stdout).toBe("");
-    expect(stderr).toContain("Toolkit changes since v2.59.2");
-    expect(stderr).toContain("No toolkit changes since v2.59.2");
+    expect(stderr).toContain("This project is on toolkit v2.59.2 (recorded by 10x sync on 2026-10-05)");
+    expect(stderr).toContain("You're up to date — no toolkit changes since then.");
+    expect(stderr).not.toContain("Run 10x sync");
   });
 
-  it("prints each entry as `vX.Y.Z — <date>` followed by its markdown, newest first", async () => {
+  it("renders entries from structured fields, newest first, never the raw markdown", async () => {
     writeValidAuth();
     writeProjectManifest(makeManifest({ toolkit: { version: "v2.59.2", recordedAt: "2026-10-05T10:00:00.000Z" } }));
     respondWith([
-      makeEntry("v2.61.0", "2026-10-07T15:00:00.000Z", "### Skills\n\n- 10x-plan: sharper phases\n"),
-      makeEntry("v2.60.0", "2026-10-06T09:00:00.000Z", "### Prompts\n\n- new review prompt\n"),
+      makeEntry("v2.61.0", "2026-10-07T15:00:00.000Z", {
+        highlights: ["Plans now have sharper phases."],
+        artifacts: {
+          skills: [
+            { name: "10x-plan", status: "modified", summary: "Sharper phases." },
+            { name: "10x-ray", status: "added", summary: null },
+          ],
+          prompts: [],
+          rules: [{ name: "old-rule", status: "removed", summary: null }],
+          configTemplates: [],
+        },
+      }),
+      makeEntry("v2.60.0", "2026-10-06T09:00:00.000Z"),
     ]);
 
     const { stderr, exitCode } = await withHumanTTY(() => runChangelog(["changelog"]));
     expect(exitCode ?? 0).toBe(0);
-    expect(stderr).toContain("v2.61.0 — 2026-10-07");
-    expect(stderr).toContain("- 10x-plan: sharper phases");
-    expect(stderr).toContain("v2.60.0 — 2026-10-06");
-    expect(stderr).toContain("- new review prompt");
+    expect(stderr).toContain("This project is on toolkit v2.59.2 (recorded by 10x sync on 2026-10-05) — 2 newer releases:");
+    expect(stderr).toContain("v2.61.0 — 2026-10-07\n  • Plans now have sharper phases.");
+    expect(stderr).toContain("  Skills\n    ~ 10x-plan\n      Sharper phases.\n    + 10x-ray (new)");
+    expect(stderr).toContain("  Rules\n    - old-rule (removed)");
+    expect(stderr).not.toContain("Prompts");
+    expect(stderr).not.toContain("###");
     expect(stderr.indexOf("v2.61.0")).toBeLessThan(stderr.indexOf("v2.60.0"));
-    expect(stderr).not.toContain("No toolkit changes");
+  });
+
+  it("hints to sync when only a lesson apply date is known", async () => {
+    writeValidAuth();
+    writeProjectManifest(makeManifest());
+    respondWith([makeEntry("v2.60.0", "2026-10-06T09:00:00.000Z")]);
+
+    const { stderr } = await withHumanTTY(() => runChangelog(["changelog"]));
+    expect(stderr).toContain("showing changes since your last lesson apply");
+    expect(stderr).toContain("Run 10x sync to record this project's toolkit version");
+  });
+
+});
+
+describe("renderEntry", () => {
+  it("colours only when stderr is a terminal and NO_COLOR is unset, and strips remote control codes", async () => {
+    const { renderEntry } = await import("../src/commands/changelog");
+    const entry = makeEntry("v2.60.0", "2026-10-06T09:00:00.000Z", { highlights: ["Evil \u001b[31mred\u001b[0m text\u0007."] });
+    const prior = process.stderr.isTTY;
+    const priorNoColor = process.env["NO_COLOR"];
+    try {
+      delete process.env["NO_COLOR"];
+      process.stderr.isTTY = true;
+      const coloured = renderEntry(entry, 80).join("\n");
+      expect(coloured).toContain("\u001b[36mv2.60.0");
+      expect(coloured).toContain("  • Evil red text.");
+      process.env["NO_COLOR"] = "1";
+      expect(renderEntry(entry, 80).join("\n")).not.toContain("\u001b[");
+    } finally {
+      process.stderr.isTTY = prior;
+      if (priorNoColor === undefined) delete process.env["NO_COLOR"];
+      else process.env["NO_COLOR"] = priorNoColor;
+    }
   });
 });

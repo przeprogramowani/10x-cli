@@ -45,3 +45,48 @@ export function formatReleaseAt(iso: string, now: Date = new Date()): string {
   if (days === 1) return `${absolute} (tomorrow)`;
   return `${absolute} (in ${days} days)`;
 }
+
+/**
+ * Minimal hand-rolled ANSI styling. Colors are used only on the human path
+ * (stderr) and only when stderr is an interactive terminal and NO_COLOR is
+ * unset — piped/redirected stderr and CI logs stay plain.
+ */
+export function colorsEnabled(): boolean {
+  return process.env["NO_COLOR"] === undefined && process.stderr.isTTY === true;
+}
+
+export const STYLE = {
+  bold: "1",
+  dim: "2",
+  red: "31",
+  green: "32",
+  yellow: "33",
+  cyan: "36",
+} as const;
+
+export function paint(style: string, text: string): string {
+  if (!colorsEnabled()) return text;
+  return `\u001b[${style}m${text}\u001b[0m`;
+}
+
+/**
+ * Greedy word wrap of plain (unstyled) text to `width` columns. The first
+ * line starts with `prefix`, continuation lines with `indent`; a word longer
+ * than the line is kept whole rather than split.
+ */
+export function wrapText(text: string, width: number, prefix: string, indent: string = " ".repeat(prefix.length)): string[] {
+  const lines: string[] = [];
+  let line = prefix;
+  let empty = true;
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (!empty && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = indent + word;
+    } else {
+      line += (empty ? "" : " ") + word;
+    }
+    empty = false;
+  }
+  lines.push(line);
+  return lines;
+}
