@@ -146,10 +146,13 @@ describe("complete packaged CLI helpers", () => {
     writeFileSync(cli, 'const fs = require("node:fs"); fs.openSync("held.txt", "w"); fs.writeFileSync("started.txt", String(process.pid)); setInterval(() => {}, 1000);');
     expect(() => readPackedPaths(root, { platform: "win32", searchPath: bin, run: (command, args, options) => {
       expect(command).toBe("node");
-      // Exercise the actual Windows 60s deadline and kill signal even on Unix.
+      // Assert the Windows 60s deadline and kill signal, then let the stalled
+      // child hit a short deadline with the same signal: waiting out the full
+      // 60s proves nothing more and was most of the CI test step.
       // No shell or grandchildren are launched by this fixture.
       expect(options.timeout).toBe(60000);
-      return execFileSync(command, args, options);
+      expect(options.killSignal).toBe("SIGKILL");
+      return execFileSync(command, args, { ...options, timeout: 5000 });
     } })).toThrow();
     expect(existsSync(join(root, "started.txt"))).toBe(true);
     const pid = Number(readFileSync(join(root, "started.txt"), "utf8"));
