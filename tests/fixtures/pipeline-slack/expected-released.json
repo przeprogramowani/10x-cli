@@ -1,0 +1,28 @@
+{
+  "text": "📦 10x-cli RELEASED v1.28.0 70bd6c6",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "📦 *10x-cli* RELEASED v1.28.0 · <https://github.com/przeprogramowani/10x-cli/commit/70bd6c647bebcf48ee1fb488af9087630481f364|70bd6c6> · <https://github.com/przeprogramowani/10x-cli/pull/78|#78> feat(changelog): generated API types and course-access message"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "✅ Tests    ✅ Release v1.28.0"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "👤 psmyrdek · ⏱ 5m 26s · <https://github.com/przeprogramowani/10x-cli/actions/runs/37422605937|Run>"
+        }
+      ]
+    }
+  ]
+}

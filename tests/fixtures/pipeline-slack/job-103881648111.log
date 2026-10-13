@@ -1,0 +1,97 @@
+2026-09-14T06:39:24.9355196Z ##[group]Run $files = Get-ChildItem -Path tests -Filter *.test.ts | ForEach-Object { $_.FullName }
+2026-09-14T06:39:24.9356166Z [36;1m$files = Get-ChildItem -Path tests -Filter *.test.ts | ForEach-Object { $_.FullName }[0m
+2026-09-14T06:39:24.9357305Z [36;1mbun test @files[0m
+2026-09-14T06:39:24.9423760Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-09-14T06:39:24.9424213Z env:
+2026-09-14T06:39:24.9424546Z   RELEASE_CLI_SHA: d6bdd358426ca209b836acd53447bcf2be0fe97a
+2026-09-14T06:39:24.9424967Z   RELEASE_TOOLKIT_SHA: 
+2026-09-14T06:39:24.9425282Z   TOOLKIT_COORDINATED_RUN_ID: 
+2026-09-14T06:39:24.9425589Z   TOOLKIT_COORDINATED_RUN_ATTEMPT: 
+2026-09-14T06:39:24.9425947Z   TOOLKIT_COORDINATED_ARTIFACT_ID: 
+2026-09-14T06:39:24.9426277Z   RELEASE_LEASE_GENERATION: 
+2026-09-14T06:39:24.9426545Z   RELEASE_OPERATION: 
+2026-09-14T06:39:24.9426810Z ##[endgroup]
+2026-09-14T06:40:07.1410107Z ##[group]tests\writer.test.ts:
+2026-09-14T06:40:07.1641057Z (pass) writer — fresh install > writes skills at .claude/skills/<name>/SKILL.md [31.00ms]
+2026-09-14T06:40:07.1797741Z (pass) writer — fresh install > writes prompts at .claude/prompts/<name>.md [16.00ms]
+2026-09-14T06:40:07.1975030Z (pass) writer — fresh install > writes configs at .claude/config-templates/<name> [15.00ms]
+2026-09-14T06:40:07.2302214Z (pass) writer — fresh install > writes rules between sentinel markers in CLAUDE.md [32.00ms]
+2026-09-14T06:40:07.2461492Z (pass) writer — fresh install > creates a manifest describing what was written [15.00ms]
+2026-09-14T06:40:07.2706007Z (pass) writer — idempotent re-apply > second apply reports unchanged/skipped actions [16.00ms]
+2026-09-14T06:40:07.2972577Z (pass) writer — idempotent re-apply > does not duplicate the sentinel block in CLAUDE.md [31.00ms]
+2026-09-14T06:40:07.3140001Z (pass) writer — migration from internal-pkg markers > removes the toolkit block and writes the cli block [16.00ms]
+2026-09-14T06:40:07.3295093Z (pass) writer — config collision > does not overwrite a pre-existing config template [15.00ms]
+2026-09-14T06:40:07.3641159Z (pass) writer — cleanup on re-apply > preserves artifacts from the previous lesson (cumulative) [32.00ms]
+2026-09-14T06:40:07.3950382Z (pass) writer — cleanup on re-apply > shared configs are preserved untouched (not overwritten) [31.00ms]
+2026-09-14T06:40:07.4229096Z (pass) writer — cleanup on re-apply > manifest is the union of all applied lessons [31.00ms]
+2026-09-14T06:40:07.4369003Z (pass) writer — multi-file skills > materializes every file at its relative path under the skill dir [16.00ms]
+2026-09-14T06:40:07.4370570Z (skip) writer — multi-file skills > applies +x to files marked executable
+2026-09-14T06:40:07.4371596Z (skip) writer — multi-file skills > non-executable files are not chmod-marked +x
+2026-09-14T06:40:07.5143508Z (pass) writer — multi-file skills > manifest records every file path under the skill [78.00ms]
+2026-09-14T06:40:07.5387959Z (pass) writer — multi-file skills > removes a file dropped from a retained skill on re-apply [16.00ms]
+2026-09-14T06:40:07.5439355Z (pass) writer — unsupported v1 manifest > rejects writing before mutation and preserves the legacy manifest and content bytes [15.00ms]
+2026-09-14T06:40:07.5445183Z (pass) writer — unsafe artifact names > throws on a skill name containing path separators
+2026-09-14T06:40:07.5451717Z (pass) writer — unsafe artifact names > throws on a prompt name starting with a dot
+2026-09-14T06:40:07.5457513Z (pass) writer — unsafe artifact names > throws on a config name containing a backslash
+2026-09-14T06:40:07.5465175Z (pass) writer — unsafe artifact names > rejects Windows-specific unsafe names (NTFS ADS, reserved devices, trailing dot/space)
+2026-09-14T06:40:07.5472252Z (pass) writer — unsafe artifact names > throws on a skill file path containing '..' before any write
+2026-09-14T06:40:07.5477266Z (pass) writer — unsafe artifact names > throws on an absolute skill file path
+2026-09-14T06:40:07.5482568Z (pass) writer — unsafe artifact names > throws on an empty skill file path
+2026-09-14T06:40:07.5489530Z (pass) writer — unsafe artifact names > throws on a backslash-separated path traversal
+2026-09-14T06:40:07.5816052Z (pass) writer — unsafe artifact names > cleanup silently skips tampered manifest entries instead of rm -rf escaping claudeDir [31.00ms]
+2026-09-14T06:40:07.5843214Z (pass) writer — dry run > returns WriteResult shape without filesystem side effects on fresh install
+2026-09-14T06:40:07.6043747Z (pass) writer — dry run > dry-run on re-apply reports unchanged/skipped without touching files [32.00ms]
+2026-09-14T06:40:07.6240814Z (pass) writer — dry run > dry-run does not delete stale artifacts from a previous lesson [15.00ms]
+2026-09-14T06:40:07.6518270Z (pass) writer — conflict detection > does not trigger conflict when file matches stored hash (clean upstream update) [32.00ms]
+2026-09-14T06:40:07.6787800Z (pass) writer — conflict detection > triggers conflict when user edits a skill file [15.00ms]
+2026-09-14T06:40:07.7037792Z (pass) writer — conflict detection > triggers conflict when user edits a prompt file [31.00ms]
+2026-09-14T06:40:07.7294868Z (pass) writer — conflict detection > does not trigger conflict when user edits match the new content [32.00ms]
+2026-09-14T06:40:07.8028732Z (pass) writer — conflict detection > resolves conflict as overwrite — writes new content and updates hash [62.00ms]
+2026-09-14T06:40:07.9284247Z (pass) writer — conflict detection > resolves conflict as save_user — backs up local file and writes new content [125.00ms]
+2026-09-14T06:40:07.9693446Z (pass) writer — conflict detection > resolves conflict as skip — preserves local file and does not update hash [47.00ms]
+2026-09-14T06:40:07.9943171Z (pass) writer — conflict detection > defaults to skip when no onConflict callback is provided [31.00ms]
+2026-09-14T06:40:08.0232226Z (pass) writer — conflict detection > handles multiple conflicts with different resolutions per file [16.00ms]
+2026-09-14T06:40:08.0497102Z (pass) writer — v2 manifest upgrade > treats any content difference as a potential conflict on v2 upgrade [31.00ms]
+2026-09-14T06:40:08.3771476Z (pass) writer — v2 manifest upgrade > does not trigger conflict when v2 file matches new bundle content [328.00ms]
+2026-09-14T06:40:08.4541907Z (pass) writer — v2 manifest upgrade > produces a v3 manifest with hashes after upgrading from v2 [78.00ms]
+2026-09-14T06:40:08.6153286Z (pass) writer — v2 manifest upgrade > subsequent apply after v2 upgrade uses accurate three-way detection [157.00ms]
+2026-09-14T06:40:08.6447803Z (pass) writer — removal tracking > no removals when switching between different lessons (cumulative) [31.00ms]
+2026-09-14T06:40:08.6594779Z (pass) writer — removal tracking > reports empty removals when there is no previous manifest [16.00ms]
+2026-09-14T06:40:08.6789979Z (pass) writer — removal tracking > dry-run produces no removals when switching lessons (cumulative) [15.00ms]
+2026-09-14T06:40:08.7408400Z (pass) writer — hash persistence > stores content hashes for skills in the manifest after apply [63.00ms]
+2026-09-14T06:40:08.8042525Z (pass) writer — hash persistence > stores content hashes for prompts in the manifest after apply [62.00ms]
+2026-09-14T06:40:08.9109551Z (pass) writer — hash persistence > preserves old hash for conflict-skipped files [110.00ms]
+2026-09-14T06:40:08.9372087Z (pass) writer — hash persistence > updates hash for conflict-overwritten files [31.00ms]
+2026-09-14T06:40:08.9627904Z (pass) writer — hash persistence > updates hash for conflict-saved-user files (new content was written) [31.00ms]
+2026-09-14T06:40:08.9949463Z (pass) writer — cumulative multi-lesson > accumulates artifacts from multiple lessons on disk [31.00ms]
+2026-09-14T06:40:09.1044578Z (pass) writer — cumulative multi-lesson > re-applying a lesson does not remove another lesson's artifacts [110.00ms]
+2026-09-14T06:40:09.1306085Z (pass) writer — cumulative multi-lesson > removes a skill dropped by a lesson when no other lesson claims it [15.00ms]
+2026-09-14T06:40:09.1740160Z (pass) writer — cumulative multi-lesson > does not remove a shared skill when one lesson drops it but another claims it [47.00ms]
+2026-09-14T06:40:09.2101020Z (pass) writer — cumulative multi-lesson > manifest has lessons entries with appliedAt timestamps [31.00ms]
+2026-09-14T06:40:09.3353702Z (pass) writer — cumulative multi-lesson > union files includes content hashes from both lessons [141.00ms]
+2026-09-14T06:40:09.3673972Z (pass) writer — upgrade seeding for lessons field > seeds lessons from a v3-without-lessons manifest on first cumulative apply [31.00ms]
+2026-09-14T06:40:09.3883002Z (pass) writer — upgrade seeding for lessons field > seeds lessons from a v2 manifest on upgrade [16.00ms]
+2026-09-14T06:40:09.4144411Z (pass) writer — course rules opt-out > strips an existing block and preserves surrounding content [31.00ms]
+2026-09-14T06:40:09.4770676Z (pass) writer — course rules opt-out > leaves the rules file untouched when no block is present [63.00ms]
+2026-09-14T06:40:09.5012204Z (pass) writer — course rules opt-out > reports removed under dryRun without modifying the file [15.00ms]
+2026-09-14T06:40:09.5275816Z (pass) writer — course rules opt-out > default (omitted flag) still applies the block and is idempotent [32.00ms]
+2026-09-14T06:40:09.5277261Z 
+2026-09-14T06:40:09.5278293Z ##[endgroup]
+2026-09-14T06:40:09.5291689Z 
+2026-09-14T06:40:09.5291912Z 2 tests skipped:
+2026-09-14T06:40:09.5293024Z (skip) writer — multi-file skills > applies +x to files marked executable
+2026-09-14T06:40:09.5294100Z (skip) writer — multi-file skills > non-executable files are not chmod-marked +x
+2026-09-14T06:40:09.5294460Z 
+2026-09-14T06:40:09.5294466Z 
+2026-09-14T06:40:09.5294625Z 1 tests failed:
+2026-09-14T06:40:09.5295288Z (fail) 10x bench-kit dispatch > routes 'update' to the real implementation [5016.00ms]
+2026-09-14T06:40:09.5297292Z   ^ this test timed out after 5000ms.
+2026-09-14T06:40:09.5299890Z 
+2026-09-14T06:40:09.5300111Z  759 pass
+2026-09-14T06:40:09.5300502Z  2 skip
+2026-09-14T06:40:09.5300834Z  1 fail
+2026-09-14T06:40:09.5301275Z  2695 expect() calls
+2026-09-14T06:40:09.5301842Z Ran 762 tests across 39 files. [44.20s]
+2026-09-14T06:40:09.5847742Z ##[error]Process completed with exit code 1.
+2026-09-14T06:40:09.6101390Z Post job cleanup.
+2026-09-14T06:40:09.8004832Z [command]"C:\Program Files\Git\bin\git.exe" version

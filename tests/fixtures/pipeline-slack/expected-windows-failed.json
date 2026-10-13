@@ -1,0 +1,44 @@
+{
+  "text": "🔴 10x-cli FAILED d6bdd35 — Tests: Test (unit + integration, excludes smoke)",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "🔴 *10x-cli* FAILED · <https://github.com/przeprogramowani/10x-cli/commit/d6bdd358426ca209b836acd53447bcf2be0fe97a|d6bdd35> · <https://github.com/przeprogramowani/10x-cli/pull/43|#43> ci(release): direct npm publication of an exact tested SHA"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "❌ Tests    🚧 Release"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "❌ *Tests* · <https://github.com/przeprogramowani/10x-cli/actions/runs/34814297359/job/103881648111|check-windows> › `Test (unit + integration, excludes smoke)`\n```(fail) 10x bench-kit dispatch &gt; routes 'update' to the real implementation [5016.00ms]\n^ this test timed out after 5000ms.```"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "🚧 Release skipped: blocked by Tests (check-windows)"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "👤 psmyrdek · ⏱ 2m 08s · <https://github.com/przeprogramowani/10x-cli/actions/runs/34814297359|Run>"
+        }
+      ]
+    }
+  ]
+}
