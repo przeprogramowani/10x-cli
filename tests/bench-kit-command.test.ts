@@ -29,7 +29,9 @@ import {
   type BootstrapRequest,
   type BootstrapResponse,
   CONTRACT_VERSION,
+  FALLBACK_FIRST_PROMPT,
   registerBenchKitCommand,
+  releaseNotesLines,
   runBenchKitInit,
   runBenchKitUpdate,
 } from "../src/commands/bench-kit";
@@ -331,32 +333,117 @@ describe("10x bench-kit init", () => {
     expect(envelope.data.baseRepo.name).toBe("shop-app");
   });
 
-  it("asks the bootstrap for a full-history clone only with --deep", async () => {
+  it("asks for full history by default and HEAD only with --shallow", async () => {
     const template = buildTemplateFixture();
+    const defaultFake = fakeDeps(template, okInitResponse());
+    const byDefault = await captureStreams(() =>
+      runBenchKitInit(
+        JSON_CTX,
+        join(tempDir("bench-kit-target-"), "instance"),
+        {},
+        defaultFake.deps,
+      ),
+    );
+    expect(byDefault.exitCode).toBeUndefined();
+    // deepClone keeps older kits (0.28–0.33, shallow by default) on full history too.
+    expect(defaultFake.bootstrapCalls[0]!.request.deepClone).toBe(true);
+    expect(defaultFake.bootstrapCalls[0]!.request.shallowClone).toBeUndefined();
+
     const shallowFake = fakeDeps(template, okInitResponse());
     const shallow = await captureStreams(() =>
       runBenchKitInit(
         JSON_CTX,
         join(tempDir("bench-kit-target-"), "instance"),
-        {},
+        { shallow: true },
         shallowFake.deps,
       ),
     );
-    expect(shallow.exitCode).toBeUndefined();
-    expect(shallowFake.bootstrapCalls[0]!.request.deepClone).toBeUndefined();
 
-    const deepFake = fakeDeps(template, okInitResponse());
-    const deep = await captureStreams(() =>
+    expect(shallow.exitCode).toBeUndefined();
+    expect(shallowFake.bootstrapCalls[0]!.request.shallowClone).toBe(true);
+    expect(shallowFake.bootstrapCalls[0]!.request.deepClone).toBeUndefined();
+  });
+
+  it("prints the kit's first prompt as the next step, in human and JSON form", async () => {
+    const template = buildTemplateFixture();
+    const prompt = "Use bench-measure to set up this instance.";
+    const response = { ...okInitResponse(), nextStep: { skill: "bench-measure", prompt } };
+    const target = join(tempDir("bench-kit-target-"), "instance");
+
+    const json = await captureStreams(() =>
+      runBenchKitInit(JSON_CTX, target, {}, fakeDeps(template, response).deps),
+    );
+    expect(parseEnvelope(json.stdout).data.nextStep).toEqual({ prompt, dir: target });
+
+    const human = await captureStreams(() =>
       runBenchKitInit(
-        JSON_CTX,
+        { json: false, verbose: false },
         join(tempDir("bench-kit-target-"), "instance"),
-        { deep: true },
-        deepFake.deps,
+        { tool: "claude-code" },
+        fakeDeps(template, response).deps,
+      ),
+    );
+    expect(human.stderr).toContain(`open it in Claude Code and ask:\n  "${prompt}"`);
+    expect(human.stderr).not.toContain("bench-wiring");
+  });
+
+  it("defaults the instance to ../<repo>-bench when run inside a product repo", async () => {
+    const template = buildTemplateFixture();
+    const parent = tempDir("bench-kit-parent-");
+    const { deps, bootstrapCalls } = fakeDeps(template, okInitResponse(), {
+      detectBaseRepo: () =>
+        Promise.resolve({
+          rootDir: join(parent, "shop-app"),
+          name: "shop-app",
+          url: "https://github.com/acme/shop-app.git",
+          headCommit: "a".repeat(40),
+        }),
+    });
+
+    const result = await captureStreams(() => runBenchKitInit(JSON_CTX, undefined, {}, deps));
+
+    expect(result.exitCode).toBeUndefined();
+    expect(bootstrapCalls[0]!.request.targetDir).toBe(join(parent, "shop-app-bench"));
+    expect(parseEnvelope(result.stdout).data.dir).toBe(join(parent, "shop-app-bench"));
+  });
+
+  it("prints the kit's doctor findings before the next step", async () => {
+    const template = buildTemplateFixture();
+    const doctor = {
+      missing: 1,
+      warns: 1,
+      ok: ["engine", "node"],
+      problems: [
+        { name: "OPENROUTER_API_KEY", status: "BRAK", detail: "not in env", fix: "export OPENROUTER_API_KEY" },
+        { name: "instance remote", status: "WARN", detail: "no origin" },
+      ],
+    };
+    const result = await captureStreams(() =>
+      runBenchKitInit(
+        { json: false, verbose: false },
+        join(tempDir("bench-kit-target-"), "instance"),
+        { tool: "claude-code" },
+        fakeDeps(template, { ...okInitResponse(), doctor }).deps,
       ),
     );
 
-    expect(deep.exitCode).toBeUndefined();
-    expect(deepFake.bootstrapCalls[0]!.request.deepClone).toBe(true);
+    expect(result.stderr).toContain("1 problem to fix BEFORE opening the agent");
+    expect(result.stderr).toContain("✗ OPENROUTER_API_KEY: not in env\n    → export OPENROUTER_API_KEY");
+    expect(result.stderr).not.toContain("instance remote");
+    expect(result.stderr.indexOf("OPENROUTER_API_KEY")).toBeLessThan(result.stderr.indexOf("Next:"));
+  });
+
+  it("falls back to the bench-measure prompt for templates without nextStep", async () => {
+    const template = buildTemplateFixture();
+    const result = await captureStreams(() =>
+      runBenchKitInit(
+        JSON_CTX,
+        join(tempDir("bench-kit-target-"), "instance"),
+        {},
+        fakeDeps(template, okInitResponse()).deps,
+      ),
+    );
+    expect(parseEnvelope(result.stdout).data.nextStep.prompt).toBe(FALLBACK_FIRST_PROMPT);
   });
 
   it("degrades to a hint when the base repo clone fails (init still succeeds)", async () => {
@@ -502,6 +589,20 @@ describe("10x bench-kit init", () => {
 });
 
 describe("10x bench-kit update", () => {
+  it("links release notes at the installed tag, and only for an https source", () => {
+    const saved = process.env.BENCH_KIT_TEMPLATE_URL;
+    try {
+      delete process.env.BENCH_KIT_TEMPLATE_URL;
+      const [line] = releaseNotesLines("0.34.0");
+      expect(line).toMatch(/^Release notes: https:\/\/.+\/blob\/v0\.34\.0\/CHANGELOG\.md$/);
+      process.env.BENCH_KIT_TEMPLATE_URL = "file:///tmp/kit";
+      expect(releaseNotesLines("0.34.0")).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.BENCH_KIT_TEMPLATE_URL;
+      else process.env.BENCH_KIT_TEMPLATE_URL = saved;
+    }
+  });
+
   function existingInstance(version = "0.9.0"): string {
     const target = tempDir("bench-kit-target-");
     mkdirSync(join(target, ".bench-kit"), { recursive: true });
@@ -545,6 +646,7 @@ describe("10x bench-kit update", () => {
     expect(envelope.data.fromVersion).toBe("0.9.0");
     expect(envelope.data.templateVersion).toBe("0.10.0");
     expect(envelope.data.zones.skills.updated).toBe(3);
+    expect(envelope.data.nextStep.prompt).toContain("bench-status");
   });
 
   it("reports up-to-date without a zone report", async () => {

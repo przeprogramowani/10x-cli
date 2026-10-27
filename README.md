@@ -355,7 +355,7 @@ scoring live in the template and the instance.
 
 | Action | Description |
 |--------|-------------|
-| `init [dir]` | Materialize a fresh instance from the template (no git history, fresh `git init`), register the detected base repo, install runner dependencies |
+| `init [dir]` | Materialize a fresh instance from the template (no git history, fresh `git init`), register the detected base repo, install runner dependencies, check the machine (`bench doctor`). Without `dir`, inside a product repo the instance goes to `../<repo>-bench` |
 | `update [dir]` | Upgrade the instance to a newer template: runtime zone replaced wholesale, skills proposed as a reviewable diff, company content untouched |
 
 | Flag | Description |
@@ -363,30 +363,42 @@ scoring live in the template and the instance.
 | `--template-version <tag>` | Template tag to install (default: latest) |
 | `--tool <id>` | Agent tool for skill placement (`claude-code`, `cursor`, `copilot`, `codex`, `devin-desktop`, `gemini`, `kiro`, `factory`, `generic`) |
 | `--yes` | Run non-interactively, accepting defaults |
-| `--deep` | Clone the detected base repo with full history (default: shallow, HEAD only) |
+| `--shallow` | Clone the detected base repo at HEAD only (default: full history, which PR mining reads) |
+| `--deep` | Full history — the default since template 0.34.0; kept for older templates |
 
 ```bash
 # Create an instance next to your product repo (run inside it to auto-register)
-10x bench-kit init my-benchmark
+cd my-product && 10x bench-kit init          # → ../my-product-bench
+
+# Non-interactive (CI, agent shells): pick the tool explicitly
+10x bench-kit init --tool claude-code --yes
 
 # Pin the template version
-10x bench-kit init my-benchmark --template-version v0.8.0
+10x bench-kit init my-benchmark --template-version v0.33.0
 
-# Keep the full history in the base repo clone under .repos/
-10x bench-kit init my-benchmark --deep
+# HEAD-only base repo clone (huge history you do not want to copy)
+10x bench-kit init my-benchmark --shallow
 
 # Upgrade an existing instance to the latest template
 10x bench-kit update
 ```
 
 A detected base repo is cloned into the instance's `.repos/<name>/` (gitignored)
-as a working copy for the authoring skills. That clone is **shallow** — HEAD only
-— because the skills read the file tree, not the history; `--deep` keeps the full
-history, and `git fetch --unshallow` inside the clone adds it later.
+as a working copy for the authoring skills. It keeps the **full history**, because
+PR mining (the default source of tasks) reads it; cloning from your local working
+copy hardlinks the objects, so it takes seconds. `--shallow` keeps HEAD only, and
+`git fetch --unshallow` inside the clone adds the history later.
+
+When init finishes, it prints the exact first prompt to give your agent inside the
+instance (and `data.nextStep` in `--json` mode).
+
+Maintainers can point init/update at an unreleased template with
+`BENCH_KIT_TEMPLATE_URL=<git url or local checkout> 10x bench-kit init … --template-version <branch>`.
 
 Re-running `init` on an existing instance is a **repair**: missing template
-files are restored, company content is never touched. After `update`, run the
-instance's `bench validate` to confirm the content still matches the new kit.
+files are restored, company content is never touched. `update` ends the same
+way as init: with the prompt for your agent (`bench-status`, which re-validates
+the instance against the new kit) and a link to the installed release's notes.
 
 ### Global Flags
 

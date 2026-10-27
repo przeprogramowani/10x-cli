@@ -11,7 +11,9 @@
  * version, a template that changes its layout ships its own migration.
  *
  * Trust boundary: the bootstrap is executed only from a clone of
- * TEMPLATE_REPO_URL and only from a ref the user asked for. (npm ci
+ * TEMPLATE_REPO_URL (or the BENCH_KIT_TEMPLATE_URL the user exported —
+ * a maintainer hook for testing an unreleased kit branch) and only from a
+ * ref the user asked for. (npm ci
  * inside the clone already runs lifecycle scripts, so this executes no
  * new class of code.)
  */
@@ -19,7 +21,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { CAC } from "cac";
 import {
   ExitCodes,
@@ -39,6 +41,16 @@ import {
 } from "../lib/tool-profile";
 
 export const TEMPLATE_REPO_URL = "https://github.com/przeprogramowani/10x-bench-kit";
+
+/**
+ * Template source: BENCH_KIT_TEMPLATE_URL when set (any git URL or local
+ * path — e.g. a kit checkout plus `--template-version <branch>`), else the
+ * official repo. Mirrors API_BASE_URL: an explicit, user-set override.
+ */
+export function templateRepoUrl(): string {
+  const override = process.env.BENCH_KIT_TEMPLATE_URL?.trim();
+  return override === undefined || override === "" ? TEMPLATE_REPO_URL : override;
+}
 
 /** The kit's side of the contract — the only kit-internal path the CLI knows. */
 export const BOOTSTRAP_ENTRY = join(".bench-kit", "bootstrap", "index.mjs");
@@ -73,8 +85,10 @@ export interface BootstrapRequest {
   templateRef: string;
   templateSource: string;
   detectedBaseRepo: DetectedBaseRepo | null;
-  /** True with `--deep`: the base repo clone keeps full history (default: shallow). */
+  /** True with `--deep`: full history (the kit's default since 0.34.0; older kits default shallow). */
   deepClone?: boolean;
+  /** True with `--shallow`: clone HEAD only (kits 0.34.0+). */
+  shallowClone?: boolean;
   now: string;
 }
 
@@ -115,13 +129,67 @@ export interface BootstrapResponse {
   zones?: { workflows?: SyncCounts; skills?: SyncCounts; shared?: SyncCounts };
   warnings?: string[];
   nextSteps?: string[];
+  /**
+   * The first thing to ask the agent in the new instance. The kit owns it
+   * (it knows its skill names); absent in templates older than 0.34.0,
+   * where the CLI falls back to FALLBACK_FIRST_PROMPT.
+   */
+  nextStep?: { skill: string; prompt: string };
+  /** `bench doctor` run by the kit right after init (0.34.0+); null when it could not run. */
+  doctor?: DoctorSummary | null;
 }
+
+export interface DoctorSummary {
+  missing: number;
+  warns: number;
+  ok: string[];
+  problems: { name: string; status: string; detail: string; fix?: string }[];
+}
+
+/**
+ * Environment check rendered BEFORE the next step: an agent session only
+ * sees the env it was launched with, so a missing key must be fixed here,
+ * not discovered inside the agent.
+ */
+function doctorLines(doctor: DoctorSummary | null | undefined): string[] {
+  if (doctor == null) return [];
+  const missing = doctor.problems.filter((p) => p.status !== "WARN");
+  const lines = [
+    "",
+    missing.length === 0
+      ? `Environment ready: ${doctor.ok.length} checks passed${doctor.warns > 0 ? `, ${doctor.warns} optional warning${doctor.warns === 1 ? "" : "s"} (publication)` : ""}.`
+      : `Environment: ${missing.length} problem${missing.length === 1 ? "" : "s"} to fix BEFORE opening the agent (it inherits this shell's env):`,
+  ];
+  for (const problem of missing) {
+    lines.push(`  ✗ ${problem.name}: ${problem.detail}${problem.fix ? `\n    → ${problem.fix}` : ""}`);
+  }
+  return lines;
+}
+
+/** First prompt for templates that do not send `nextStep` (0.33.0 and older). */
+/** The agent prompt after an update: bench-status re-checks the instance (validate included). */
+export const UPDATE_PROMPT = "Use bench-status to check this instance after the bench-kit update, then commit the update as bench changes proposes.";
+
+/**
+ * Link to the installed release's notes — only for a browsable https source
+ * (a file:// or ssh override has no web view), pinned to the tag rather than
+ * a branch name that may not exist.
+ */
+export function releaseNotesLines(version: string | undefined): string[] {
+  const base = templateRepoUrl().replace(/\.git$/, "");
+  if (!version || !base.startsWith("https://")) return [];
+  return [`Release notes: ${base}/blob/v${version}/CHANGELOG.md`];
+}
+
+export const FALLBACK_FIRST_PROMPT =
+  "Use bench-measure to set up this instance and run the first smoke measurement.";
 
 interface BenchKitFlags extends GlobalFlags {
   templateVersion?: string;
   tool?: string;
   yes?: boolean;
   deep?: boolean;
+  shallow?: boolean;
 }
 
 /**
@@ -169,10 +237,12 @@ export function registerBenchKitCommand(cli: CAC): void {
     .option("--template-version <tag>", "Template tag to install (default: latest)")
     .option("--tool <id>", `Agent tool for skill placement (${Object.keys(PROFILES).join(", ")})`)
     .option("--yes", "Run non-interactively, accepting defaults")
-    .option("--deep", "Clone the detected base repo with full history (default: shallow, HEAD only)")
-    .example("10x bench-kit init my-benchmark")
-    .example("10x bench-kit init my-benchmark --template-version v0.1.0")
-    .example("10x bench-kit init my-benchmark --deep")
+    .option("--shallow", "Clone the detected base repo at HEAD only (default: full history, which PR mining reads)")
+    .option("--deep", "Clone the detected base repo with full history (the default for templates 0.34.0+)")
+    .example("10x bench-kit init                # inside your product repo: creates ../<repo>-bench")
+    .example("10x bench-kit init --tool claude-code --yes")
+    .example("10x bench-kit init ../my-bench --template-version v0.33.0")
+    .example("10x bench-kit init --shallow")
     .example("10x bench-kit update")
     .action(async (action: string, dir: string | undefined, options: BenchKitFlags) => {
       const ctx = resolveContext(options);
@@ -200,10 +270,21 @@ export async function runBenchKitInit(
   options: BenchKitFlags,
   deps: BenchKitDeps = defaultDeps,
 ): Promise<void> {
-  const targetDir = resolve(dirArg ?? ".");
   const requestedRef = normalizeRef(ctx, options.templateVersion);
 
   await preflight(ctx, deps);
+
+  // Run from inside a product repo with no dir: the instance goes NEXT to
+  // the repo (`../<repo>-bench`). Inside it, it would be an untracked
+  // nested repo that one `git add -A` commits into the product.
+  const cwdIsInstance = dirArg === undefined && readInstanceVersion(process.cwd()) !== null;
+  const detected = cwdIsInstance ? null : await deps.detectBaseRepo(process.cwd());
+  const targetDir =
+    dirArg !== undefined
+      ? resolve(dirArg)
+      : detected !== null
+        ? join(dirname(detected.rootDir), `${detected.name}-bench`)
+        : resolve(".");
 
   const existingVersion = readInstanceVersion(targetDir);
   if (existingVersion !== null && requestedRef !== null) {
@@ -227,9 +308,8 @@ export async function runBenchKitInit(
 
     // Running init from inside a product repo is the common flow — detect
     // it here (network side), let the bootstrap decide what to register.
-    const detected = existingVersion !== null ? null : await deps.detectBaseRepo(process.cwd());
     let detectedBaseRepo: DetectedBaseRepo | null = null;
-    if (detected !== null) {
+    if (detected !== null && existingVersion === null) {
       const https = toHttpsUrl(detected.url);
       const httpsReachable = https !== null && (await deps.remoteReachable(https));
       if (httpsReachable) verbose(ctx, `repo answers over https — bootstrap may prefer ${https}`);
@@ -249,9 +329,9 @@ export async function runBenchKitInit(
       toolProfiles: allToolProfiles(),
       cwd: process.cwd(),
       templateRef: requestedRef ?? "latest",
-      templateSource: TEMPLATE_REPO_URL,
+      templateSource: templateRepoUrl(),
       detectedBaseRepo,
-      ...(options.deep === true ? { deepClone: true } : {}),
+      ...(options.shallow === true ? { shallowClone: true } : { deepClone: true }),
       now: deps.now().toISOString(),
     };
     verbose(ctx, `running template bootstrap (${BOOTSTRAP_ENTRY})`);
@@ -289,6 +369,7 @@ export async function runBenchKitInit(
     }
 
     const repair = res.mode === "repair";
+    const firstPrompt = res.nextStep?.prompt ?? FALLBACK_FIRST_PROMPT;
     const toolId = res.tool ?? toolChoice.id;
     const toolName = PROFILES[toolId]?.displayName ?? toolId;
     const skillRoot = res.skillRoot ?? skillRootFor(toolId);
@@ -332,7 +413,10 @@ export async function runBenchKitInit(
             ? "Initialized a fresh git repository with an initial commit."
             : "Initialized a fresh git repository (initial commit skipped — commit the files yourself).",
           ...(res.warnings ?? []).map((warning) => `Warning: ${warning}`),
-          `Next: cd ${targetDir} and run skill *bench-measure* in your agent.`,
+          ...doctorLines(res.doctor),
+          "",
+          `Next: cd ${displayDir(targetDir)}, open it in ${toolName} and ask:`,
+          `  "${firstPrompt}"`,
         ];
     output(ctx, humanLines.join("\n"), {
       dir: targetDir,
@@ -349,6 +433,8 @@ export async function runBenchKitInit(
       gitInitialized: res.gitInitialized ?? false,
       committed: res.committed ?? false,
       warnings: res.warnings ?? [],
+      nextStep: repair ? null : { prompt: firstPrompt, dir: targetDir },
+      doctor: res.doctor ?? null,
     });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -414,7 +500,7 @@ export async function runBenchKitUpdate(
       toolProfiles: allToolProfiles(),
       cwd: process.cwd(),
       templateRef: requestedRef ?? "latest",
-      templateSource: TEMPLATE_REPO_URL,
+      templateSource: templateRepoUrl(),
       detectedBaseRepo: null,
       now: deps.now().toISOString(),
     };
@@ -457,7 +543,9 @@ export async function runBenchKitUpdate(
         `  ${"AGENTS.md".padEnd(23)}${describeSync(zones.shared)} — proposal, review before committing`,
         "  tasks/, evaluation-pool/, bench.config.yaml untouched (company zone)",
         ...(res.warnings ?? []).map((warning) => `Warning: ${warning}`),
-        "Next: review 'git diff', run 'bench validate' (it flags any schema changes to fix), then commit via PR.",
+        ...releaseNotesLines(res.templateVersion),
+        "Next: review 'git diff' (skills and AGENTS.md are proposals), then in the instance ask your agent:",
+        `  "${UPDATE_PROMPT}"`,
       ].join("\n"),
       {
         dir: targetDir,
@@ -471,11 +559,19 @@ export async function runBenchKitUpdate(
         runnerDeps: res.runnerDeps,
         zones: res.zones,
         warnings: res.warnings ?? [],
+        nextStep: { prompt: UPDATE_PROMPT, dir: targetDir },
       },
     );
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** `targetDir` relative to cwd when that is shorter (what the user types after `cd`). */
+function displayDir(targetDir: string): string {
+  const rel = relative(process.cwd(), targetDir);
+  if (rel === "") return ".";
+  return rel.length < targetDir.length && !isAbsolute(rel) ? rel : targetDir;
 }
 
 function describeSync(counts: SyncCounts | undefined): string {
@@ -548,7 +644,7 @@ function normalizeRef(ctx: OutputContext, raw: string | undefined): string | nul
       "invalid_template_version",
       `'${raw}' is not a valid template tag.`,
       ExitCodes.USAGE,
-      "Pass a tag name, for example '10x bench-kit init --template-version v0.1.0'.",
+      "Pass a tag name, for example '10x bench-kit init --template-version v0.33.0'.",
     );
   }
   return ref;
@@ -579,13 +675,17 @@ async function cloneTemplateOrDie(
   scratch: string,
   action: "init" | "update",
 ): Promise<void> {
-  verbose(ctx, `cloning ${TEMPLATE_REPO_URL} (${ref ?? "latest"}) into ${scratch}`);
+  const source = templateRepoUrl();
+  if (source !== TEMPLATE_REPO_URL) {
+    process.stderr.write(`Using template source from BENCH_KIT_TEMPLATE_URL: ${source}\n`);
+  }
+  verbose(ctx, `cloning ${source} (${ref ?? "latest"}) into ${scratch}`);
   const clone = await deps.cloneTemplate(ref, scratch);
   if (!clone.ok) {
     outputError(
       ctx,
       "clone_failed",
-      `Could not download the template from ${TEMPLATE_REPO_URL}.`,
+      `Could not download the template from ${source}.`,
       ExitCodes.ERROR,
       clone.error
         ? `Git said: ${clone.error.trim()}`
@@ -683,7 +783,7 @@ const defaultDeps: BenchKitDeps = {
   cloneTemplate(ref, destDir) {
     const args = ["clone", "--depth", "1"];
     if (ref !== null) args.push("--branch", ref);
-    args.push(TEMPLATE_REPO_URL, destDir);
+    args.push(templateRepoUrl(), destDir);
     return run("git", args);
   },
   runGit(args, cwd) {
