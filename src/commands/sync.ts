@@ -24,7 +24,7 @@ import {
   type LessonSummary,
 } from "../lib/api-content";
 import { resolveCourseSelection, type SelectionReason } from "../lib/course-selection";
-import { type CliManifest, readManifest } from "../lib/manifest";
+import { type CliManifest, isStandaloneOwner, readManifest } from "../lib/manifest";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -174,9 +174,10 @@ export async function runSync(ctx: OutputContext, options: SyncFlags): Promise<v
   });
 
   const manifest = readManifest(join(process.cwd(), profile.manifestDir));
-  const manifestLessonIds = new Set(manifest?.lessons ? Object.keys(manifest.lessons) : manifest ? [manifest.lessonId] : []);
+  // Standalone owners (`skill:` / `group:`) are refreshed by re-installing, never by sync.
+  const manifestLessonIds = new Set((manifest?.lessons ? Object.keys(manifest.lessons) : manifest ? [manifest.lessonId] : []).filter((id) => !isStandaloneOwner(id)));
 
-  let targets = unlocked;
+  let targets = unlocked.filter((l) => !isStandaloneOwner(l.lessonId));
   if (moduleFilter !== undefined) targets = targets.filter((l) => l.module === moduleFilter);
   // Default targets only already-downloaded lessons; --all pulls everything.
   if (options.all !== true) targets = targets.filter((l) => manifestLessonIds.has(l.lessonId));

@@ -15,7 +15,8 @@ import cac from "cac";
 import type { ApiResult } from "../src/lib/api-client";
 import type { CatalogResponse, ChangelogQuery, ChangelogResponse, LessonBundle, LessonSummary } from "../src/lib/api-content";
 import { AUTH_FILE_VERSION, type AuthData, saveAuth } from "../src/lib/config";
-import { MANIFEST_FILENAME } from "../src/lib/manifest";
+import { MANIFEST_FILENAME, readManifest } from "../src/lib/manifest";
+import { applyBundle } from "../src/lib/writer";
 import { apiContentMockState, resetApiContentMock } from "./helpers/api-content-mock";
 import { redirectConfigDir, restoreConfigDir } from "./helpers/config-isolation";
 
@@ -876,5 +877,30 @@ describe("10x sync — toolkit baseline recording", () => {
     const res = await runSyncCmd(["--tool", "claude-code"]); // default mode: no downloaded lessons
     expect(res.exitCode).toBeUndefined();
     expect(existsSync(manifestPath())).toBe(false);
+  });
+});
+
+describe("10x sync — standalone owners", () => {
+  it("never targets, fetches or refreshes standalone entries, even when the catalog names their key", async () => {
+    await applyBundle({ lessonId: "skill:solo", module: 0, lesson: 0, title: "solo", summary: "", skills: [{ name: "solo", files: [{ path: "SKILL.md", content: "solo\n" }] }], prompts: [], rules: [], configs: [] }, tmp, { course: "10xdevs3", standalone: true, partial: true });
+    wire(
+      makeCatalog([
+        lessonSummary({ lessonId: "m1l1", module: 1, lesson: 1, contentHash: "h1" }),
+        lessonSummary({ lessonId: "skill:solo", module: 1, lesson: 2, contentHash: "hs" }),
+      ]),
+      { m1l1: makeBundle("m1l1", "v1"), "skill:solo": makeBundle("m1l1", "hijacked") },
+    );
+
+    const downloaded = await runSyncCmd(["--tool", "claude-code"]);
+    expect(fetched).toEqual([]);
+    expect(envelope(downloaded.stdout).data.lessons).toEqual([]);
+
+    const all = await runSyncCmd(["--all", "--tool", "claude-code"]);
+    expect(fetched).toEqual(["m1l1"]);
+    expect((envelope(all.stdout).data.lessons as Array<{ lessonId: string }>).map((l) => l.lessonId)).toEqual(["m1l1"]);
+    expect(readFileSync(join(tmp, ".claude/skills/solo/SKILL.md"), "utf8")).toBe("solo\n");
+    const manifest = readManifest(join(tmp, ".claude"))!;
+    expect(manifest.lessons!["skill:solo"]!.catalogContentHash).toBeUndefined();
+    expect(manifest.lessons!["skill:solo"]!.representation).toEqual({ lang: "en", tool: "claude-code", courseRules: false, rules: false });
   });
 });

@@ -30,6 +30,8 @@ import {
   seedLessons,
   rebuildManifestFiles,
   contentHash,
+  isStandaloneOwner,
+  standaloneRepresentation,
   readManifest,
   writeManifest,
 } from "./manifest";
@@ -50,7 +52,9 @@ export type ArtifactAction =
   | "removed"
   | "conflict_overwritten"
   | "conflict_saved_user"
-  | "conflict_skipped";
+  | "conflict_skipped"
+  /** Standalone apply only: a lesson owns this skill, so its bytes are left to the lesson. */
+  | "managed_by_lesson";
 
 export interface ArtifactWrite {
   name: string;
@@ -65,6 +69,8 @@ export interface SkillFileWrite {
   absolutePath: string;
   action: ArtifactAction;
   userBackupPath?: string;
+  /** Set with `managed_by_lesson`: the lesson whose ownership the standalone apply deferred to. */
+  ownerLessonId?: string;
 }
 
 export interface SkillWrite {
@@ -105,6 +111,8 @@ export interface PlanFileEntry {
 export interface SkillFilePlan extends PlanFileEntry {
   /** Path relative to the skill directory (e.g. "SKILL.md"). */
   relativePath: string;
+  /** Set with `managed_by_lesson`: the lesson whose ownership the standalone apply defers to. */
+  ownerLessonId?: string;
 }
 
 export interface SkillPlan {
@@ -154,6 +162,8 @@ export interface PlanOptions {
   course: string;
   profile?: ToolProfile;
   applyCourseRules?: boolean;
+  /** Plan a skills-only bundle under a reserved owner key. See `ApplyOptions.standalone`. */
+  standalone?: true;
 }
 
 export interface ConflictInfo {
@@ -215,6 +225,17 @@ export interface ApplyOptions {
    * it). A partial update invalidates the shortcut; dry-run never writes state.
    */
   catalogContentHash?: string;
+  /**
+   * Apply a skills-only bundle whose `lessonId` is a reserved owner key
+   * (`skill:<name>` / `group:<id>`), not a lesson. The apply never binds the
+   * project (an existing binding must still match), keeps the manifest's
+   * top-level `lessonId`/`lastApplied`/`course`, records no digest or release,
+   * always records a representation that does not claim the course rules
+   * block, leaves the rules file alone, never invalidates another owner, and
+   * defers every skill a lesson already owns (`managed_by_lesson`, co-owned,
+   * not written).
+   */
+  standalone?: true;
 }
 
 /**
@@ -223,10 +244,13 @@ export interface ApplyOptions {
 export async function applyBundle(bundle: LessonBundle, projectRoot: string, options: ApplyOptions): Promise<WriteResult> {
   const dryRun = options.dryRun === true;
   const partial = options.partial === true;
+  const standalone = options.standalone === true;
   const course = options.course;
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
-  const applyCourseRules = options.applyCourseRules !== false;
-  const plan = planBundle(bundle, projectRoot, { course, profile, applyCourseRules });
+  // Standalone bundles carry no rules; enabled + empty leaves the rules file and
+  // its baseline alone, whereas disabled would strip the block for every lesson.
+  const applyCourseRules = standalone || options.applyCourseRules !== false;
+  const plan = planBundle(bundle, projectRoot, { course, profile, applyCourseRules, ...(standalone ? { standalone } : {}) });
   const manifestDir = join(projectRoot, profile.manifestDir);
   const previous = readManifest(manifestDir);
   const ledger: CliManifest = previous ? structuredClone(previous) : {
@@ -236,7 +260,7 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
   };
   ledger.lessons = previous ? seedLessons(previous) : {};
   ledger.manifestVersion = MANIFEST_VERSION;
-  ledger.course = course;
+  if (!standalone || !previous) ledger.course = course;
   ledger.tool = profile.toolId;
   const lesson: LessonFilesEntry = ledger.lessons[bundle.lessonId] ?? { appliedAt: new Date().toISOString(), skills: {}, prompts: [], configs: [] };
   ledger.lessons[bundle.lessonId] = lesson;
@@ -247,9 +271,16 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
   delete lesson.catalogContentHash;
   delete lesson.installedReleaseId;
   delete lesson.installedManifestHash;
+  // Recorded before the first incremental persist: without it, old and new
+  // rules logic would treat this entry as owning the shared course rules block.
+  if (standalone) lesson.representation = standaloneRepresentation(options.lang ?? "en", profile.toolId);
   const invalidateOtherOwners = (kind: "skills" | "prompts" | "rules", name?: string, file?: string) => {
+    // A standalone write never invalidates another owner: lesson-owned skills
+    // are deferred, so only standalone co-owners can share its bytes.
+    if (standalone) return;
     for (const [id, owner] of Object.entries(ledger.lessons!)) {
-      if (id === bundle.lessonId) continue;
+      // Standalone entries have no digest; their representation only declines the rules block.
+      if (id === bundle.lessonId || isStandaloneOwner(id)) continue;
       if (kind === "rules" || (kind === "skills" ? owner.skills[name!]?.files.includes(file!) : owner.prompts.includes(name!))) {
         // Sync applies cumulative lessons in numeric course order. A later
         // variant legitimately replaces an earlier owner's bytes in the same
@@ -268,7 +299,7 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
     }
   };
   const persist = () => { if (!dryRun) { rebuildManifestFiles(ledger); writeManifest(manifestDir, ledger); } };
-  if (!dryRun) { assertProjectCourse(projectRoot, course); establishProjectCourse(projectRoot, course); }
+  if (!dryRun) { assertProjectCourse(projectRoot, course); if (!standalone) establishProjectCourse(projectRoot, course); }
   const result: WriteResult = { skills: [], prompts: [], configs: [], rules: { action: "unchanged" }, removals: { skills: [], prompts: [], configs: [] } };
 
   const deliver = async (file: PlanFileEntry, content: string, info: ConflictInfo): Promise<{ action: ArtifactAction; userBackupPath?: string; delivered: boolean }> => {
@@ -299,6 +330,15 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
     for (let fi = 0; fi < skill.files.length; fi++) {
       const file = skill.files[fi]!;
       const planned = plan.skills[si]!.files[fi]!;
+      if (planned.action === "managed_by_lesson") {
+        writes.push({ path: file.path, absolutePath: planned.path, action: planned.action, ownerLessonId: planned.ownerLessonId });
+        // Co-own what a lesson owns so a later lesson removal cannot delete it; bytes and hashes stay the lesson's.
+        if (Object.entries(ledger.lessons).some(([id, owner]) => !isStandaloneOwner(id) && owner.skills[skill.name]?.files.includes(file.path))) {
+          const entry = lesson.skills[skill.name] ??= { files: [] };
+          if (!entry.files.includes(file.path)) { entry.files.push(file.path); persist(); }
+        }
+        continue;
+      }
       const outcome = await deliver(planned, file.content, { artifactType: "skill", artifactName: `${skill.name}/${file.path}`, filePath: planned.path, relativePath: file.path });
       writes.push({ path: file.path, absolutePath: planned.path, action: outcome.action, userBackupPath: outcome.userBackupPath });
       if (outcome.delivered) {
@@ -386,10 +426,15 @@ export async function applyBundle(bundle: LessonBundle, projectRoot: string, opt
       }
     }
   }
-  ledger.lessonId = bundle.lessonId;
-  ledger.lastApplied = lesson.appliedAt = new Date().toISOString();
+  // Top-level `lessonId`/`lastApplied` describe the last lesson apply; a fresh
+  // standalone manifest already carries the owner key and its creation time.
+  lesson.appliedAt = new Date().toISOString();
+  if (!standalone) {
+    ledger.lessonId = bundle.lessonId;
+    ledger.lastApplied = lesson.appliedAt;
+  }
   const conflicts = result.skills.some((s) => s.files.some((f) => f.action === "conflict_skipped")) || result.prompts.some((p) => p.action === "conflict_skipped") || rulesAction === "conflict_skipped";
-  if (!partial && !conflicts) {
+  if (!standalone && !partial && !conflicts) {
     lesson.catalogContentHash = options.catalogContentHash ?? oldDigest;
     lesson.representation = { lang: options.lang ?? "en", tool: profile.toolId, courseRules: applyCourseRules, rules: applyCourseRules && bundle.rules.length > 0 };
     lesson.installedReleaseId = bundle.releaseId;
@@ -412,9 +457,14 @@ export function planBundle(
   options: PlanOptions,
 ): WritePlan {
   const profile = options.profile ?? PROFILES[DEFAULT_TOOL]!;
-  const applyCourseRules = options.applyCourseRules !== false;
+  const standalone = options.standalone === true;
+  const applyCourseRules = standalone || options.applyCourseRules !== false;
 
   validateBundlePayload(bundle);
+  // Owner keys and lesson IDs never cross modes: a lesson apply under a reserved
+  // key would claim rules and digests, a standalone apply under a lesson ID would bypass deferral.
+  if (standalone !== isStandaloneOwner(bundle.lessonId)) throw new Error(standalone ? "Standalone apply requires a reserved owner key" : "Reserved owner keys require a standalone apply");
+  if (standalone && (bundle.prompts.length || bundle.rules.length || bundle.configs.length)) throw new Error("Standalone bundles carry skills only");
   if (bundle.course !== undefined && bundle.course !== options.course) throw new Error("Bundle course differs from selected project course");
   // Validate up front — the same guard applyBundle relied on, centralized here
   // so a tampered bundle is rejected before any read or (downstream) write.
@@ -428,13 +478,17 @@ export function planBundle(
   const manifestDir = join(projectRoot, profile.manifestDir);
   assertProjectFilePath(projectRoot, join(manifestDir, MANIFEST_FILENAME));
   const prevManifest = readManifest(manifestDir);
+  const lessonOwners = standalone && prevManifest ? Object.entries(seedLessons(prevManifest)).filter(([id]) => !isStandaloneOwner(id)) : [];
 
   const skills: SkillPlan[] = bundle.skills.map((skill) => {
     const skillDir = join(projectRoot, profile.skillDir(skill.name));
     const prevEntry = prevManifest?.files.skills[skill.name];
+    const ownerLessonId = latestLessonOwner(lessonOwners, skill.name);
     const files: SkillFilePlan[] = skill.files.map((file) => {
       const target = join(skillDir, file.path);
       assertProjectFilePath(projectRoot, target);
+      // A lesson's bytes win: writing other variants would bounce between owners on every sync.
+      if (ownerLessonId !== undefined) return { relativePath: file.path, path: target, action: "managed_by_lesson", isConflict: false, upstreamChanged: false, ownerLessonId };
       const storedHash = prevEntry?.contentHashes?.[file.path];
       const { action, isConflict } = computeFileAction(target, file.content, storedHash);
       return {
@@ -500,6 +554,13 @@ export function planBundle(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** The newest lesson owning any file of `name`; its variant is the one sync keeps. */
+function latestLessonOwner(owners: [string, LessonFilesEntry][], name: string): string | undefined {
+  const ids = owners.filter(([, entry]) => (entry.skills[name]?.files.length ?? 0) > 0).map(([id]) => id);
+  ids.sort((a, b) => isEarlierLesson(a, b) ? -1 : isEarlierLesson(b, a) ? 1 : a < b ? -1 : a > b ? 1 : 0);
+  return ids.at(-1);
+}
 
 function isEarlierLesson(left: string, right: string): boolean {
   const a = /^m(\d+)l(\d+)$/.exec(left);

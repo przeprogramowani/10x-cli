@@ -24,8 +24,13 @@ import type {
   LessonBundle,
   ModuleDetailResponse,
   ModulesResponse,
+  SkillContentQuery,
+  SkillGroupSkillsResponse,
+  SkillGroupsQuery,
+  SkillGroupsResponse,
   SkillOverviewsQuery,
   SkillOverviewsResponse,
+  SkillResponse,
 } from "../../src/lib/api-content";
 
 const real = await import("../../src/lib/api-content");
@@ -47,6 +52,13 @@ const realFetchChangelog = real.fetchChangelog;
 const realValidateChangelogResponse = real.validateChangelogResponse;
 const realFetchSkillOverviews = real.fetchSkillOverviews;
 const realValidateSkillOverviewsResponse = real.validateSkillOverviewsResponse;
+const realFetchSkill = real.fetchSkill;
+const realFetchSkillGroups = real.fetchSkillGroups;
+const realFetchSkillGroupSkills = real.fetchSkillGroupSkills;
+const realValidateSkillResponse = real.validateSkillResponse;
+const realValidateSkillGroupsResponse = real.validateSkillGroupsResponse;
+const realValidateSkillGroupSkillsResponse = real.validateSkillGroupSkillsResponse;
+const realServedCourse = real.servedCourse;
 
 /**
  * Default changelog outcome: an older backend without the route. Keeps every
@@ -102,6 +114,15 @@ export interface ApiContentMockState {
   fetchSkillOverviewsImpl:
     | null
     | ((token: string, query: SkillOverviewsQuery) => Promise<ApiResult<SkillOverviewsResponse>> | ApiResult<SkillOverviewsResponse>);
+  fetchSkillImpl:
+    | null
+    | ((name: string, query: SkillContentQuery, token: string) => Promise<ApiResult<SkillResponse>> | ApiResult<SkillResponse>);
+  fetchSkillGroupsImpl:
+    | null
+    | ((query: SkillGroupsQuery, token: string) => Promise<ApiResult<SkillGroupsResponse>> | ApiResult<SkillGroupsResponse>);
+  fetchSkillGroupSkillsImpl:
+    | null
+    | ((group: string, query: SkillContentQuery, token: string) => Promise<ApiResult<SkillGroupSkillsResponse>> | ApiResult<SkillGroupSkillsResponse>);
 }
 
 export const apiContentMockState: ApiContentMockState = {
@@ -115,6 +136,9 @@ export const apiContentMockState: ApiContentMockState = {
   apiBaseUrlImpl: null,
   fetchChangelogImpl: changelogUnsupportedFixture,
   fetchSkillOverviewsImpl: null,
+  fetchSkillImpl: null,
+  fetchSkillGroupsImpl: null,
+  fetchSkillGroupSkillsImpl: null,
 };
 
 mock.module("../../src/lib/api-content", () => ({
@@ -176,6 +200,22 @@ mock.module("../../src/lib/api-content", () => ({
     apiContentMockState.fetchSkillOverviewsImpl
       ? Promise.resolve(apiContentMockState.fetchSkillOverviewsImpl(token, query))
       : realFetchSkillOverviews(token, query),
+  validateSkillResponse: realValidateSkillResponse,
+  validateSkillGroupsResponse: realValidateSkillGroupsResponse,
+  validateSkillGroupSkillsResponse: realValidateSkillGroupSkillsResponse,
+  servedCourse: realServedCourse,
+  fetchSkill: (name: string, query: SkillContentQuery, token: string) =>
+    apiContentMockState.fetchSkillImpl
+      ? Promise.resolve(apiContentMockState.fetchSkillImpl(name, query, token))
+      : realFetchSkill(name, query, token),
+  fetchSkillGroups: (query: SkillGroupsQuery, token: string) =>
+    apiContentMockState.fetchSkillGroupsImpl
+      ? Promise.resolve(apiContentMockState.fetchSkillGroupsImpl(query, token))
+      : realFetchSkillGroups(query, token),
+  fetchSkillGroupSkills: (group: string, query: SkillContentQuery, token: string) =>
+    apiContentMockState.fetchSkillGroupSkillsImpl
+      ? Promise.resolve(apiContentMockState.fetchSkillGroupSkillsImpl(group, query, token))
+      : realFetchSkillGroupSkills(group, query, token),
 }));
 
 export function resetApiContentMock(): void {
@@ -189,4 +229,7 @@ export function resetApiContentMock(): void {
   apiContentMockState.apiBaseUrlImpl = null;
   apiContentMockState.fetchChangelogImpl = changelogUnsupportedFixture;
   apiContentMockState.fetchSkillOverviewsImpl = null;
+  apiContentMockState.fetchSkillImpl = null;
+  apiContentMockState.fetchSkillGroupsImpl = null;
+  apiContentMockState.fetchSkillGroupSkillsImpl = null;
 }

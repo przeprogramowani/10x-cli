@@ -23,7 +23,7 @@ import { type ChangelogEntry, type ChangelogQuery, fetchChangelog } from "../lib
 import { requireAuth } from "../lib/auth-guard";
 import { readToolConfig } from "../lib/config";
 import { paint, STYLE, wrapText } from "../lib/format";
-import { type CliManifest, readManifest } from "../lib/manifest";
+import { type CliManifest, isStandaloneOwner, readManifest } from "../lib/manifest";
 import { CourseBindingError, inspectProjectCourse } from "../lib/project-course";
 import {
   ExitCodes,
@@ -185,11 +185,14 @@ function resolveManifestBaseline(ctx: OutputContext, projectRoot: string): Chang
 
 function newestAppliedAt(manifest: CliManifest): string | undefined {
   let newest: number | undefined;
-  for (const lesson of Object.values(manifest.lessons ?? {})) {
+  for (const [id, lesson] of Object.entries(manifest.lessons ?? {})) {
+    // A standalone skill install is not a lesson apply.
+    if (isStandaloneOwner(id)) continue;
     const t = Date.parse(lesson.appliedAt);
     if (Number.isFinite(t) && (newest === undefined || t > newest)) newest = t;
   }
-  if (newest === undefined) {
+  // A manifest created by a standalone install records no lesson apply at all.
+  if (newest === undefined && !isStandaloneOwner(manifest.lessonId)) {
     const t = Date.parse(manifest.lastApplied);
     if (Number.isFinite(t)) newest = t;
   }

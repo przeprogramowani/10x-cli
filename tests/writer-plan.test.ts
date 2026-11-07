@@ -134,3 +134,22 @@ describe("planBundle / applyBundle parity", () => {
     expect(plan.rules.action).toBe(result.rules.action);
   });
 });
+
+describe("planBundle / applyBundle parity — standalone", () => {
+  const standalone = (skills: LessonBundle["skills"]): LessonBundle => ({ lessonId: "group:core", module: 0, lesson: 0, title: "core", summary: "", skills, prompts: [], rules: [], configs: [] });
+
+  it("a lesson-owned skill plans and applies as managed_by_lesson with its owner (parity)", async () => {
+    await applyBundle(baseBundle(), tmp, { course: "10xdevs3" });
+    const bundle = standalone([
+      { name: "code-review", files: [{ path: "SKILL.md", content: "# standalone variant\n" }] },
+      { name: "fresh", files: [{ path: "SKILL.md", content: "# fresh\n" }] },
+    ]);
+
+    const plan = planBundle(bundle, tmp, { course: "10xdevs3", standalone: true });
+    const result = await applyBundle(bundle, tmp, { course: "10xdevs3", standalone: true });
+    expect(plan.skills[0]!.files[0]).toMatchObject({ action: "managed_by_lesson", isConflict: false, upstreamChanged: false, ownerLessonId: "m1l1" });
+    expect(result.skills.map((s) => s.files.map((f) => [f.action, f.ownerLessonId]))).toEqual(plan.skills.map((s) => s.files.map((f) => [f.action, f.ownerLessonId])));
+    expect(result.rules.action).toBe(plan.rules.action);
+    expect(readFileSync(join(tmp, skillFile), "utf8")).toBe("# Code Review\nA\n");
+  });
+});

@@ -46,7 +46,7 @@ Preconditions:
   `sync`), run `$V cli sync-idle -- sync --tool claude-code`: `fetched` `false`, `status`
   `unchanged`, and `requests.log` shows no new `GET /api/lessons/…` for it.
 - **All.** Run `$V cli sync-all -- sync --all --tool claude-code`. `m1l2` appears with
-  `status` `updated` and its skill `created`.
+  `status` `updated` and its skills `created`.
 - **Force.** Run `$V cli sync-force -- sync --force --tool claude-code`. The prompt's bucket is
   `upstream-updated` and the file holds `# Fixture prompt v2` again. Managed-rule
   conflicts are still preserved (not covered by the fixture).

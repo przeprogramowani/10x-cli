@@ -84,6 +84,12 @@ The manifest is **cumulative** — each `10x get` accumulates artifacts across l
 
 Profile migration preserves course and both ownership ledgers. It copies to the destination, records successful destination ownership, then removes and retires source ownership. Skipped or failed transfers retain their source claims; do not delete the source manifest until all ownership is transferred or retired. Existing destination content, shared rules, and unknown baselines receive the same protection as ordinary updates.
 
+**Standalone owners.** `10x skill <name> --install` and `10x skill-group <name> --install` (`lib/skill-install.ts`) record ownership under reserved `lessons` keys `skill:<name>` / `group:<id>` (`skillOwnerKey`, `groupOwnerKey`, `isStandaloneOwner` in `manifest.ts`), with no schema bump. These keys are bookkeeping only: never send them to a lesson URL, show them as a lesson, or let `sync`, freshness, or the `changelog` baseline treat them as lessons. They are applied with `applyBundle(..., { standalone: true })`:
+- **Defer to lessons.** A skill already owned by a lesson entry is not written. It is reported as `managed_by_lesson` with `ownerLessonId`, co-owned by the standalone entry, and does not invalidate other owners. A later lesson write over standalone files proceeds normally; the lesson wins. `planBundle` produces the same action, so dry-run parity holds.
+- **No binding.** An install never creates or changes `.10x-cli.json` (`establishProjectCourse` is skipped; `prepareToolForWrite(..., { bindProject: false })`), but an existing binding must still match. It retains the manifest's top-level `lessonId`, `course`, and `lastApplied`; a fresh manifest uses the owner key and the served course. It records no catalog digest or release identity.
+- **Representation always recorded.** Every write records `{ lang, tool, courseRules: false, rules: false }` even after conflicts, so neither new nor old rules logic treats the entry as an owner of the course rules block. Bundles contain skills only, and the rules file is left untouched. An older CLI's rules write still deletes that representation; the next install records it again, and `otherRulesOwners` ignores standalone keys regardless, so the gap never makes them rules owners in this CLI.
+- **Partial vs complete.** A single skill applies as partial and never removes anything. A group applies as complete, so dropped members use group-scoped safe removal.
+
 ## `10x sync` & change detection
 
 `commands/sync.ts` is the bulk download + update command. It enumerates unlocked lessons in one `fetchCatalog` call, applies each via `applyBundle`, and emits one aggregate report — it **never `process.exit`s mid-loop** (per-lesson failures accumulate; exit code is worst-outcome, `1` only if a lesson errored) and **never prompts**. The default resolver skips conflicts. `--force` permits replacement of edited skills/prompts, but never bypasses managed-rule conflict or safe-removal checks.
@@ -103,6 +109,10 @@ Profile migration preserves course and both ownership ledgers. It copies to the 
 ## `10x skill` & skill overviews
 
 `commands/skill.ts` is read-only and renders one entry from `GET /api/skill-overviews`: a terminal glossary, so keep the output short. The toolkit generates the text from each `SKILL.md` when it changes on master; the CLI filters the course-scoped list locally, which is also what powers its typo suggestions. Course scope reuses `resolveCourseScope()` from `changelog.ts`. All text is remote-controlled: sanitize before printing and wrap before styling.
+
+## `10x skill --install` & `10x skill-group`
+
+`commands/skill-group.ts` mirrors `skill.ts`: overview by default (`GET /api/skill-groups`, plus best-effort member problem lines from overviews), and installation with `--install`. Both `--install` paths share `installStandalone()`. That function validates usage before auth, resolves tools like `get`, sends `--course`, then the project course, or no course hint, and writes using the response's `grantedBy` course. The signed routes `GET /api/skills/{name}` and `GET /api/skill-groups/{group}/skills` are verified like `fetchArtifact`. A 404 without `skill_not_found`, `skill_group_not_found`, or `course_not_found` maps to `skill_install_unsupported` or `skill_groups_unsupported` (exit 1). `--dry-run` and `--tool` without `--install` exit 2.
 
 ## Conventions worth knowing
 

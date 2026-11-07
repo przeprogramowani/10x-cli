@@ -724,3 +724,53 @@ describe("owned transfer temporaries", () => {
     expect(readFileSync(unownedPath, "utf8")).toBe("student temporary");
   });
 });
+
+describe("profile migration of standalone owners", () => {
+  const standaloneRep = (tool: string, lang = "en") => ({ lang, tool, courseRules: false, rules: false });
+
+  function seedMixed(): OrphanInfo {
+    const orphan = seedOrphan({ skills: ["solo", "clash", "lesson-skill"] });
+    orphan.manifest.lessons = {
+      "skill:solo": { appliedAt: "2026-04-18T00:00:00Z", skills: { solo: { files: ["SKILL.md"] }, clash: { files: ["SKILL.md"] } }, prompts: [], configs: [], representation: standaloneRep(oldProfile.toolId, "pl") },
+      m1l1: { appliedAt: "2026-04-18T00:00:00Z", skills: { "lesson-skill": { files: ["SKILL.md"] } }, prompts: [], configs: [], catalogContentHash: "h1", representation: { lang: "en", tool: oldProfile.toolId, courseRules: true, rules: true } },
+    };
+    writeFileSync(orphan.manifestPath, JSON.stringify(orphan.manifest, null, 2));
+    // A differing destination keeps `clash` (and so the standalone entry) retained on the source.
+    writeAt(newProfile.skillPath("clash"), "# different\n");
+    return orphan;
+  }
+
+  it("keeps a non-rules representation on the destination and the retained source; lessons lose theirs as before", () => {
+    const summary = migrateArtifacts(tmp, seedMixed(), newProfile);
+    expect(summary.skipped.map((s) => s.path)).toEqual([join(tmp, newProfile.skillPath("clash"))]);
+
+    const destination = readManifest(join(tmp, newProfile.manifestDir))!;
+    expect(destination.lessons!["skill:solo"]!.representation).toEqual(standaloneRep(newProfile.toolId, "pl"));
+    expect(destination.lessons!["m1l1"]!.representation).toBeUndefined();
+    expect(destination.lessons!["m1l1"]!.catalogContentHash).toBeUndefined();
+
+    const source = readManifest(join(tmp, oldProfile.manifestDir))!;
+    expect(source.lessons!["skill:solo"]!.skills).toEqual({ clash: { files: ["SKILL.md"] } });
+    expect(source.lessons!["skill:solo"]!.representation).toEqual(standaloneRep(oldProfile.toolId, "pl"));
+  });
+
+  it("a migrated standalone-only ledger does not count in otherRulesOwners", async () => {
+    const { otherRulesOwners } = await import("../src/lib/managed-rules");
+    const orphan = seedOrphan({ skills: ["solo"] });
+    orphan.manifest.lessons = { "skill:solo": { appliedAt: "2026-04-18T00:00:00Z", skills: { solo: { files: ["SKILL.md"] } }, prompts: [], configs: [], representation: standaloneRep(oldProfile.toolId) } };
+    writeFileSync(orphan.manifestPath, JSON.stringify(orphan.manifest, null, 2));
+    const codex = PROFILES["codex"]!;
+
+    migrateArtifacts(tmp, orphan, codex);
+
+    expect(readManifest(join(tmp, codex.manifestDir))!.lessons!["skill:solo"]!.representation).toEqual(standaloneRep(codex.toolId));
+    expect(otherRulesOwners(tmp, PROFILES["generic"]!)).toEqual([]);
+  });
+
+  it("migrate and delete with bindProject:false create no .10x-cli.json", () => {
+    migrateArtifacts(tmp, seedOrphan({ skills: ["a"] }), newProfile, { bindProject: false });
+    expect(existsSync(join(tmp, ".10x-cli.json"))).toBe(false);
+    deleteArtifacts(tmp, { ...seedOrphan({ skills: ["b"] }) }, { bindProject: false });
+    expect(existsSync(join(tmp, ".10x-cli.json"))).toBe(false);
+  });
+});

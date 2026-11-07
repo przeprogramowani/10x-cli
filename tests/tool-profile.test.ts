@@ -589,3 +589,62 @@ describe("tool config persistence", () => {
     expect(existsSync(cfgPath)).toBe(true);
   });
 });
+
+describe("prepareToolForWrite — standalone installs never bind the project", () => {
+  let tmp: string;
+  let projectRoot: string;
+  let priorIsTTY: boolean | undefined;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "10x-cli-switch-standalone-"));
+    projectRoot = join(tmp, "project");
+    mkdirSync(projectRoot, { recursive: true });
+    redirectConfigDir(tmp);
+    priorIsTTY = process.stdout.isTTY;
+    resetClackMock();
+  });
+
+  afterEach(() => {
+    restoreConfigDir();
+    if (priorIsTTY === undefined) delete (process.stdout as { isTTY?: boolean }).isTTY;
+    else process.stdout.isTTY = priorIsTTY;
+    rmSync(tmp, { recursive: true, force: true });
+    resetClackMock();
+  });
+
+  function seedStandaloneOrphan(): void {
+    const old = PROFILES["claude-code"]!;
+    const manifest: CliManifest = {
+      package: CLI_PACKAGE_NAME, version: "0.5.0", manifestVersion: 3, lastApplied: "2026-04-18T00:00:00Z",
+      lessonId: "skill:solo", course: "10xdevs3", tool: old.toolId,
+      files: { skills: { solo: { files: ["SKILL.md"] } }, prompts: [], configs: [] },
+      lessons: { "skill:solo": { appliedAt: "2026-04-18T00:00:00Z", skills: { solo: { files: ["SKILL.md"] } }, prompts: [], configs: [], representation: { lang: "en", tool: old.toolId, courseRules: false, rules: false } } },
+    };
+    mkdirSync(join(projectRoot, old.manifestDir), { recursive: true });
+    writeFileSync(join(projectRoot, old.manifestDir, MANIFEST_FILENAME), JSON.stringify(manifest, null, 2));
+    const skill = join(projectRoot, old.skillPath("solo"));
+    mkdirSync(join(skill, ".."), { recursive: true });
+    writeFileSync(skill, "# solo\n");
+  }
+
+  for (const choice of ["migrate", "delete"] as const) {
+    it(`a ${choice} tool switch reached with bindProject:false creates no .10x-cli.json`, async () => {
+      process.stdout.isTTY = true;
+      seedStandaloneOrphan();
+      clackMockState.selectImpl = (opts: SelectOpts) => opts.message.includes("What should we do") ? choice : opts.initialValue;
+
+      await prepareToolForWrite(projectRoot, PROFILES["cursor"]!, "10xdevs3", {}, true, { bindProject: false });
+
+      expect(clackMockState.selectCalls.some((call) => call.message.includes("What should we do"))).toBe(true);
+      expect(existsSync(join(projectRoot, ".claude", MANIFEST_FILENAME))).toBe(false);
+      expect(existsSync(join(projectRoot, ".10x-cli.json"))).toBe(false);
+    });
+  }
+
+  it("still refuses a project bound to another course", async () => {
+    process.stdout.isTTY = true;
+    seedStandaloneOrphan();
+    writeFileSync(join(projectRoot, ".10x-cli.json"), `${JSON.stringify({ version: 1, course: "10xdevs3" })}\n`);
+    await expect(prepareToolForWrite(projectRoot, PROFILES["cursor"]!, "10xdevs4", {}, true, { bindProject: false })).rejects.toThrow(/uses 10xdevs3/);
+  });
+});

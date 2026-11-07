@@ -101,19 +101,20 @@ async function resolveProfileOnly(
  * in non-TTY environments — `commands/get.ts` keeps the legacy verbose
  * warning for CI/Docker logs.
  */
-export async function prepareToolForWrite(projectRoot: string, profile: ToolProfile, course: string, patch: Partial<ToolConfig> = {}, interactive = true): Promise<void> {
+export async function prepareToolForWrite(projectRoot: string, profile: ToolProfile, course: string, patch: Partial<ToolConfig> = {}, interactive = true, options: { bindProject?: boolean } = {}): Promise<void> {
   assertProjectCourse(projectRoot, course);
   if (interactive && process.stdout.isTTY) {
     for (const orphan of findOrphanedManifests(projectRoot, profile)) preflightProfilePaths(projectRoot, orphan, profile);
   }
-  establishProjectCourse(projectRoot, course);
-  if (interactive) await handleToolSwitch(projectRoot, profile);
+  // Standalone installs (`bindProject: false`) still require a matching binding but never create one.
+  if (options.bindProject !== false) establishProjectCourse(projectRoot, course);
+  if (interactive) await handleToolSwitch(projectRoot, profile, options.bindProject !== false);
   const previous = readToolConfig();
   updateToolConfig({ ...patch, tool: profile.toolId });
   if (previous?.tool !== profile.toolId && process.stdout.isTTY) process.stderr.write(`Default tool set to ${profile.displayName}.\n`);
 }
 
-async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile): Promise<void> {
+async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile, bindProject = true): Promise<void> {
   if (!process.stdout.isTTY) return;
   const cfg = readToolConfig();
   const acknowledged = new Set(cfg?.acknowledgedOrphans ?? []);
@@ -142,10 +143,10 @@ async function handleToolSwitch(projectRoot: string, newProfile: ToolProfile): P
     if (p.isCancel(action)) continue;
 
     if (action === "migrate") {
-      const summary = migrateArtifacts(projectRoot, orphan, newProfile);
+      const summary = migrateArtifacts(projectRoot, orphan, newProfile, { bindProject });
       printMigrationSummary(summary, newProfile);
     } else if (action === "delete") {
-      const summary = deleteArtifacts(projectRoot, orphan);
+      const summary = deleteArtifacts(projectRoot, orphan, { bindProject });
       printMigrationSummary(summary, newProfile);
     } else {
       // keep — persist acknowledgement so we never re-prompt for this tool.

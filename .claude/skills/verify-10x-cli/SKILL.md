@@ -36,7 +36,7 @@ Fixture served by the fake API (course `10xdevs3`, id `10xdevs-3`):
 | Lesson | Module state | Content |
 | --- | --- | --- |
 | `m1l1` | unlocked | skill `verify-fixture-skill`, prompt `verify-fixture-prompt`, rule, config `verify-fixture.json` |
-| `m1l2` | unlocked | skill `verify-m1l2-skill` |
+| `m1l2` | unlocked | skills `verify-m1l2-skill` and the six `core-skill-chain` members (`10x-frame` … `10x-impl-review`; `10x-plan` has two files) |
 | `m2l1` | locked (403) | — |
 
 `$V bump <lessonId>` publishes a new upstream version (`v1` → `v2` in every file and a new
@@ -80,7 +80,8 @@ $V wait-screen '10x exited'          # the PTY prints "[10x exited <code>]" when
 
 Fake-world actions: `$V click` (the learner clicks the newest magic link), `$V bump <lesson>`,
 `$V changelog release|off|on` (publish a newer toolkit release; remove / restore the
-changelog route).
+changelog route). Standalone skill routes: `POST $api/__fake/skills/route?enabled=0|1`
+(older backend) and `POST $api/__fake/skill-groups/drop?skill=<name>` (group shrinks).
 State proof: `$V snapshot <label>` (sha256 of every file in project + config dirs).
 Narrative: `$V note "<text>"` appends to the run's `notes.md`.
 
