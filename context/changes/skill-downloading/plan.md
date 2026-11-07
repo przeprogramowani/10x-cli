@@ -407,7 +407,7 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [x] 5.1 `bun run quality:gate` passes.
+- [x] 5.1 `bun run quality:gate` passes. — 135ed01
 
 #### Manual
 

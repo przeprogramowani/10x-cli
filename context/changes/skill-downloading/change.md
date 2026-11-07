@@ -1,7 +1,7 @@
 ---
 change_id: skill-downloading
 title: Install skills and skill groups without naming a lesson
-status: implementing
+status: implemented
 created: 2026-11-07
 updated: 2026-11-07
 archived_at: null
