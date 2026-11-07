@@ -51,6 +51,7 @@ proof.
 - [Get a lesson](./get.md) — apply, dry run, print, filters, errors, interactive conflicts.
 - [Sync lessons](./sync.md) — upstream updates, preserved local edits, cheap skip, `--force`.
 - [Toolkit changelog](./changelog.md) — baseline recorded by sync/get, new releases, `--since`, older backend.
+- [Skill glossary](./skill.md) — `10x skill <name>`: JSON and TTY output, aliases, language, typos, older backend.
 - [Diagnose the setup](./doctor.md) — `10x doctor` report.
 
 Not mapped yet: `10x helpers install` (offline, bundled skills), `10x bench`,

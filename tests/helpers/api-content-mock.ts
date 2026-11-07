@@ -24,6 +24,8 @@ import type {
   LessonBundle,
   ModuleDetailResponse,
   ModulesResponse,
+  SkillOverviewsQuery,
+  SkillOverviewsResponse,
 } from "../../src/lib/api-content";
 
 const real = await import("../../src/lib/api-content");
@@ -43,6 +45,8 @@ const realFetchHealth = real.fetchHealth;
 const realApiBaseUrl = real.apiBaseUrl;
 const realFetchChangelog = real.fetchChangelog;
 const realValidateChangelogResponse = real.validateChangelogResponse;
+const realFetchSkillOverviews = real.fetchSkillOverviews;
+const realValidateSkillOverviewsResponse = real.validateSkillOverviewsResponse;
 
 /**
  * Default changelog outcome: an older backend without the route. Keeps every
@@ -95,6 +99,9 @@ export interface ApiContentMockState {
   fetchChangelogImpl:
     | null
     | ((token: string, query: ChangelogQuery) => Promise<ApiResult<ChangelogResponse>> | ApiResult<ChangelogResponse>);
+  fetchSkillOverviewsImpl:
+    | null
+    | ((token: string, query: SkillOverviewsQuery) => Promise<ApiResult<SkillOverviewsResponse>> | ApiResult<SkillOverviewsResponse>);
 }
 
 export const apiContentMockState: ApiContentMockState = {
@@ -107,6 +114,7 @@ export const apiContentMockState: ApiContentMockState = {
   fetchHealthImpl: null,
   apiBaseUrlImpl: null,
   fetchChangelogImpl: changelogUnsupportedFixture,
+  fetchSkillOverviewsImpl: null,
 };
 
 mock.module("../../src/lib/api-content", () => ({
@@ -163,6 +171,11 @@ mock.module("../../src/lib/api-content", () => ({
     apiContentMockState.fetchChangelogImpl
       ? Promise.resolve(apiContentMockState.fetchChangelogImpl(token, query))
       : realFetchChangelog(token, query),
+  validateSkillOverviewsResponse: realValidateSkillOverviewsResponse,
+  fetchSkillOverviews: (token: string, query: SkillOverviewsQuery = {}) =>
+    apiContentMockState.fetchSkillOverviewsImpl
+      ? Promise.resolve(apiContentMockState.fetchSkillOverviewsImpl(token, query))
+      : realFetchSkillOverviews(token, query),
 }));
 
 export function resetApiContentMock(): void {
@@ -175,4 +188,5 @@ export function resetApiContentMock(): void {
   apiContentMockState.fetchHealthImpl = null;
   apiContentMockState.apiBaseUrlImpl = null;
   apiContentMockState.fetchChangelogImpl = changelogUnsupportedFixture;
+  apiContentMockState.fetchSkillOverviewsImpl = null;
 }

@@ -216,6 +216,17 @@ skill/prompt edits and does not bypass protected rules or safe removal. Config
 templates remain create-only. Cleanup preserves modified/untracked files and
 files owned elsewhere; do not manually sweep a skill directory after sync.
 
+To explain what one course skill is for, use `skill` (**unreleased**: check the
+actual runner's `skill --help` first). It prints the problem, solution, when to use
+it, what it produces and up to three related skills; it reads nothing from the project
+except its course and writes nothing.
+
+```bash
+10x_cli skill 10x-plan                 # this project's course, configured language
+10x_cli skill plan --lang pl           # the 10x- prefix and leading / are optional
+10x_cli skill 10x-plan --course 10xdevs4
+```
+
 To see what changed in the course toolkit itself, use `changelog`. This command
 is **unreleased**: check the actual runner's `changelog --help` first.
 
@@ -294,6 +305,8 @@ visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 | Locked or unpublished v4 | Inspect module availability/release evidence; do not bypass the gate or fall back to v3. |
 | Unsupported name/missing index | Verify exact CLI package and content release; preserve the error for the release owner. |
 | `changelog_unsupported` | The backend does not serve the toolkit changelog yet; sync/get still work. Retry later; do not treat it as a content failure. |
+| `skill_overview_not_found` | No overview for that name in this course. Use the suggested names from the hint, or `--course` for another course. |
+| `skill_overviews_unsupported` | The backend does not serve skill overviews yet; sync/get still work. Retry later. |
 | Network/API failure | Keep diagnostics, retry the same context when service returns; no config reset. |
 | Missing `10x-idea-check` after setup | Older helper journeys selected only init/shape/prd. Check the actual commands, selected profile path and manifest; use the idea-check preview/get above to add its complete tree. If the files already exist, read that exact SKILL.md and check the agent's discovery/reload behavior before reinstalling. An absent slash command alone does not prove missing files. |
 | Wrong directory/profile | Recheck cwd and explicit flags; a fresh project may legitimately have no tool directory. |

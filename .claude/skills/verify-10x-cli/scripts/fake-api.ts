@@ -17,13 +17,14 @@
 //   GET  /__fake/requests            request log (also <run-dir>/requests.log)
 //   POST /__fake/changelog/release   publish a newer toolkit release (next patch, released now)
 //   POST /__fake/changelog/route?enabled=<0|1>  remove / restore GET /api/changelog (404 = older backend)
+//   POST /__fake/skill-overviews/route?enabled=<0|1>  remove / restore GET /api/skill-overviews
 
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { paths } from "../../../../src/generated/api-types";
 // Not in the generated types yet (toolkit release-changelog); the CLI's hand-written shape.
-import type { ChangelogEntry } from "../../../../src/lib/api-content";
+import type { ChangelogEntry, SkillOverview } from "../../../../src/lib/api-content";
 
 // JSON body of a documented response, so regenerated api-types flag drift here too.
 type Body<P extends keyof paths, M extends "get" | "post", S extends number = 200> =
@@ -93,6 +94,30 @@ const changelog: ChangelogEntry[] = [
   releaseEntry("v2.59.0", "v2.58.1", "2026-10-01T09:00:00.000Z"),
 ];
 let changelogRoute = true;
+
+// Skill glossary: verify-fixture-skill belongs to the fixture course, related
+// skills outside it are never served.
+let skillOverviewsRoute = true;
+const skillOverview = (language: "en" | "pl"): SkillOverview => ({
+  name: "verify-fixture-skill",
+  language,
+  updatedAt: "2026-11-01T10:00:00.000Z",
+  stage: language === "pl" ? "Główny łańcuch, krok 3: po research, przed implement" : "Core chain, step 3: after research, before implement",
+  problem: language === "pl" ? "Agent bez planu podejmuje kluczowe decyzje po cichu i odkrywasz je dopiero w diffie." : "Without a plan the agent makes key decisions silently, and you find them in the diff.",
+  solution: language === "pl" ? "Przepytuje Cię i zapisuje etapy z warunkami sukcesu." : "Interviews you and writes phases with success criteria.",
+  whenToUse: language === "pl" ? "Przed każdą zmianą większą niż szybki fix." : "Before any change bigger than a quick fix.",
+  artifacts: [{ path: "context/changes/<change-id>/plan.md", purpose: language === "pl" ? "Etapy i checklista Progress" : "Phases and the Progress checklist" }],
+  related: [{ name: "verify-m1l2-skill", why: language === "pl" ? "Realizuje plan" : "Executes the plan" }],
+});
+
+/** GET /api/skill-overviews?course=<known course>&lang=en|pl */
+function skillOverviewsResponse(q: URLSearchParams): Response {
+  const lang = q.get("lang") ?? "en";
+  if (lang !== "en" && lang !== "pl") return fail("invalid_query", 400);
+  const course = q.get("course");
+  if (course !== null && course !== "10xdevs3" && course !== "10xdevs-3") return fail("course_not_found", 404);
+  return json({ overviews: [skillOverview(lang)] });
+}
 const semver = (v: string) => /^v(\d+)\.(\d+)\.(\d+)$/.exec(v)?.slice(1).map(Number);
 const semverGt = (a: number[], b: number[]) => {
   for (let i = 0; i < 3; i++) if (a[i]! !== b[i]!) return a[i]! > b[i]!;
@@ -198,6 +223,10 @@ async function route(req: Request): Promise<Response> {
     changelog.unshift(entry);
     return json({ version: entry.version, releasedAt: entry.releasedAt });
   }
+  if (path === "/__fake/skill-overviews/route" && req.method === "POST") {
+    skillOverviewsRoute = url.searchParams.get("enabled") !== "0";
+    return json({ skillOverviewsRoute });
+  }
   if (path === "/__fake/changelog/route" && req.method === "POST") {
     changelogRoute = url.searchParams.get("enabled") !== "0";
     return json({ changelogRoute });
@@ -223,6 +252,7 @@ async function route(req: Request): Promise<Response> {
 
   if (!authed(req)) return fail("unauthorized", 401);
   if (path === "/api/changelog") return changelogRoute ? changelogResponse(url.searchParams) : fail("not_found", 404);
+  if (path === "/api/skill-overviews") return skillOverviewsRoute ? skillOverviewsResponse(url.searchParams) : fail("not_found", 404);
   if (path === "/api/me/courses")
     return json({ courses: [{ ...COURSE, available: true }], defaultCourse: COURSE.slug } satisfies Body<"/api/me/courses", "get">);
 
