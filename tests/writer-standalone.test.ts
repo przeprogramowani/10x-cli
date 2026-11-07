@@ -236,4 +236,16 @@ describe("standalone apply — rules", () => {
     const lesson = await applyBundle(lessonBundle("m1l1", [skill("tdd")]), tmp, { course: "10xdevs3", profile: generic });
     expect(lesson.rules.action).toBe("created");
   });
+
+  it("a standalone entry stays out of rules ownership after an older CLI dropped its representation", async () => {
+    // CLI 1.32.0 deletes every other entry's representation when its lesson write touches rules.
+    const codex = PROFILES["codex"]!;
+    const generic = PROFILES["generic"]!;
+    await applyBundle(standaloneBundle("skill:a", [skill("a")]), tmp, { course: "10xdevs3", standalone: true, partial: true, profile: codex });
+    const manifestPath = join(tmp, codex.manifestDir, MANIFEST_FILENAME);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    delete manifest.lessons["skill:a"].representation;
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    expect(otherRulesOwners(tmp, generic)).toEqual([]);
+  });
 });

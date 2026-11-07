@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { contentHash, readManifest, type ManagedRules } from "./manifest";
+import { contentHash, isStandaloneOwner, readManifest, type ManagedRules } from "./manifest";
 import { assertProjectFilePath } from "./project-course";
 import { applyRulesBlockWithMarkers, inspectRulesBlock, OLD_BEGIN, OLD_END, removeRulesBlockWithMarkers, RulesMarkerRepairError, type RulesBlock } from "./sentinel-migration";
 import { LEGACY_PROFILES, PROFILES, type ToolProfile } from "./tool-profile";
@@ -22,7 +22,9 @@ export function otherRulesOwners(root: string, profile: ToolProfile): { profile:
     const manifest = readManifest(join(root, candidate.manifestDir));
     if (!manifest) continue;
     // An old manifest cannot prove that its shared sentinel is unused.
-    if (manifest.managedRules || !manifest.lessons || Object.values(manifest.lessons).some((lesson) => lesson.representation?.courseRules !== false)) owners.push({ profile: candidate, rules: manifest.managedRules });
+    // Standalone owners never deliver rules, even after an older CLI's rules
+    // write dropped their representation, so only lesson entries can claim it.
+    if (manifest.managedRules || !manifest.lessons || Object.entries(manifest.lessons).some(([id, lesson]) => !isStandaloneOwner(id) && lesson.representation?.courseRules !== false)) owners.push({ profile: candidate, rules: manifest.managedRules });
   }
   return owners;
 }

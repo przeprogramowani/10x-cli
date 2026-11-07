@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   produces and up to three related skills, in English or Polish (`--lang`). It follows
   the project's course (`--course`), suggests close names for a typo, and needs a
   backend serving `GET /api/skill-overviews`.
+- **`10x skill <name> --install` and `10x skill-group <name> [--install]` install
+  course skills without naming a lesson.** `10x skill-group core-skill-chain` shows the
+  Core Skill Chain (frame, research, plan, plan-review, implement, impl-review);
+  `--install` writes one skill or every member of a group for your tool and language,
+  with `--dry-run`, `--tool`, `--lang` and `--course`. Installs use the same signed
+  content, conflict handling and safe removal as `get`, defer to a lesson that already
+  owns a skill (`managed_by_lesson`), never create or change `.10x-cli.json`, and are
+  refreshed by re-running the install, not by `sync`. They record ownership under
+  reserved `skill:<name>` / `group:<id>` entries in the existing manifest schema 3, so
+  earlier CLIs that read schema 3 keep the files protected and their `sync` ignores them. They need a backend serving `GET /api/skills/{name}`
+  and the skill-group routes; otherwise they exit `1` with `skill_install_unsupported`
+  or `skill_groups_unsupported`.
 - **Factory AI is a supported tool profile.** `--tool factory` writes skills
   under `.factory/skills/`, prompts under `.factory/commands/`, config templates
   under `.factory/config-templates/`, and course rules to root `AGENTS.md`.

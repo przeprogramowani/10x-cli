@@ -227,6 +227,28 @@ except its course and writes nothing.
 10x_cli skill 10x-plan --course 10xdevs4
 ```
 
+To install a course skill without naming its lesson, use `skill <name> --install`; for a
+named group such as the Core Skill Chain (frame, research, plan, plan-review, implement,
+impl-review) use `skill-group <name>`, which shows the members, and `--install`, which
+installs them. Both are **unreleased**: check the actual runner's `skill --help` and
+`skill-group --help` first, and keep the filtered lesson get above where they are missing
+(`skill_install_unsupported`). Preview, then write, with the same tool/lang:
+
+```bash
+10x_cli skill-group core-skill-chain --lang pl
+10x_cli skill-group core-skill-chain --install --tool claude-code --lang pl --dry-run
+10x_cli skill-group core-skill-chain --install --tool claude-code --lang pl
+10x_cli skill 10x-plan --install --tool claude-code --lang pl
+```
+
+Read every per-skill outcome even when the exit is 0. `conflict_skipped` keeps a local edit,
+so resolve it in an interactive terminal with the user. `managed_by_lesson` means that a
+downloaded lesson owns that skill; update it with that lesson's get or sync, not by
+reinstalling it. The report names its source lesson (`sourceLessonId`). These installs never create
+or change `.10x-cli.json` and never touch course rules. `sync` does not refresh them,
+so repeat the install to update them. When a group drops a member, the next group install
+removes it only when it is unedited and no other owner remains.
+
 To see what changed in the course toolkit itself, use `changelog`. This command
 is **unreleased**: check the actual runner's `changelog --help` first.
 
@@ -307,6 +329,9 @@ visible. Doctor exit 78 can coexist with outer JSON `status: "ok"`.
 | `changelog_unsupported` | The backend does not serve the toolkit changelog yet; sync/get still work. Retry later; do not treat it as a content failure. |
 | `skill_overview_not_found` | No overview for that name in this course. Use the suggested names from the hint, or `--course` for another course. |
 | `skill_overviews_unsupported` | The backend does not serve skill overviews yet; sync/get still work. Retry later. |
+| `skill_not_found` / `skill_group_not_found` | No such skill or group in the course that would serve it. Use the hint's names, or `--course` for another course. |
+| `skill_install_unsupported` / `skill_groups_unsupported` | The backend has no lesson-free skill routes yet; use the filtered lesson get. Retry later. |
+| `skill_group_incomplete` | No lesson delivers every member right now. Report it to the course team; do not assemble the group from different lessons. |
 | Network/API failure | Keep diagnostics, retry the same context when service returns; no config reset. |
 | Missing `10x-idea-check` after setup | Older helper journeys selected only init/shape/prd. Check the actual commands, selected profile path and manifest; use the idea-check preview/get above to add its complete tree. If the files already exist, read that exact SKILL.md and check the agent's discovery/reload behavior before reinstalling. An absent slash command alone does not prove missing files. |
 | Wrong directory/profile | Recheck cwd and explicit flags; a fresh project may legitimately have no tool directory. |

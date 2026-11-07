@@ -396,8 +396,8 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [x] 4.1 Command tests cover all group cases listed in Phase 4.
-- [x] 4.2 `bun run quality:fast` passes.
+- [x] 4.1 Command tests cover all group cases listed in Phase 4. — 0f0eb66
+- [x] 4.2 `bun run quality:fast` passes. — 0f0eb66
 
 #### Manual
 
@@ -407,7 +407,7 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [ ] 5.1 `bun run quality:gate` passes.
+- [x] 5.1 `bun run quality:gate` passes.
 
 #### Manual
 

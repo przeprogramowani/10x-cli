@@ -10,7 +10,8 @@ the recipe. `$V` is `.claude/skills/verify-10x-cli/scripts/verify.sh`, run from 
 - `$V up` started this run: fake API on `http://127.0.0.1:<free port>`, private
   `XDG_CONFIG_HOME`, empty git-initialised project dir.
 - `$V doctor` exits 0.
-- Fixture course `10xdevs3`: `m1l1` and `m1l2` unlocked, `m2l1` locked (see `../SKILL.md`).
+- Fixture course `10xdevs3`: `m1l1` and `m1l2` unlocked, `m2l1` locked (see `../SKILL.md`);
+  `m1l2` also delivers the six `core-skill-chain` skills.
 - Logged-in features start with `$V seed-auth`; the auth feature starts logged out.
 - Never drive an instance or a project dir this run did not create.
 
@@ -52,6 +53,7 @@ proof.
 - [Sync lessons](./sync.md) — upstream updates, preserved local edits, cheap skip, `--force`.
 - [Toolkit changelog](./changelog.md) — baseline recorded by sync/get, new releases, `--since`, older backend.
 - [Skill glossary](./skill.md) — `10x skill <name>`: JSON and TTY output, aliases, language, typos, older backend.
+- [Install skills without a lesson](./skill-install.md) — `10x skill <name> --install`, `10x skill-group <name> [--install]`: conflicts, `managed_by_lesson`, group shrink, no binding, previous CLI.
 - [Diagnose the setup](./doctor.md) — `10x doctor` report.
 
 Not mapped yet: `10x helpers install` (offline, bundled skills), `10x bench`,

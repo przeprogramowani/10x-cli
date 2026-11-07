@@ -175,6 +175,8 @@ remain visible. Full lesson downloads and other commands remain available below.
 | `10x sync` | Bulk-download / refresh lessons and report what changed upstream |
 | `10x changelog` | Show 10x-toolkit release notes since your last sync |
 | `10x skill <name>` | Explain a skill: problem, solution, when to use it, what it produces, related skills |
+| `10x skill <name> --install` | Install one course skill without naming a lesson |
+| `10x skill-group <name>` | Explain a group of skills, e.g. `core-skill-chain`; `--install` writes all of them |
 | `10x doctor` | Diagnose auth, API connectivity, and local config |
 | `10x bench` | Live top-10 AI model leaderboard from [10xbench.ai](https://10xbench.ai) — no login needed |
 | `10x bench-kit <action>` | Create (`init`) and update (`update`) a company benchmark instance from the [10x-bench-kit](https://github.com/przeprogramowani/10x-bench-kit) template |
@@ -375,6 +377,72 @@ login `3`, an account without access to the course `4`. A backend that does not 
 overviews yet fails with `skill_overviews_unsupported` (exit `1`). JSON output (`--json`
 or piped) is `{ course, overview: { name, language, updatedAt, stage, problem, solution,
 whenToUse, artifacts: [{ path, purpose }], related: [{ name, why }] } }`.
+
+### `10x skill <name> --install` and `10x skill-group <name>` (unreleased)
+
+Install one course skill, or a whole group of them, without knowing which lesson
+delivers it. `--install` is what writes; without it `10x skill` shows the overview above
+and `10x skill-group` shows the group's summary and its members in order.
+
+```bash
+10x skill 10x-plan --install                       # one skill, for your configured tool
+10x skill 10x-plan --install --tool codex --dry-run
+10x skill-group core-skill-chain                   # what is in the group
+10x skill-group core-skill-chain --install         # every member of the group
+```
+
+```text
+Course: 10xdevs4 (from lesson m5l5)
+Wrote to .claude/:
+  [created] 10x-frame
+  [created] 10x-research
+  [unchanged] 10x-plan (2 files)
+  [conflict: skipped] 10x-plan-review
+  [managed by lesson m2l1] skill 10x-implement — update with '10x get m2l1' or '10x sync'
+  [created] 10x-impl-review
+```
+
+`core-skill-chain` is the Core Skill Chain: `10x-frame`, `10x-research`, `10x-plan`,
+`10x-plan-review`, `10x-implement` and `10x-impl-review`.
+
+| Flag | Description |
+|------|-------------|
+| `--install` | Write the skill (or every member of the group) into this project |
+| `--dry-run` | With `--install`: report what would change without writing |
+| `--tool <tool>` | With `--install`: AI coding tool (default: your configured tool, then detection or a prompt) |
+| `--lang <lang>` | `en` or `pl` (default: your configured language, then `en`) |
+| `--course <course>` | Get the skill through one course (default: this project's course, else the newest course you have that delivers it) |
+
+What an install does:
+
+- **Same content as `10x get`.** The skill bytes come from one lesson bundle, named in
+  the report (`from lesson …`) and in `sourceLessonId`. A group never mixes lessons.
+- **Same conflict protection.** A file you edited is never silently replaced: in a
+  terminal you choose overwrite, save as `.user`, skip or apply to all; piped or in CI the
+  edit is kept and reported as `conflict_skipped`. Re-running the command updates files
+  you did not edit and reports the rest as `unchanged`. There is no `--force`.
+- **A lesson wins.** A skill that a lesson you downloaded already owns is not written
+  again; it is reported as `managed_by_lesson` with that lesson, so `10x get <lesson>` and
+  `10x sync` keep updating it.
+- **Groups follow upstream.** When a group drops a member, the next group install
+  removes that member's files only if you did not edit them and no lesson or other
+  install still owns them. A single-skill install never removes anything.
+- **No project binding.** An install never creates or changes `.10x-cli.json`. In a
+  project already bound to a course it still requires that course (`course_mismatch`
+  otherwise); in a fresh project the manifest records the course that served the skill.
+- **Not part of `sync`.** `10x sync` refreshes lessons only; run the install again to
+  update an installed skill or group. It also never touches your course rules file.
+
+An unknown skill or group exits `5` (`skill_not_found` / `skill_group_not_found`, with
+close names in the hint), an unknown course or invalid usage `2` (including `--dry-run`
+or `--tool` without `--install`), a missing login `3`, an account without a course that
+delivers it `4` (`course_access_denied`). A backend without these routes fails with
+`skill_install_unsupported` or `skill_groups_unsupported` (exit `1`); use
+`10x get <lesson> --type skills --name <skill>` there. JSON output (`--json` or piped) is
+`{ skill | group, course, grantedBy: { kind, id }, sourceLessonId, result: { tool,
+language, dry_run, skills: [{ name, files: [{ path, absolutePath, action,
+ownerLessonId? }] }], removals } }`; the group overview is `{ course, group: { id,
+title, summary, skills, courses } }`.
 
 ### `10x bench`
 
