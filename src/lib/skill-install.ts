@@ -204,7 +204,7 @@ async function handleInstallError(
     const suggestions = suggestSkills(name, await knownNames(kind, lookup)).map(sanitize);
     const hint = suggestions.length > 0
       ? `Did you mean: ${suggestions.join(", ")}?`
-      : scope.course ? "Skills are listed per course; try '--course <course>' for another one." : undefined;
+      : scope.course ? `${kind === "skill" ? "Skills" : "Skill groups"} are listed per course; try '--course <course>' for another one.` : undefined;
     outputError(ctx, code, `No ${kind === "skill" ? "skill" : "skill group"} named '${sanitize(name)}'${where}.`, ExitCodes.NOT_FOUND, hint);
   }
   if (status === 404 && code === "course_not_found") {
@@ -271,6 +271,47 @@ function renderSkillLines(skill: SkillWrite): string[] {
   return lines;
 }
 
+/**
+ * A group report gives one outcome per skill: a skill whose files all share
+ * one plain outcome collapses to a single line; anything mixed, or carrying a
+ * `.user` backup, keeps its per-file lines.
+ */
+function renderGroupSkillLines(skill: SkillWrite): string[] {
+  const first = skill.files[0];
+  const uniform = first !== undefined && skill.files.every((file) => file.action === first.action && !file.userBackupPath);
+  if (!uniform || first.action === "managed_by_lesson") return renderSkillLines(skill);
+  const count = skill.files.length === 1 ? "" : ` (${skill.files.length} files)`;
+  return [`  [${formatFileAction(first.action)}] ${sanitize(skill.name)}${count}`];
+}
+
+function formatRemovalAction(action: string): string {
+  switch (action) {
+    case "preserved_local": return "kept local";
+    case "unchanged": return "already removed";
+    default: return action;
+  }
+}
+
+/** Removal entries are per file (`<skill>/<file>`); a skill with one uniform outcome gets one line. */
+function renderRemovalLines(entries: WriteResult["removals"]["skills"]): string[] {
+  const bySkill = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    const slash = entry.name.indexOf("/");
+    const skill = slash === -1 ? entry.name : entry.name.slice(0, slash);
+    bySkill.set(skill, [...(bySkill.get(skill) ?? []), entry]);
+  }
+  const lines: string[] = [];
+  for (const [skill, files] of bySkill) {
+    const first = files[0]!;
+    const uniform = files.every((file) => file.action === first.action && file.reason === first.reason);
+    const shown = uniform ? [{ ...first, name: skill }] : files;
+    for (const entry of shown) {
+      lines.push(`  [${formatRemovalAction(entry.action)}] ${sanitize(entry.name)}${entry.reason ? ` (${sanitize(entry.reason.replace(/_/g, " "))})` : ""}`);
+    }
+  }
+  return lines;
+}
+
 function renderInstallResult(ctx: OutputContext, result: StandaloneInstallResult, profile: ToolProfile): void {
   const { write } = result;
   if (ctx.json) {
@@ -292,9 +333,9 @@ function renderInstallResult(ctx: OutputContext, result: StandaloneInstallResult
   const lines: string[] = [];
   lines.push(`Course: ${sanitize(result.course)} (from lesson ${sanitize(result.sourceLessonId)})`);
   lines.push(result.dryRun ? `Would write to ${profile.manifestDir}/:` : `Wrote to ${profile.manifestDir}/:`);
-  for (const skill of write.skills) lines.push(...renderSkillLines(skill));
-  for (const entry of write.removals.skills) {
-    lines.push(`  [${entry.action}] ${sanitize(entry.name)}${entry.reason ? ` (${sanitize(entry.reason)})` : ""}`);
-  }
+  const renderSkill = result.kind === "group" ? renderGroupSkillLines : renderSkillLines;
+  for (const skill of write.skills) lines.push(...renderSkill(skill));
+  // Only a group (a complete, non-partial apply) can retire members.
+  lines.push(...renderRemovalLines(write.removals.skills));
   output(ctx, lines.join("\n"), undefined);
 }

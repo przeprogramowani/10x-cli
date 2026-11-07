@@ -385,8 +385,8 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [x] 3.1 Command tests cover all install cases listed in Phase 3.
-- [x] 3.2 Existing `tests/skill-command.test.ts` passes unchanged.
+- [x] 3.1 Command tests cover all install cases listed in Phase 3. — 0a63f97
+- [x] 3.2 Existing `tests/skill-command.test.ts` passes unchanged. — 0a63f97
 
 #### Manual
 
@@ -396,8 +396,8 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [ ] 4.1 Command tests cover all group cases listed in Phase 4.
-- [ ] 4.2 `bun run quality:fast` passes.
+- [x] 4.1 Command tests cover all group cases listed in Phase 4.
+- [x] 4.2 `bun run quality:fast` passes.
 
 #### Manual
 

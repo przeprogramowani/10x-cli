@@ -10,6 +10,7 @@ import { registerGetCommand } from "./commands/get";
 import { registerHelpersCommand } from "./commands/helpers";
 import { registerListCommand } from "./commands/list";
 import { registerSkillCommand } from "./commands/skill";
+import { registerSkillGroupCommand } from "./commands/skill-group";
 import { registerSyncCommand } from "./commands/sync";
 
 const cli = cac("10x");
@@ -24,6 +25,7 @@ registerListCommand(cli);
 registerSyncCommand(cli);
 registerChangelogCommand(cli);
 registerSkillCommand(cli);
+registerSkillGroupCommand(cli);
 registerDoctorCommand(cli);
 registerBenchCommand(cli);
 registerBenchKitCommand(cli);

@@ -32,7 +32,7 @@ interface SkillFlags extends GlobalFlags {
 }
 
 const LANGUAGES: readonly SkillOverviewLanguage[] = ["en", "pl"];
-const MAX_WIDTH = 100;
+export const MAX_WIDTH = 100;
 const MAX_SUGGESTIONS = 3;
 
 export function registerSkillCommand(cli: CAC): void {
@@ -119,7 +119,7 @@ export async function runSkill(ctx: OutputContext, rawName: string, options: Ski
   output(ctx, renderOverview(overview, width).join("\n"), undefined);
 }
 
-function resolveLanguage(ctx: OutputContext, raw: unknown): SkillOverviewLanguage {
+export function resolveLanguage(ctx: OutputContext, raw: unknown): SkillOverviewLanguage {
   const fromFlag = raw !== undefined;
   const value = fromFlag ? raw : readToolConfig()?.lang;
   const known = LANGUAGES.find((lang) => lang === value);
