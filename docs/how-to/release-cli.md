@@ -54,7 +54,10 @@ Two things it will refuse, both visible in its log:
 
 - **`Branch update required: integrate current master before version preparation;
   no record was prepared.`** — the PR is behind `master`. Update the branch and it
-  will prepare on the next run.
+  will prepare on the next run. This check still shows green, so a green
+  `Prepare version` does not mean a version was prepared: before merging, make
+  sure the PR carries a `chore(release): prepare vX.Y.Z` commit. A PR merged
+  without one ships nothing until the next PR that bumps the version.
 - A **baseline it cannot read.** The baseline is npm's `latest` *confirmed by a
   completed, non-draft GitHub release for that tag*. A version published without
   its release does not count, on purpose — it keeps a half-finished publication
