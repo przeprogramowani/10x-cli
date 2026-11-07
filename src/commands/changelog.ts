@@ -100,7 +100,7 @@ export interface CourseScope {
 }
 
 /** `--course`, else the project's course; a corrupt or conflicting project stops here, as in get/sync. */
-function resolveCourseScope(ctx: OutputContext, raw: unknown, projectRoot: string): CourseScope {
+export function resolveCourseScope(ctx: OutputContext, raw: unknown, projectRoot: string): CourseScope {
   if (raw !== undefined) {
     const value = typeof raw === "string" ? raw.trim() : "";
     if (!value) outputError(ctx, "invalid_course", "--course needs a course, e.g. '10xdevs4'.", ExitCodes.USAGE);

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`10x skill <name>` explains a course skill in the terminal.** A short glossary
+  entry: place in the 10x workflow, problem, solution, when to use it, what it
+  produces and up to three related skills, in English or Polish (`--lang`). It follows
+  the project's course (`--course`), suggests close names for a typo, and needs a
+  backend serving `GET /api/skill-overviews`.
 - **Factory AI is a supported tool profile.** `--tool factory` writes skills
   under `.factory/skills/`, prompts under `.factory/commands/`, config templates
   under `.factory/config-templates/`, and course rules to root `AGENTS.md`.

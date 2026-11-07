@@ -530,6 +530,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skill-overviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Skill glossary
+         * @description Short overviews of the skills the requested `course` delivers, or without it every course the caller is granted, sorted by name. Related skills are limited to the same scope.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    course?: string;
+                    lang?: "en" | "pl";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Overviews in scope, sorted by skill name (empty when nothing is published) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            overviews: {
+                                stage: string;
+                                problem: string;
+                                solution: string;
+                                whenToUse: string;
+                                artifacts: {
+                                    path: string;
+                                    purpose: string;
+                                }[];
+                                related: {
+                                    name: string;
+                                    why: string;
+                                }[];
+                                name: string;
+                                /** @enum {string} */
+                                language: "en" | "pl";
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Malformed query */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description The token grants no registered course, or not the requested `course` (`course_access_denied`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description `course` names no registered course (`course_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description Overview index unreadable, corrupt or schema-invalid */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/courses/{course}/migration-map": {
         parameters: {
             query?: never;

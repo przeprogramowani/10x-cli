@@ -100,6 +100,10 @@ Profile migration preserves course and both ownership ledgers. It copies to the 
 - **Recording** (`lib/toolkit-baseline.ts`) runs after a real `sync` with no errored lesson and not aborted (skipped conflicts still count), and after an unfiltered, non-dry-run `get`. It fetches `limit=1` and calls `recordToolkitVersion()`, which re-reads the manifest right before writing so ownership written during the run is never clobbered. It is strictly best-effort: 404/network/empty/invalid responses leave the manifest untouched and never change output, JSON envelope or exit code (only `--verbose` mentions it).
 - **Resolution** in `changelog`: `--since vX.Y.Z` (→ `since`, exclusive) or `YYYY-MM-DD` (→ `sinceDate`, inclusive) > `toolkit.version` > newest lesson `appliedAt` / `lastApplied` > none (limit 5 + "Run 10x sync" hint). A 404 maps to `changelog_unsupported` (exit 1). `ChangelogResponse` is hand-written in `api-content.ts` until generated types include the route.
 
+## `10x skill` & skill overviews
+
+`commands/skill.ts` is read-only and renders one entry from `GET /api/skill-overviews`: a terminal glossary, so keep the output short. The toolkit generates the text from each `SKILL.md` when it changes on master; the CLI filters the course-scoped list locally, which is also what powers its typo suggestions. Course scope reuses `resolveCourseScope()` from `changelog.ts`. All text is remote-controlled: sanitize before printing and wrap before styling.
+
 ## Conventions worth knowing
 
 - TypeScript is `strict` + `noUncheckedIndexedAccess` + `noImplicitOverride`. Index access on arrays/records returns `T | undefined` — handle it.

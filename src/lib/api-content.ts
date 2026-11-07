@@ -107,6 +107,50 @@ export async function fetchChangelog(token: string, query: ChangelogQuery = {}):
   return result;
 }
 
+/** Skill glossary (`GET /api/skill-overviews`), limited to the caller's course grants. */
+export type SkillOverviewsResponse = paths["/api/skill-overviews"]["get"]["responses"][200]["content"]["application/json"];
+export type SkillOverview = SkillOverviewsResponse["overviews"][number];
+export type SkillOverviewLanguage = SkillOverview["language"];
+export interface SkillOverviewsQuery {
+  /** Only skills this course delivers (the project's course); must be granted. */
+  course?: string;
+  lang?: SkillOverviewLanguage;
+}
+
+const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+
+function isSkillOverview(value: unknown): value is SkillOverview {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  if (![o["name"], o["language"], o["updatedAt"], o["stage"], o["problem"], o["solution"], o["whenToUse"]].every(isNonEmptyString)) return false;
+  const artifacts = o["artifacts"];
+  const related = o["related"];
+  if (!Array.isArray(artifacts) || !Array.isArray(related)) return false;
+  return artifacts.every((item) => isNonEmptyString(item?.path) && isNonEmptyString(item?.purpose))
+    && related.every((item) => isNonEmptyString(item?.name) && isNonEmptyString(item?.why));
+}
+
+export function validateSkillOverviewsResponse(value: unknown): value is SkillOverviewsResponse {
+  if (!value || typeof value !== "object") return false;
+  const overviews = (value as Record<string, unknown>)["overviews"];
+  return Array.isArray(overviews) && overviews.every(isSkillOverview);
+}
+
+export async function fetchSkillOverviews(token: string, query: SkillOverviewsQuery = {}): Promise<ApiResult<SkillOverviewsResponse>> {
+  const params = new URLSearchParams();
+  if (query.course !== undefined) params.set("course", query.course);
+  if (query.lang !== undefined) params.set("lang", query.lang);
+  const qs = params.toString();
+  const result = await apiGet<SkillOverviewsResponse>(`/api/skill-overviews${qs ? `?${qs}` : ""}`, { token });
+  if (!result.ok) {
+    // A 404 naming the course is an answer from a current backend, not a missing route.
+    if (result.status === 404 && result.code !== "course_not_found") return { ...result, code: "skill_overviews_unsupported", error: "The backend does not serve skill overviews yet." };
+    return result;
+  }
+  if (!validateSkillOverviewsResponse(result.data)) return { ok: false, status: 0, code: "skill_overviews_invalid", error: "Invalid skill overview response." };
+  return result;
+}
+
 /** Module summary as returned by /api/catalog/:course and /api/modules/:course. */
 export interface ModuleSummary {
   module: number;
