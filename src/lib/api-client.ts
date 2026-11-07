@@ -106,6 +106,11 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   signing_failed: "Could not sign the download URL. Try again in a moment.",
   invalid_json: "The server received a malformed request.",
   changelog_unsupported: "The backend does not support the toolkit changelog yet.",
+  skill_not_found: "Skill not found.",
+  skill_group_not_found: "Skill group not found.",
+  skill_group_incomplete: "No lesson currently delivers every skill of this group. Try again later or report this to the course team.",
+  skill_install_unsupported: "The backend does not support installing skills without a lesson yet.",
+  skill_groups_unsupported: "The backend does not serve skill groups yet.",
   // Auth
   unauthorized: "You are not signed in. Run `10x auth` first.",
   no_membership: "No active course membership was found for this email.",

@@ -636,6 +636,325 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One skill, without naming a lesson
+         * @description The skill's tool- and language-selected files from the last lesson (in course order) that delivers it, signed like artifacts. No module-lock check.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    course?: string;
+                    tool?: string;
+                    lang?: string;
+                    release?: string;
+                };
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The skill, with release identity, grant and source lesson */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            course?: string;
+                            releaseId?: string;
+                            releaseManifestHash?: string;
+                            /** @enum {string} */
+                            type: "skills";
+                            name: string;
+                            files: {
+                                path: string;
+                                content: string;
+                                executable?: boolean;
+                            }[];
+                            universalContent?: string;
+                            /** @description The grant the content is served through */
+                            grantedBy: {
+                                /** @enum {string} */
+                                kind: "course";
+                                /** @example 10xdevs-4 */
+                                id: string;
+                            };
+                            /**
+                             * @description The lesson whose bundle supplied the bytes
+                             * @example m5l5
+                             */
+                            sourceLessonId: string;
+                        };
+                    };
+                };
+                /** @description Malformed name, tool, lang or release */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description No granted course delivers it, or `course` is not granted (`course_access_denied`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description `course` names no registered course or has no current release (`course_not_found`), or the skill is not delivered (`skill_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description Release unreadable or signing failed */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skill-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Skill groups
+         * @description Groups visible through the caller's grants (or through the requested `course`), with title and summary in the requested language.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    course?: string;
+                    lang?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Visible groups, in registry order */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            groups: {
+                                /** @example core-skill-chain */
+                                id: string;
+                                title: string;
+                                summary: string;
+                                /** @description Member skills, in order */
+                                skills: string[];
+                                /** @description Courses the caller can get this group through */
+                                courses: string[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Malformed lang */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description The token grants no registered course, or not the requested `course` (`course_access_denied`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description `course` names no registered course (`course_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skill-groups/{group}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every skill of a group, without naming a lesson
+         * @description All members from the last lesson (in course order) that delivers every one of them, in group order, signed like artifacts. No module-lock check.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    course?: string;
+                    tool?: string;
+                    lang?: string;
+                    release?: string;
+                };
+                header?: never;
+                path: {
+                    group: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The group's skills, with release identity, grant and source lesson */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example core-skill-chain */
+                            group: string;
+                            /** @description Every member, in group order */
+                            skills: {
+                                name: string;
+                                files: {
+                                    path: string;
+                                    content: string;
+                                    executable?: boolean;
+                                }[];
+                                universalContent?: string;
+                            }[];
+                            /** @description The grant the content is served through */
+                            grantedBy: {
+                                /** @enum {string} */
+                                kind: "course";
+                                /** @example 10xdevs-4 */
+                                id: string;
+                            };
+                            /**
+                             * @description The lesson whose bundle supplied the bytes
+                             * @example m5l5
+                             */
+                            sourceLessonId: string;
+                            course?: string;
+                            releaseId?: string;
+                            releaseManifestHash?: string;
+                        };
+                    };
+                };
+                /** @description Malformed name, tool, lang or release */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description No granted course delivers it, or `course` is not granted (`course_access_denied`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description `course` names no registered course or has no current release (`course_not_found`), or the group is unknown or not delivered (`skill_group_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+                /** @description No source lesson in the release delivers every member (`skill_group_incomplete`), release unreadable or signing failed */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/courses/{course}/migration-map": {
         parameters: {
             query?: never;

@@ -14,6 +14,7 @@ import type { ApiResult } from "./api-client";
 import { apiGet, resolveApiBase } from "./api-client";
 import { verifyBundleSignature, SignatureError, REQUIRE_SIGNATURES } from "./signing";
 import type { paths } from "../generated/api-types";
+import { normalizeProjectCourse, type ProjectCourse } from "./project-course";
 
 export type CourseDiscovery = paths["/api/me/courses"]["get"]["responses"][200]["content"]["application/json"];
 
@@ -426,6 +427,212 @@ export async function fetchArtifact(
     );
   }
 
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Skills without naming a lesson (`GET /api/skills/{name}`,
+// `GET /api/skill-groups`, `GET /api/skill-groups/{group}/skills`).
+// ---------------------------------------------------------------------------
+
+export type SkillResponse = paths["/api/skills/{name}"]["get"]["responses"][200]["content"]["application/json"];
+export type SkillGrant = SkillResponse["grantedBy"];
+export type SkillGroupsResponse = paths["/api/skill-groups"]["get"]["responses"][200]["content"]["application/json"];
+export type SkillGroupSummary = SkillGroupsResponse["groups"][number];
+export type SkillGroupSkillsResponse = paths["/api/skill-groups/{group}/skills"]["get"]["responses"][200]["content"]["application/json"];
+export type SkillGroupSkill = SkillGroupSkillsResponse["skills"][number];
+
+export interface SkillContentQuery {
+  /** Course hint (`--course`, else the project binding). Without it the server picks the newest granted course. */
+  course?: string;
+  tool: string;
+  lang: string;
+  /** Pin an immutable 4.0 release. When given, the signed body must carry exactly this identity. */
+  release?: ReleaseSelection;
+  signal?: AbortSignal;
+}
+export interface SkillGroupsQuery {
+  course?: string;
+  lang: string;
+}
+
+/** 404 codes a current backend answers with; any other 404 means the route is missing. */
+const SKILL_ROUTE_404_CODES: readonly string[] = ["skill_not_found", "skill_group_not_found", "course_not_found"];
+const RELEASE_ID_PATTERN = /^r-[a-f0-9]{64}$/;
+const RELEASE_HASH_PATTERN = /^[a-f0-9]{64}$/;
+
+function isSkillGrant(value: unknown): value is SkillGrant {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const g = value as Record<string, unknown>;
+  return g["kind"] === "course" && isNonEmptyString(g["id"]);
+}
+
+function isSkillFiles(value: unknown): boolean {
+  return Array.isArray(value) && value.every((file) => {
+    if (!file || typeof file !== "object" || Array.isArray(file)) return false;
+    const f = file as Record<string, unknown>;
+    return isNonEmptyString(f["path"]) && typeof f["content"] === "string" && (f["executable"] === undefined || typeof f["executable"] === "boolean");
+  });
+}
+
+const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
+
+function hasServedFields(o: Record<string, unknown>): boolean {
+  return isSkillGrant(o["grantedBy"]) && isNonEmptyString(o["sourceLessonId"])
+    && isOptionalString(o["course"]) && isOptionalString(o["releaseId"]) && isOptionalString(o["releaseManifestHash"]);
+}
+
+export function validateSkillResponse(value: unknown): value is SkillResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  return o["type"] === "skills" && isNonEmptyString(o["name"]) && isSkillFiles(o["files"])
+    && isOptionalString(o["universalContent"]) && hasServedFields(o);
+}
+
+export function validateSkillGroupSkillsResponse(value: unknown): value is SkillGroupSkillsResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  const skills = o["skills"];
+  if (!isNonEmptyString(o["group"]) || !Array.isArray(skills) || skills.length === 0 || !hasServedFields(o)) return false;
+  const names = new Set<string>();
+  for (const skill of skills) {
+    if (!skill || typeof skill !== "object" || Array.isArray(skill)) return false;
+    const s = skill as Record<string, unknown>;
+    if (!isNonEmptyString(s["name"]) || names.has(s["name"]) || !isSkillFiles(s["files"]) || !isOptionalString(s["universalContent"])) return false;
+    names.add(s["name"]);
+  }
+  return true;
+}
+
+export function validateSkillGroupsResponse(value: unknown): value is SkillGroupsResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const groups = (value as Record<string, unknown>)["groups"];
+  return Array.isArray(groups) && groups.every((group) => {
+    if (!group || typeof group !== "object" || Array.isArray(group)) return false;
+    const g = group as Record<string, unknown>;
+    return [g["id"], g["title"], g["summary"]].every(isNonEmptyString)
+      && Array.isArray(g["skills"]) && g["skills"].every(isNonEmptyString)
+      && Array.isArray(g["courses"]) && g["courses"].every(isNonEmptyString);
+  });
+}
+
+/**
+ * The course a skill response was served through, as a project course slug.
+ * Validated responses always resolve: the fetchers reject grants this CLI
+ * does not know.
+ */
+export function servedCourse(data: { grantedBy: SkillGrant }): ProjectCourse {
+  const course = normalizeProjectCourse(data.grantedBy.id);
+  if (!course) throw new Error(`Unsupported course grant: ${data.grantedBy.id}`);
+  return course;
+}
+
+/**
+ * Release identity of a skill response. These routes may be called without a
+ * selected release, so unlike `releaseMismatch` the 4.0 body itself must carry
+ * a well-formed identity; a selected release must match it exactly. 3.0
+ * content carries no identity and cannot satisfy a selected release.
+ */
+function skillReleaseMismatch(data: SkillResponse | SkillGroupSkillsResponse, query: SkillContentQuery): { code: string; error: string } | null {
+  const course = normalizeProjectCourse(data.grantedBy.id);
+  if (!course) return { code: "course_unsupported", error: `This CLI does not support ${data.grantedBy.id}. Update the CLI before writing its content.` };
+  if (query.course !== undefined && normalizeProjectCourse(query.course) !== course) return { code: "release_mismatch", error: "Signed content was served through a different course than requested." };
+  if (course === "10xdevs4") {
+    if (data.course !== "10xdevs4" || !RELEASE_ID_PATTERN.test(data.releaseId ?? "") || !RELEASE_HASH_PATTERN.test(data.releaseManifestHash ?? "")) return { code: "release_mismatch", error: "V4 content is missing a valid course/release/manifest identity." };
+    const mismatch = query.release ? releaseMismatch(course, data, query.release) : null;
+    return mismatch ? { code: "release_mismatch", error: mismatch } : null;
+  }
+  if (query.release) return { code: "release_mismatch", error: "A release was selected but the content is not release-pinned." };
+  if (data.course !== undefined || data.releaseId !== undefined || data.releaseManifestHash !== undefined) return { code: "release_mismatch", error: "Content carries a release identity its course does not use." };
+  return null;
+}
+
+/** Signature check over the raw body; same rules and messages as `fetchArtifact`. */
+function signatureFailure(result: { responseHeaders: Headers; rawBody: string }): { ok: false; status: 0; code: string; error: string } | null {
+  const signature = result.responseHeaders.get("X-Bundle-Signature");
+  const keyIdRaw = result.responseHeaders.get("X-Bundle-Key-Id");
+  const headerHash = result.responseHeaders.get("X-Bundle-Content-Hash");
+  if (signature && keyIdRaw && headerHash) {
+    try {
+      verifyBundleSignature(result.rawBody, signature, Number(keyIdRaw), headerHash);
+      return null;
+    } catch (err) {
+      return { ok: false, status: 0, code: err instanceof SignatureError ? "signature_error" : "signature_internal_error", error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  if (signature || keyIdRaw || headerHash) {
+    return {
+      ok: false,
+      status: 0,
+      code: "signature_error",
+      error:
+        "Skill signing headers are incomplete (expected X-Bundle-Signature, X-Bundle-Key-Id, and X-Bundle-Content-Hash together). " +
+        "The API may be misconfigured. Do NOT use the content. Report this to the course team.",
+    };
+  }
+  if (REQUIRE_SIGNATURES) {
+    return {
+      ok: false,
+      status: 0,
+      code: "signature_missing",
+      error: "Skill content is missing a signature. The API may be misconfigured or compromised. Do NOT use the content. Report this to the course team.",
+    };
+  }
+  process.stderr.write("Warning: skill content is not signed. Signature verification skipped.\n");
+  return null;
+}
+
+function skillContentParams(query: SkillContentQuery): URLSearchParams {
+  const params = new URLSearchParams({ tool: query.tool, lang: query.lang });
+  if (query.course !== undefined) params.set("course", query.course);
+  if (query.release) params.set("release", query.release.releaseId);
+  return params;
+}
+
+async function fetchSignedSkillContent<T extends SkillResponse | SkillGroupSkillsResponse>(
+  path: string,
+  query: SkillContentQuery,
+  token: string,
+  validate: (value: unknown) => value is T,
+  invalidCode: string,
+  invalidError: string,
+): Promise<ApiResult<T>> {
+  const result = await apiGet<T>(`${path}?${skillContentParams(query)}`, { token, signal: query.signal });
+  if (!result.ok) {
+    // A 404 naming the skill, group or course is an answer from a current backend, not a missing route.
+    if (result.status === 404 && !SKILL_ROUTE_404_CODES.includes(result.code)) return { ...result, code: "skill_install_unsupported", error: "The backend does not support installing skills without a lesson yet." };
+    return result;
+  }
+  const unsigned = signatureFailure(result);
+  if (unsigned) return unsigned;
+  if (!validate(result.data)) return { ok: false, status: 0, code: invalidCode, error: invalidError };
+  const mismatch = skillReleaseMismatch(result.data, query);
+  if (mismatch) return { ok: false, status: 0, ...mismatch };
+  return result;
+}
+
+/** One skill without naming a lesson (`GET /api/skills/{name}`), signed like artifacts. */
+export function fetchSkill(name: string, query: SkillContentQuery, token: string): Promise<ApiResult<SkillResponse>> {
+  const validate = (value: unknown): value is SkillResponse => validateSkillResponse(value) && value.name === name;
+  return fetchSignedSkillContent(`/api/skills/${encodeURIComponent(name)}`, query, token, validate, "skill_invalid", "Invalid skill response.");
+}
+
+/** Every member of a group (`GET /api/skill-groups/{group}/skills`), signed like artifacts. */
+export function fetchSkillGroupSkills(group: string, query: SkillContentQuery, token: string): Promise<ApiResult<SkillGroupSkillsResponse>> {
+  const validate = (value: unknown): value is SkillGroupSkillsResponse => validateSkillGroupSkillsResponse(value) && value.group === group;
+  return fetchSignedSkillContent(`/api/skill-groups/${encodeURIComponent(group)}/skills`, query, token, validate, "skill_group_invalid", "Invalid skill group response.");
+}
+
+/** Skill groups visible through the caller's grants (`GET /api/skill-groups`). Not signed. */
+export async function fetchSkillGroups(query: SkillGroupsQuery, token: string): Promise<ApiResult<SkillGroupsResponse>> {
+  const params = new URLSearchParams({ lang: query.lang });
+  if (query.course !== undefined) params.set("course", query.course);
+  const result = await apiGet<SkillGroupsResponse>(`/api/skill-groups?${params}`, { token });
+  if (!result.ok) {
+    if (result.status === 404 && !SKILL_ROUTE_404_CODES.includes(result.code)) return { ...result, code: "skill_groups_unsupported", error: "The backend does not serve skill groups yet." };
+    return result;
+  }
+  if (!validateSkillGroupsResponse(result.data)) return { ok: false, status: 0, code: "skill_groups_invalid", error: "Invalid skill groups response." };
   return result;
 }
 
