@@ -372,10 +372,10 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [x] 2.1 Writer tests cover all standalone cases listed in Phase 2.
-- [x] 2.2 `tests/writer-plan.test.ts` parity passes, including `managed_by_lesson`.
-- [x] 2.3 `changelog` and `sync` tests prove standalone keys are ignored.
-- [x] 2.4 `bun run quality:affected --base <branch base>` passes.
+- [x] 2.1 Writer tests cover all standalone cases listed in Phase 2. — f93104f
+- [x] 2.2 `tests/writer-plan.test.ts` parity passes, including `managed_by_lesson`. — f93104f
+- [x] 2.3 `changelog` and `sync` tests prove standalone keys are ignored. — f93104f
+- [x] 2.4 `bun run quality:affected --base <branch base>` passes. — f93104f
 
 #### Manual
 
@@ -385,8 +385,8 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [ ] 3.1 Command tests cover all install cases listed in Phase 3.
-- [ ] 3.2 Existing `tests/skill-command.test.ts` passes unchanged.
+- [x] 3.1 Command tests cover all install cases listed in Phase 3.
+- [x] 3.2 Existing `tests/skill-command.test.ts` passes unchanged.
 
 #### Manual
 
