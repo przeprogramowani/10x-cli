@@ -361,8 +361,8 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [x] 1.1 Fetcher tests cover a valid payload, a bad signature, a release mismatch, the unsupported-route 404, a real `skill_not_found` 404 and a malformed body.
-- [x] 1.2 `bun run typecheck` and `bun run lint` pass.
+- [x] 1.1 Fetcher tests cover a valid payload, a bad signature, a release mismatch, the unsupported-route 404, a real `skill_not_found` 404 and a malformed body. — 72cbf14
+- [x] 1.2 `bun run typecheck` and `bun run lint` pass. — 72cbf14
 
 #### Manual
 
@@ -372,10 +372,10 @@ User docs, agent guide and end-to-end proof, including an older CLI.
 
 #### Automated
 
-- [ ] 2.1 Writer tests cover all standalone cases listed in Phase 2.
-- [ ] 2.2 `tests/writer-plan.test.ts` parity passes, including `managed_by_lesson`.
-- [ ] 2.3 `changelog` and `sync` tests prove standalone keys are ignored.
-- [ ] 2.4 `bun run quality:affected --base <branch base>` passes.
+- [x] 2.1 Writer tests cover all standalone cases listed in Phase 2.
+- [x] 2.2 `tests/writer-plan.test.ts` parity passes, including `managed_by_lesson`.
+- [x] 2.3 `changelog` and `sync` tests prove standalone keys are ignored.
+- [x] 2.4 `bun run quality:affected --base <branch base>` passes.
 
 #### Manual
 

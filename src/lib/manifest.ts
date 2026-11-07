@@ -18,6 +18,33 @@ export const CLI_PACKAGE_NAME = "@przeprogramowani/10x-cli" as const;
 
 export const MANIFEST_VERSION = 3 as const;
 
+/**
+ * Standalone owners are `lessons` entries installed without a lesson (one
+ * skill or a skill group). Their reserved keys can never collide with the
+ * `mNlN` lesson IDs, never reach a filesystem path, and must never be sent to
+ * a lesson API URL. Older CLIs treat them as ordinary ownership entries.
+ */
+const STANDALONE_OWNER_PREFIXES = ["skill:", "group:"] as const;
+
+export function skillOwnerKey(name: string): string {
+  if (!name) throw new Error("Skill owner key needs a skill name");
+  return `skill:${name}`;
+}
+
+export function groupOwnerKey(id: string): string {
+  if (!id) throw new Error("Group owner key needs a group id");
+  return `group:${id}`;
+}
+
+export function isStandaloneOwner(key: string): boolean {
+  return STANDALONE_OWNER_PREFIXES.some((prefix) => key.startsWith(prefix) && key.length > prefix.length);
+}
+
+/** A standalone entry always records this, so no CLI treats it as owning the course rules block. */
+export function standaloneRepresentation(lang: string, tool: string): NonNullable<LessonFilesEntry["representation"]> {
+  return { lang, tool, courseRules: false, rules: false };
+}
+
 export function contentHash(content: string | Uint8Array): string {
   return createHash("sha256").update(content).digest("hex");
 }

@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, statSync, chmodSync, openSync, closeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { contentHash, MANIFEST_FILENAME, readManifest, rebuildManifestFiles, seedLessons, writeManifest, type CliManifest, type LessonFilesEntry } from "./manifest";
+import { contentHash, isStandaloneOwner, MANIFEST_FILENAME, readManifest, rebuildManifestFiles, seedLessons, standaloneRepresentation, writeManifest, type CliManifest, type LessonFilesEntry } from "./manifest";
 import { executeManagedRemoval, planManagedRemoval, pruneEmptyParents } from "./managed-removal";
 import { otherRulesOwners, planManagedRules } from "./managed-rules";
 import { assertProjectCourse, assertProjectFilePath, assertProjectPath, establishProjectCourse, normalizeProjectCourse } from "./project-course";
@@ -32,24 +32,30 @@ function entryPath(root: string, profile: ToolProfile, entry: Entry): string {
 function owns(lesson: LessonFilesEntry, entry: Entry): boolean {
   return entry.kind === "skills" ? !!lesson.skills[entry.name]?.files.includes(entry.file!) : lesson[entry.kind].includes(entry.name);
 }
-function retire(manifest: CliManifest, entry: Entry): void {
-  for (const lesson of Object.values(manifest.lessons!)) {
+/** Lessons lose their freshness proof; a standalone entry keeps declining the rules block. */
+function resetRepresentation(id: string, lesson: LessonFilesEntry, tool: string): void {
+  if (isStandaloneOwner(id)) lesson.representation = standaloneRepresentation(lesson.representation?.lang ?? "en", tool);
+  else delete lesson.representation;
+}
+function retire(manifest: CliManifest, entry: Entry, tool: string): void {
+  for (const [id, lesson] of Object.entries(manifest.lessons!)) {
     if (!owns(lesson, entry)) continue;
     if (entry.kind === "skills") {
       const skill = lesson.skills[entry.name]!;
       skill.files = skill.files.filter((file) => file !== entry.file);
       if (!skill.files.length) delete lesson.skills[entry.name];
     } else lesson[entry.kind] = lesson[entry.kind].filter((name) => name !== entry.name);
-    delete lesson.representation;
+    resetRepresentation(id, lesson, tool);
     delete lesson.catalogContentHash;
   }
   rebuildManifestFiles(manifest);
 }
-function acquire(destination: CliManifest, source: CliManifest, entry: Entry): void {
+function acquire(destination: CliManifest, source: CliManifest, entry: Entry, tool: string): void {
   for (const [id, prior] of Object.entries(source.lessons!)) {
     if (!owns(prior, entry)) continue;
     const lesson = destination.lessons![id] ??= { appliedAt: prior.appliedAt, skills: {}, prompts: [], configs: [] };
-    delete lesson.representation;
+    if (isStandaloneOwner(id)) lesson.representation = standaloneRepresentation(lesson.representation?.lang ?? prior.representation?.lang ?? "en", tool);
+    else delete lesson.representation;
     delete lesson.catalogContentHash;
     if (entry.kind === "skills") {
       const skill = lesson.skills[entry.name] ??= { files: [] };
@@ -141,12 +147,16 @@ export function preflightProfilePaths(root: string, orphan: OrphanInfo, destinat
     if (existsSync(rulesPath)) inspectRulesBlock(readFileSync(rulesPath, "utf8"), profile.sentinelBegin, profile.sentinelEnd);
   }
 }
-function begin(root: string, orphan: OrphanInfo, destination?: ToolProfile): CliManifest {
+export interface ProfileTransferOptions {
+  /** `false` keeps a standalone install from binding the project; a matching binding is still required. */
+  bindProject?: boolean;
+}
+function begin(root: string, orphan: OrphanInfo, destination?: ToolProfile, options: ProfileTransferOptions = {}): CliManifest {
   const course = normalizeProjectCourse(orphan.manifest.course);
   if (!course) throw new Error("Unsupported course in orphan manifest");
   assertProjectCourse(root, course);
   preflightProfilePaths(root, orphan, destination);
-  establishProjectCourse(root, course);
+  if (options.bindProject !== false) establishProjectCourse(root, course);
   const source = structuredClone(orphan.manifest);
   source.course = course;
   source.lessons = seedLessons(source);
@@ -158,10 +168,10 @@ function begin(root: string, orphan: OrphanInfo, destination?: ToolProfile): Cli
   return source;
 }
 
-export function migrateArtifacts(root: string, orphan: OrphanInfo, profile: ToolProfile): MigrationSummary {
+export function migrateArtifacts(root: string, orphan: OrphanInfo, profile: ToolProfile, options: ProfileTransferOptions = {}): MigrationSummary {
   const summary = summaryFor(orphan, "migrated");
   if (!existsSync(orphan.manifestPath)) return summary;
-  const source = begin(root, orphan, profile);
+  const source = begin(root, orphan, profile, options);
   const destination: CliManifest = readManifest(join(root, profile.manifestDir)) ?? { ...structuredClone(source), tool: profile.toolId, files: { skills: {}, prompts: [], configs: [] }, lessons: {}, managedRules: undefined };
   destination.lessons = seedLessons(destination);
   destination.course = source.course;
@@ -169,7 +179,7 @@ export function migrateArtifacts(root: string, orphan: OrphanInfo, profile: Tool
   for (const entry of entries(source)) {
     const from = entryPath(root, orphan.profile, entry);
     const to = entryPath(root, profile, entry);
-    if (!existsSync(from)) { retire(source, entry); persistSource(root, orphan.profile, source); continue; }
+    if (!existsSync(from)) { retire(source, entry, orphan.profile.toolId); persistSource(root, orphan.profile, source); continue; }
     const bytes = readFileSync(from);
     if (existsSync(to) && !readFileSync(to).equals(bytes)) {
       summary.skipped.push({ path: to, reason: "destination already exists with different content" });
@@ -178,7 +188,7 @@ export function migrateArtifacts(root: string, orphan: OrphanInfo, profile: Tool
     // Copy, commit destination ownership, then retire the source. An I/O failure
     // before removal leaves the complete original and its ledger available.
     if (!existsSync(to)) copyForTransfer(root, from, to, bytes);
-    acquire(destination, source, entry);
+    acquire(destination, source, entry, profile.toolId);
     writeManifest(join(root, profile.manifestDir), destination);
     record(summary, entry);
     try {
@@ -190,7 +200,7 @@ export function migrateArtifacts(root: string, orphan: OrphanInfo, profile: Tool
       persistSource(root, orphan.profile, source);
       continue;
     }
-    retire(source, entry);
+    retire(source, entry, orphan.profile.toolId);
     try { persistSource(root, orphan.profile, source); }
     catch (error) {
       // A failed ledger commit keeps the previous claim valid by restoring its bytes.
@@ -243,17 +253,17 @@ function transferRules(root: string, old: ToolProfile, profile: ToolProfile, sou
   delete source.managedRules;
 }
 
-export function deleteArtifacts(root: string, orphan: OrphanInfo): MigrationSummary {
+export function deleteArtifacts(root: string, orphan: OrphanInfo, options: ProfileTransferOptions = {}): MigrationSummary {
   const summary = summaryFor(orphan, "deleted");
   if (!existsSync(orphan.manifestPath)) return summary;
-  const source = begin(root, orphan);
+  const source = begin(root, orphan, undefined, options);
   for (const entry of entries(source)) {
     const path = entryPath(root, orphan.profile, entry);
     const plan = planManagedRemoval(root, { name: entry.name, path, storedHash: entry.hash, config: entry.kind === "configs", pruneRoot: join(root, orphan.profile.manifestDir) });
     const result = executeManagedRemoval(root, plan);
     if (result.action === "removed") record(summary, entry);
     else if (result.action === "preserved_local") summary.skipped.push({ path, reason: `preserved_local: ${result.reason}` });
-    retire(source, entry);
+    retire(source, entry, orphan.profile.toolId);
     persistSource(root, orphan.profile, source);
   }
   commitSourceRules(root, orphan.profile, source, () => {

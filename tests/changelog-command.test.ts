@@ -547,3 +547,26 @@ describe("10x changelog — course scope", () => {
     parseErr(stdout, "course_not_found");
   });
 });
+
+describe("10x changelog — standalone owners", () => {
+  it("ignores standalone entries when choosing the newest lesson apply", async () => {
+    writeValidAuth();
+    const base = makeManifest();
+    writeProjectManifest(makeManifest({ lessons: { ...base.lessons, "skill:10x-plan": { appliedAt: "2026-10-30T08:00:00.000Z", skills: {}, prompts: [], configs: [] }, "group:core-skill-chain": { appliedAt: "2026-10-31T08:00:00.000Z", skills: {}, prompts: [], configs: [] } } }));
+    respondWith([]);
+
+    const { stdout } = await runChangelog(["changelog", "--json"]);
+    expect(queries).toEqual([{ sinceDate: "2026-09-15T12:30:00.000Z", course: "10xdevs3", limit: 20 }]);
+    expect(parseOk(stdout).baseline).toEqual({ source: "applied", date: "2026-09-15T12:30:00.000Z" });
+  });
+
+  it("a manifest created by a standalone install has no lesson-apply baseline", async () => {
+    writeValidAuth();
+    writeProjectManifest(makeManifest({ lessonId: "skill:10x-plan", lastApplied: "2026-10-30T08:00:00.000Z", lessons: { "skill:10x-plan": { appliedAt: "2026-10-30T08:00:00.000Z", skills: {}, prompts: [], configs: [] } } }));
+    respondWith([]);
+
+    const { stdout } = await runChangelog(["changelog", "--json"]);
+    expect(queries).toEqual([{ course: "10xdevs3", limit: 5 }]);
+    expect(parseOk(stdout).baseline).toEqual({ source: "none" });
+  });
+});

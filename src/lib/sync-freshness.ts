@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { contentHash, type CliManifest } from "./manifest";
+import { contentHash, isStandaloneOwner, type CliManifest } from "./manifest";
 import { assertProjectFilePath } from "./project-course";
 import { inspectRulesBlock } from "./sentinel-migration";
 import type { ToolProfile } from "./tool-profile";
@@ -8,6 +8,8 @@ import { isSafeName, isSafeSkillFilePath } from "./writer";
 
 /** A catalog digest alone cannot prove that the requested local representation exists. */
 export function isLessonFresh(root: string, manifest: CliManifest | null, id: string, profile: ToolProfile, lang: string, courseRules: boolean): boolean {
+  // Standalone entries have no catalog digest and are never sync-fresh lessons.
+  if (isStandaloneOwner(id)) return false;
   const lesson = manifest?.lessons?.[id];
   const representation = lesson?.representation;
   if (!manifest || !lesson || !representation || representation.lang !== lang || representation.tool !== profile.toolId || representation.courseRules !== courseRules || typeof representation.rules !== "boolean") return false;
