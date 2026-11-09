@@ -68,14 +68,19 @@ function skillResponse(content = PLAN_V1, overrides: Partial<SkillResponse> = {}
     name: "10x-plan",
     files: [{ path: "SKILL.md", content }],
     grantedBy: { kind: "course", id: "10xdevs-3" },
+    sourceCourse: "10xdevs-3",
     sourceLessonId: "m5l5",
     ...overrides,
   };
 }
 
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data });
-const failure = <T>(status: number, code: string): ApiResult<T> => ({ ok: false, status, code, error: code });
+const failure = <T>(status: number, code: string, payload?: Record<string, unknown>): ApiResult<T> => ({ ok: false, status, code, error: code, ...(payload ? { payload: { error: code, ...payload } } : {}) });
 const envelope = (capture: Capture) => JSON.parse(capture.stdout);
+/** Human stderr without the `ERROR <code>:` prefix: the code passes through as received, the words are ours. */
+const humanText = (capture: Capture) => capture.stderr.replace(/^ERROR [a-z0-9_]+: /gm, "");
+const NOT_PERMITTED = "You are not permitted to install this skill. Contact the support team at kontakt@przeprogramowani.pl.";
+const DAY = 24 * 60 * 60 * 1_000;
 
 let tmp: string;
 let projectRoot: string;
@@ -221,7 +226,8 @@ describe("10x skill --install", () => {
     expect(result.exitCode).toBeUndefined();
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("[created] 10x-plan/SKILL.md");
-    expect(result.stderr).toContain("Course: 10xdevs3");
+    expect(result.stderr).toContain("From lesson m5l5");
+    expect(result.stderr).not.toMatch(/course/i);
     expect(result.stderr).not.toContain("\u001b[2J");
     expect(result.stderr).not.toContain("skill:10x-plan");
   });
@@ -238,9 +244,11 @@ describe("10x skill --install", () => {
   it("surfaces course_mismatch when the served course differs from the project's", async () => {
     writeFileSync(join(projectRoot, PROJECT_COURSE_FILENAME), JSON.stringify({ version: 1, course: "10xdevs4" }));
     serve(() => ok(skillResponse()));
-    const result = await run(["skill", "10x-plan", "--install", "--course", "10xdevs3"]);
+    const result = await run(["skill", "10x-plan", "--install"]);
     expect(result.exitCode).toBe(2);
-    expect(envelope(result).error.code).toBe("course_mismatch");
+    const { error } = envelope(result);
+    expect(error.code).toBe("course_mismatch");
+    expect(`${error.message} ${error.hint}`).not.toMatch(/course/i);
     expect(existsSync(planPath())).toBe(false);
   });
 
@@ -268,8 +276,11 @@ describe("10x skill --install", () => {
   it("maps API failures to the shared exit codes", async () => {
     const cases: [number, string, number, string][] = [
       [403, "course_access_denied", 4, "course_access_denied"],
+      [403, "skill_access_denied", 4, "skill_access_denied"],
+      [403, "skill_locked", 4, "skill_locked"],
       [404, "skill_install_unsupported", 1, "skill_install_unsupported"],
-      [404, "course_not_found", 2, "course_not_found"],
+      // Only a stale project binding can name an unknown course now.
+      [404, "course_not_found", 4, "course_not_found"],
       [401, "unauthorized", 3, "auth_required"],
       [0, "release_mismatch", 1, "release_mismatch"],
       [0, "signature_error", 1, "signature_error"],
@@ -292,7 +303,6 @@ describe("10x skill --install", () => {
       [["skill", "10x-plan", "--install", "--tool", "emacs"], "invalid_tool"],
       [["skill", "10x-plan", "--install", "--lang", "de"], "invalid_lang"],
       [["skill", "../etc", "--install"], "invalid_skill_name"],
-      [["skill", "10x-plan", "--install", "--course", " "], "invalid_course"],
     ];
     for (const [argv, code] of usage) {
       const result = await run(argv);
@@ -300,5 +310,77 @@ describe("10x skill --install", () => {
       expect(envelope(result).error.code).toBe(code);
     }
     expect(queries).toEqual([]);
+  });
+
+  it("prints the support message for every access denial, with the code as received", async () => {
+    for (const [status, code] of [[403, "skill_access_denied"], [403, "course_access_denied"], [404, "course_not_found"]] as const) {
+      serve(() => failure(status, code));
+      const result = await run(["skill", "10x-plan", "--install"]);
+      expect(result.exitCode).toBe(4);
+      const { error } = envelope(result);
+      expect(error.code).toBe(code);
+      expect(error.message).toBe(NOT_PERMITTED);
+      expect(error.hint).toBeUndefined();
+    }
+  });
+
+  it("says when a locked skill unlocks", async () => {
+    const releaseAt = new Date(Date.now() + 10 * DAY).toISOString();
+    serve(() => failure(403, "skill_locked", { module: 3, releaseAt }));
+    const result = await run(["skill", "10x-plan", "--install"]);
+    expect(result.exitCode).toBe(4);
+    const { error } = envelope(result);
+    expect(error.code).toBe("skill_locked");
+    expect(error.message).toStartWith("'10x-plan' unlocks with module 3 on ");
+    expect(error.hint).toBe("Run '10x list' to see what's available now.");
+    expect(existsSync(join(projectRoot, ".claude"))).toBe(false);
+  });
+
+  it("says a locked skill isn't available yet when its date has passed or is missing", async () => {
+    for (const payload of [{ module: 2, releaseAt: new Date(Date.now() - DAY).toISOString() }, { module: 2 }, {}]) {
+      serve(() => failure(403, "skill_locked", payload));
+      const result = await run(["skill", "10x-plan", "--install"]);
+      expect(result.exitCode).toBe(4);
+      const { error } = envelope(result);
+      expect(error.code).toBe("skill_locked");
+      expect(error.message).toBe("'10x-plan' isn't available yet.");
+      expect(error.hint).toBe("Run '10x list' to see what's available now.");
+    }
+  });
+
+  it("installs through a license grant, taking the course from sourceCourse", async () => {
+    serve(() => ok(skillResponse(PLAN_V1, { grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-3" })));
+    const result = await run(["skill", "10x-plan", "--install"]);
+    expect(result.exitCode).toBeUndefined();
+    const body = envelope(result);
+    expect(body.data.course).toBe("10xdevs3");
+    expect(body.data.grantedBy).toEqual({ kind: "license", id: "lic-123" });
+    expect(readFileSync(planPath(), "utf8")).toBe(PLAN_V1);
+    expect(readManifest(join(projectRoot, ".claude"))!.course).toBe("10xdevs3");
+    expect(existsSync(join(projectRoot, PROJECT_COURSE_FILENAME))).toBe(false);
+  });
+
+  it("never names a course in human output, even in a bound project", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "claude-code" } as Parameters<typeof saveToolConfig>[0]);
+    writeFileSync(join(projectRoot, PROJECT_COURSE_FILENAME), JSON.stringify({ version: 1, course: "10xdevs3" }));
+    apiContentMockState.fetchSkillOverviewsImpl = () => ok<SkillOverviewsResponse>({ overviews: [] });
+    const failures: ApiResult<SkillResponse>[] = [
+      failure(403, "skill_access_denied"),
+      failure(403, "course_access_denied"),
+      failure(404, "course_not_found"),
+      failure(403, "skill_locked", { module: 4, releaseAt: new Date(Date.now() + 5 * DAY).toISOString() }),
+      failure(403, "skill_locked", { module: 4, releaseAt: new Date(Date.now() - 5 * DAY).toISOString() }),
+      failure(404, "skill_not_found"),
+    ];
+    for (const outcome of failures) {
+      serve(() => outcome);
+      const result = await run(["skill", "10x-plan", "--install"]);
+      expect(result.exitCode).toBeGreaterThan(0);
+      expect(result.stdout).toBe("");
+      expect(humanText(result)).not.toMatch(/course/i);
+    }
+    // The bound project's course still travels as the hint.
+    expect(queries.every(({ query }) => query.course === "10xdevs3")).toBe(true);
   });
 });

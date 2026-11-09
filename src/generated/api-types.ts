@@ -645,7 +645,7 @@ export interface paths {
         };
         /**
          * One skill, without naming a lesson
-         * @description The skill's tool- and language-selected files from the last lesson (in course order) that delivers it, signed like artifacts. No module-lock check.
+         * @description The skill's tool- and language-selected files from the newest lesson (in course order) that delivers it and that the grant reaches, signed like artifacts. A course grant reaches only lessons in unlocked modules; a license reaches every lesson.
          */
         get: {
             parameters: {
@@ -688,7 +688,17 @@ export interface paths {
                                 kind: "course";
                                 /** @example 10xdevs-4 */
                                 id: string;
+                            } | {
+                                /** @enum {string} */
+                                kind: "license";
+                                /** @description Opaque license identifier */
+                                id: string;
                             };
+                            /**
+                             * @description The course whose release supplied the bytes
+                             * @example 10xdevs-4
+                             */
+                            sourceCourse: string;
                             /**
                              * @description The lesson whose bundle supplied the bytes
                              * @example m5l5
@@ -708,7 +718,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description No granted course delivers it, or `course` is not granted (`course_access_denied`) */
+                /** @description No grants at all (`skill_access_denied`, checked before the name); no granted course delivers it, or `course` is not granted (`course_access_denied`); or every delivering lesson of the granted course is in a locked module (`skill_locked`, with `module` and `releaseAt` when known) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -716,10 +726,14 @@ export interface paths {
                     content: {
                         "application/json": {
                             error: string;
+                            /** @description With `skill_locked` */
+                            module?: number;
+                            /** @description With `skill_locked` */
+                            releaseAt?: string;
                         };
                     };
                 };
-                /** @description `course` names no registered course or has no current release (`course_not_found`), or the skill is not delivered (`skill_not_found`) */
+                /** @description `course` names no registered course or has no current release or catalog (`course_not_found`), or the skill is not delivered (`skill_not_found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -846,7 +860,7 @@ export interface paths {
         };
         /**
          * Every skill of a group, without naming a lesson
-         * @description All members from the last lesson (in course order) that delivers every one of them, in group order, signed like artifacts. No module-lock check.
+         * @description All members from the newest lesson (in course order) that delivers every one of them and that the grant reaches, in group order, signed like artifacts. A course grant reaches only lessons in unlocked modules; a license reaches every lesson.
          */
         get: {
             parameters: {
@@ -889,7 +903,17 @@ export interface paths {
                                 kind: "course";
                                 /** @example 10xdevs-4 */
                                 id: string;
+                            } | {
+                                /** @enum {string} */
+                                kind: "license";
+                                /** @description Opaque license identifier */
+                                id: string;
                             };
+                            /**
+                             * @description The course whose release supplied the bytes
+                             * @example 10xdevs-4
+                             */
+                            sourceCourse: string;
                             /**
                              * @description The lesson whose bundle supplied the bytes
                              * @example m5l5
@@ -912,7 +936,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description No granted course delivers it, or `course` is not granted (`course_access_denied`) */
+                /** @description No grants at all (`skill_access_denied`, checked before the group); no granted course delivers it, or `course` is not granted (`course_access_denied`); or every lesson of the granted course that delivers every member is in a locked module (`skill_locked`, with `module` and `releaseAt` when known) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -920,10 +944,14 @@ export interface paths {
                     content: {
                         "application/json": {
                             error: string;
+                            /** @description With `skill_locked` */
+                            module?: number;
+                            /** @description With `skill_locked` */
+                            releaseAt?: string;
                         };
                     };
                 };
-                /** @description `course` names no registered course or has no current release (`course_not_found`), or the group is unknown or not delivered (`skill_group_not_found`) */
+                /** @description `course` names no registered course or has no current release or catalog (`course_not_found`), or the group is unknown or not delivered (`skill_group_not_found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;

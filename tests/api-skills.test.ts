@@ -204,6 +204,43 @@ describe("fetchSkill", () => {
     stubFetch(() => Response.json({ error: "course_access_denied" }, { status: 403 }));
     expect(await fetchSkill("10x-plan", query, "t")).toMatchObject({ ok: false, status: 403, code: "course_access_denied" });
   });
+
+  it("passes skill_access_denied and skill_locked through with their payload", async () => {
+    stubFetch(() => Response.json({ error: "skill_access_denied" }, { status: 403 }));
+    expect(await fetchSkill("10x-plan", query, "t")).toMatchObject({ ok: false, status: 403, code: "skill_access_denied" });
+    const releaseAt = "2027-01-11T08:00:00.000Z";
+    stubFetch(() => Response.json({ error: "skill_locked", module: 3, releaseAt }, { status: 403 }));
+    const locked = await fetchSkill("10x-plan", query, "t");
+    expect(locked).toMatchObject({ ok: false, status: 403, code: "skill_locked", payload: { module: 3, releaseAt } });
+  });
+
+  it("takes the served course from sourceCourse when present", async () => {
+    stubFetch(() => signed(v4Skill({ sourceCourse: "10xdevs-4" })));
+    const result = await fetchSkill("10x-plan", { ...query, course: "10xdevs4" }, "t");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(servedCourse(result.data)).toBe("10xdevs4");
+  });
+
+  it("accepts a license grant with sourceCourse, identified like a course grant", async () => {
+    stubFetch(() => signed(v4Skill({ grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-4" })));
+    const result = await fetchSkill("10x-plan", { ...query, release }, "t");
+    expect(result).toMatchObject({ ok: true, data: { grantedBy: { kind: "license", id: "lic-123" }, releaseId: release.releaseId } });
+    if (result.ok) expect(servedCourse(result.data)).toBe("10xdevs4");
+  });
+
+  it("checks a license grant's source against the project's course and release rules", async () => {
+    stubFetch(() => signed(v3Skill({ grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-3" })));
+    expect(await fetchSkill("10x-plan", { ...query, course: "10xdevs4" }, "t")).toMatchObject({ ok: false, code: "release_mismatch" });
+    stubFetch(() => signed(v3Skill({ grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-4" })));
+    expect(await fetchSkill("10x-plan", query, "t")).toMatchObject({ ok: false, code: "release_mismatch" });
+    stubFetch(() => signed(v3Skill({ grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-9" })));
+    expect(await fetchSkill("10x-plan", query, "t")).toMatchObject({ ok: false, code: "course_unsupported" });
+  });
+
+  it("rejects a license grant without sourceCourse as an invalid response", async () => {
+    stubFetch(() => signed(v4Skill({ grantedBy: { kind: "license", id: "lic-123" } })));
+    expect(await fetchSkill("10x-plan", query, "t")).toMatchObject({ ok: false, status: 0, code: "skill_invalid" });
+  });
 });
 
 describe("fetchSkillGroupSkills", () => {
@@ -230,6 +267,15 @@ describe("fetchSkillGroupSkills", () => {
   it("rejects a 4.0 group without release identity", async () => {
     stubFetch(() => signed(v4Group({ releaseManifestHash: undefined })));
     expect(await fetchSkillGroupSkills("core-skill-chain", query, "t")).toMatchObject({ ok: false, code: "release_mismatch" });
+  });
+
+  it("accepts a license-granted group with sourceCourse and rejects one without", async () => {
+    stubFetch(() => signed(v4Group({ grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-4" })));
+    const result = await fetchSkillGroupSkills("core-skill-chain", query, "t");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(servedCourse(result.data)).toBe("10xdevs4");
+    stubFetch(() => signed(v4Group({ grantedBy: { kind: "license", id: "lic-123" } })));
+    expect(await fetchSkillGroupSkills("core-skill-chain", query, "t")).toMatchObject({ ok: false, status: 0, code: "skill_group_invalid" });
   });
 
   it("rejects a bad signature", async () => {
@@ -296,6 +342,9 @@ describe("fetchSkillGroups", () => {
 describe("validators", () => {
   it("accept the contract shapes", () => {
     expect(validateSkillResponse(v4Skill({ universalContent: "u", files: [{ path: "x.sh", content: "", executable: true }] }))).toBe(true);
+    expect(validateSkillResponse(v4Skill({ grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-4" }))).toBe(true);
+    // An older API sends no sourceCourse; a course grant's id stands in for it.
+    expect(validateSkillResponse(v3Skill())).toBe(true);
     expect(validateSkillGroupSkillsResponse(v4Group())).toBe(true);
     expect(validateSkillGroupsResponse({ groups: [] })).toBe(true);
   });
@@ -303,7 +352,10 @@ describe("validators", () => {
   for (const [label, value] of [
     ["wrong type", v3Skill({ type: "prompts" })],
     ["missing grant", v3Skill({ grantedBy: undefined })],
-    ["non-course grant", v3Skill({ grantedBy: { kind: "license", id: "x" } })],
+    ["license grant without sourceCourse", v3Skill({ grantedBy: { kind: "license", id: "x" } })],
+    ["unknown grant kind", v3Skill({ grantedBy: { kind: "team", id: "x" }, sourceCourse: "10xdevs-3" })],
+    ["license grant with empty id", v3Skill({ grantedBy: { kind: "license", id: "" }, sourceCourse: "10xdevs-3" })],
+    ["empty sourceCourse", v3Skill({ sourceCourse: "" })],
     ["missing source lesson", v3Skill({ sourceLessonId: "" })],
     ["non-boolean executable", v3Skill({ files: [{ path: "a", content: "", executable: "yes" }] })],
     ["numeric releaseId", v3Skill({ releaseId: 1 })],
@@ -319,7 +371,7 @@ describe("validators", () => {
 });
 
 describe("error messages", () => {
-  for (const code of ["skill_not_found", "skill_group_not_found", "skill_group_incomplete", "skill_install_unsupported", "skill_groups_unsupported"]) {
+  for (const code of ["skill_not_found", "skill_group_not_found", "skill_group_incomplete", "skill_install_unsupported", "skill_groups_unsupported", "skill_locked", "skill_access_denied"]) {
     it(`has a human message for ${code}`, () => {
       expect(messageForApiError({ error: code })).toBeString();
     });
