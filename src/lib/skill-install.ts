@@ -5,7 +5,7 @@
  *   1. validate usage (name, --lang, --tool) before touching credentials;
  *   2. require auth;
  *   3. resolve the tool the way `get` does (flag, config, detection/prompt);
- *   4. send a course hint: `--course`, else the project's course, else none;
+ *   4. send the project's course as a hint, else none (never a user-chosen course);
  *   5. fetch the signed skill (or group members);
  *   6. wrap the response into a skills-only bundle under a reserved owner key;
  *   7. plan, then apply in standalone mode (never binds the project);
@@ -13,6 +13,9 @@
  *
  * The owner key (`skill:<name>` / `group:<id>`) is manifest bookkeeping only:
  * it never reaches an API URL or the learner's screen as if it were a lesson.
+ *
+ * Access is the caller's grant (a course or a license), so no human message
+ * here names a course; JSON envelopes keep their keys and pass codes through.
  */
 
 import { join } from "node:path";
@@ -34,19 +37,18 @@ import { requireAuth } from "./auth-guard";
 import { readToolConfig } from "./config";
 import { createConflictResolver, showUpgradeNotice } from "./conflict-prompt";
 import { reportCourseError } from "./course-selection";
+import { formatReleaseAt } from "./format";
 import { groupOwnerKey, readManifest, skillOwnerKey } from "./manifest";
 import { ExitCodes, type GlobalFlags, type OutputContext, output, outputError, sanitize, verbose } from "./output";
-import { normalizeProjectCourse } from "./project-course";
+import { CourseBindingError, inspectProjectCourse, type ProjectCourse } from "./project-course";
 import { prepareToolForWrite, resolveToolProfile } from "./tool-prompt";
 import { contentToolId, getToolProfile, PROFILES, type ToolProfile } from "./tool-profile";
 import { applyBundle, planBundle, type SkillWrite, type WriteResult } from "./writer";
-import { type CourseScope, resolveCourseScope } from "../commands/changelog";
 import { suggestSkills } from "../commands/skill";
 
 export type StandaloneKind = "skill" | "group";
 
 export interface StandaloneInstallFlags extends GlobalFlags {
-  course?: unknown;
   lang?: unknown;
   tool?: unknown;
   dryRun?: boolean;
@@ -74,6 +76,26 @@ export interface StandaloneInstallResult {
 
 const LANGUAGES: readonly SkillOverviewLanguage[] = ["en", "pl"];
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const SUPPORT_CONTACT = "Contact the support team at kontakt@przeprogramowani.pl.";
+
+/** The one access-denied message of `10x skill` and `10x skill-group`, install and overview alike. */
+export function notPermittedMessage(kind: StandaloneKind): string {
+  return `You are not permitted to install this ${kind === "skill" ? "skill" : "skill group"}. ${SUPPORT_CONTACT}`;
+}
+
+/**
+ * The course hint for `10x skill` and `10x skill-group`: the project's course,
+ * read without writing and never shown. A corrupt or conflicting project
+ * stops here, as in get/sync; there is no flag to override it.
+ */
+export function projectCourseHint(ctx: OutputContext, projectRoot: string): ProjectCourse | undefined {
+  try {
+    return inspectProjectCourse(projectRoot).course ?? undefined;
+  } catch (error) {
+    if (error instanceof CourseBindingError) outputError(ctx, error.code, error.message, ExitCodes.ERROR);
+    throw error;
+  }
+}
 
 export async function installStandalone(ctx: OutputContext, request: StandaloneInstallRequest): Promise<StandaloneInstallResult> {
   const { kind, name, flags } = request;
@@ -85,7 +107,7 @@ export async function installStandalone(ctx: OutputContext, request: StandaloneI
   }
   const lang = resolveInstallLanguage(ctx, flags.lang);
   const toolFlag = resolveToolFlag(ctx, flags.tool);
-  const scope = resolveCourseScope(ctx, flags.course, process.cwd());
+  const hint = projectCourseHint(ctx, process.cwd());
   const dryRun = flags.dryRun === true;
 
   // 2. Auth.
@@ -95,7 +117,6 @@ export async function installStandalone(ctx: OutputContext, request: StandaloneI
   const profile = await resolveToolProfile(toolFlag, process.cwd());
 
   // 4. Course hint. A project's course is only read here, never established.
-  const hint = scope.course === undefined ? undefined : normalizeProjectCourse(scope.course) ?? scope.course;
   const query: SkillContentQuery = { tool: contentToolId(profile), lang, ...(hint !== undefined ? { course: hint } : {}) };
 
   // 5. Fetch.
@@ -104,7 +125,7 @@ export async function installStandalone(ctx: OutputContext, request: StandaloneI
     ? await fetchSkill(name, query, auth.access_token)
     : await fetchSkillGroupSkills(name, query, auth.access_token);
   if (!fetched.ok) {
-    return handleInstallError(ctx, kind, name, fetched, scope, { token: auth.access_token, lang, ...(hint !== undefined ? { course: hint } : {}) });
+    return handleInstallError(ctx, kind, name, fetched, { token: auth.access_token, lang, ...(hint !== undefined ? { course: hint } : {}) });
   }
   const data = fetched.data;
   const course = servedCourse(data);
@@ -148,7 +169,13 @@ export async function installStandalone(ctx: OutputContext, request: StandaloneI
       applyCourseRules: true,
       standalone: true,
     });
-  } catch (error) { reportCourseError(ctx, error); }
+  } catch (error) {
+    // The served content belongs elsewhere than this project's existing content.
+    if (error instanceof CourseBindingError && error.code === "course_mismatch") {
+      outputError(ctx, error.code, `This project already holds content from another source, so the ${noun} cannot be installed here.`, ExitCodes.USAGE, "Install it in a separate directory.");
+    }
+    reportCourseError(ctx, error);
+  }
 
   const result: StandaloneInstallResult = {
     kind,
@@ -189,35 +216,26 @@ async function handleInstallError(
   ctx: OutputContext,
   kind: StandaloneKind,
   name: string,
-  failure: { status: number; code: string; error: string },
-  scope: CourseScope,
+  failure: { status: number; code: string; error: string; payload?: Record<string, unknown> | undefined },
   lookup: { token: string; lang: SkillOverviewLanguage; course?: string },
 ): Promise<never> {
   const { status, code, error } = failure;
   verbose(ctx, `install fetch failed: status=${status} code=${code}`);
-  const where = scope.course ? ` in ${sanitize(scope.course)}` : "";
 
   if (code === "skill_install_unsupported") {
     outputError(ctx, code, "The 10x-toolkit API does not support installing skills without a lesson yet.", ExitCodes.ERROR, "Use '10x get <lesson> --type skills --name <skill>' for now.");
   }
   if (status === 404 && (code === "skill_not_found" || code === "skill_group_not_found")) {
     const suggestions = suggestSkills(name, await knownNames(kind, lookup)).map(sanitize);
-    const hint = suggestions.length > 0
-      ? `Did you mean: ${suggestions.join(", ")}?`
-      : scope.course ? `${kind === "skill" ? "Skills" : "Skill groups"} are listed per course; try '--course <course>' for another one.` : undefined;
-    outputError(ctx, code, `No ${kind === "skill" ? "skill" : "skill group"} named '${sanitize(name)}'${where}.`, ExitCodes.NOT_FOUND, hint);
+    const hint = suggestions.length > 0 ? `Did you mean: ${suggestions.join(", ")}?` : undefined;
+    outputError(ctx, code, `No ${kind === "skill" ? "skill" : "skill group"} named '${sanitize(name)}'.`, ExitCodes.NOT_FOUND, hint);
   }
-  if (status === 404 && code === "course_not_found") {
-    outputError(ctx, "course_not_found", `Unknown course: ${sanitize(scope.course ?? "")}.`, ExitCodes.USAGE, "Use a course id such as '10xdevs4'.");
+  if (status === 403 && code === "skill_locked") {
+    outputError(ctx, code, lockedMessage(name, failure.payload), ExitCodes.FORBIDDEN, "Run '10x list' to see what's available now.");
   }
-  if (status === 403 || code === "course_access_denied") {
-    outputError(
-      ctx,
-      "course_access_denied",
-      scope.course ? `Your account does not have access to ${sanitize(scope.course)}.` : "Your account has no course that delivers this skill.",
-      ExitCodes.FORBIDDEN,
-      scope.source === "project" ? `This project uses ${sanitize(scope.course ?? "")}.` : undefined,
-    );
+  // A course the caller lacks, a stale binding's unknown course, or no grants at all: one message.
+  if (status === 403 || code === "course_access_denied" || code === "course_not_found" || code === "skill_access_denied") {
+    outputError(ctx, code, notPermittedMessage(kind), ExitCodes.FORBIDDEN);
   }
   if (status === 401) {
     outputError(ctx, "auth_required", "Your session is no longer valid.", ExitCodes.AUTH_REQUIRED, "Run '10x auth' to log in again.");
@@ -226,6 +244,20 @@ async function handleInstallError(
     outputError(ctx, "network_error", "Could not reach the 10x-toolkit API.", ExitCodes.ERROR, "Check your internet connection and try again.");
   }
   outputError(ctx, code || "skill_install_failed", error || `Failed to fetch the ${kind === "skill" ? "skill" : "skill group"}.`, ExitCodes.ERROR);
+}
+
+/**
+ * `skill_locked`: a future unlock date is worth showing. A past or missing
+ * one (a manual lock can outlast the date) only means "not yet", as in `get`.
+ */
+export function lockedMessage(name: string, payload: Record<string, unknown> | undefined, now: Date = new Date()): string {
+  const shown = `'${sanitize(name)}'`;
+  const moduleNum = payload?.["module"];
+  const releaseAt = payload?.["releaseAt"];
+  const releaseTime = typeof releaseAt === "string" ? Date.parse(releaseAt) : Number.NaN;
+  if (typeof releaseAt !== "string" || !Number.isFinite(releaseTime) || releaseTime <= now.getTime()) return `${shown} isn't available yet.`;
+  const date = formatReleaseAt(releaseAt, now);
+  return typeof moduleNum === "number" ? `${shown} unlocks with module ${moduleNum} on ${date}.` : `${shown} unlocks on ${date}.`;
 }
 
 /** Best-effort names for typo suggestions; any failure just means no suggestions. */
@@ -331,7 +363,7 @@ function renderInstallResult(ctx: OutputContext, result: StandaloneInstallResult
     return;
   }
   const lines: string[] = [];
-  lines.push(`Course: ${sanitize(result.course)} (from lesson ${sanitize(result.sourceLessonId)})`);
+  lines.push(`From lesson ${sanitize(result.sourceLessonId)}`);
   lines.push(result.dryRun ? `Would write to ${profile.manifestDir}/:` : `Wrote to ${profile.manifestDir}/:`);
   const renderSkill = result.kind === "group" ? renderGroupSkillLines : renderSkillLines;
   for (const skill of write.skills) lines.push(...renderSkill(skill));

@@ -194,7 +194,7 @@ function skillResponse(name: string, q: URLSearchParams): Response {
   const skill = bundle(source).skills.find((s) => s.name === name)!;
   const body: Body<"/api/skills/{name}", "get"> = {
     type: "skills", name: skill.name, files: skill.files,
-    grantedBy: { kind: "course", id: grant.id }, sourceLessonId: source.lessonId,
+    grantedBy: { kind: "course", id: grant.id }, sourceCourse: grant.id, sourceLessonId: source.lessonId,
   };
   return signed(body, langHeaders(query.lang));
 }
@@ -226,7 +226,7 @@ function skillGroupSkillsResponse(id: string, q: URLSearchParams): Response {
   const body: Body<"/api/skill-groups/{group}/skills", "get"> = {
     group: group.id,
     skills: group.skills.map((name) => { const s = skills.find((x) => x.name === name)!; return { name: s.name, files: s.files }; }),
-    grantedBy: { kind: "course", id: grant.id }, sourceLessonId: source.lessonId,
+    grantedBy: { kind: "course", id: grant.id }, sourceCourse: grant.id, sourceLessonId: source.lessonId,
   };
   return signed(body, langHeaders(query.lang));
 }

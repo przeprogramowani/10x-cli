@@ -114,13 +114,18 @@ function groupSkills(names: string[] = MEMBERS, version = 1, overrides: Partial<
     group: "core-skill-chain",
     skills: names.map((name) => ({ name, files: [{ path: "SKILL.md", content: skillContent(name, version) }] })),
     grantedBy: { kind: "course", id: "10xdevs-3" },
+    sourceCourse: "10xdevs-3",
     sourceLessonId: "m3l5",
     ...overrides,
   };
 }
 
 const ok = <T>(data: T): ApiResult<T> => ({ ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data });
-const failure = <T>(status: number, code: string): ApiResult<T> => ({ ok: false, status, code, error: code });
+const failure = <T>(status: number, code: string, payload?: Record<string, unknown>): ApiResult<T> => ({ ok: false, status, code, error: code, ...(payload ? { payload: { error: code, ...payload } } : {}) });
+/** Human stderr without the `ERROR <code>:` prefix: the code passes through as received, the words are ours. */
+const humanText = (capture: Capture) => capture.stderr.replace(/^ERROR [a-z0-9_]+: /gm, "");
+const NOT_PERMITTED = "You are not permitted to install this skill group. Contact the support team at kontakt@przeprogramowani.pl.";
+const DAY = 24 * 60 * 60 * 1_000;
 const envelope = (capture: Capture) => JSON.parse(capture.stdout);
 
 let tmp: string;
@@ -205,9 +210,10 @@ describe("10x skill-group (overview)", () => {
     expect(groupQueries).toEqual([{ lang: "en" }]);
   });
 
-  it("normalizes case and whitespace, and follows --course", async () => {
+  it("normalizes case and whitespace, and follows the project's course", async () => {
     serveGroups(() => ok({ groups: [groupSummary()] }));
-    const result = await run(["skill-group", " Core-Skill-Chain ", "--course", "10xdevs3"]);
+    writeFileSync(join(projectRoot, PROJECT_COURSE_FILENAME), JSON.stringify({ version: 1, course: "10xdevs3" }));
+    const result = await run(["skill-group", " Core-Skill-Chain "]);
     expect(result.exitCode).toBeUndefined();
     expect(envelope(result).data.course).toBe("10xdevs3");
     expect(groupQueries).toEqual([{ course: "10xdevs3", lang: "en" }]);
@@ -285,7 +291,9 @@ describe("10x skill-group (overview)", () => {
     const cases: [number, string, number, string][] = [
       [404, "skill_groups_unsupported", 1, "skill_groups_unsupported"],
       [403, "course_access_denied", 4, "course_access_denied"],
-      [404, "course_not_found", 2, "course_not_found"],
+      [403, "skill_access_denied", 4, "skill_access_denied"],
+      // Only a stale project binding can name an unknown course now.
+      [404, "course_not_found", 4, "course_not_found"],
       [401, "unauthorized", 3, "auth_required"],
       [0, "network_error", 1, "network_error"],
       [500, "internal_error", 1, "internal_error"],
@@ -295,6 +303,33 @@ describe("10x skill-group (overview)", () => {
       const result = await run(["skill-group", "core-skill-chain"]);
       expect(result.exitCode).toBe(exitCode);
       expect(envelope(result).error.code).toBe(expected);
+    }
+  });
+
+  it("prints the support message when access is denied", async () => {
+    for (const [status, code] of [[403, "course_access_denied"], [403, "skill_access_denied"], [404, "course_not_found"]] as const) {
+      serveGroups(() => failure(status, code));
+      const { error } = envelope(await run(["skill-group", "core-skill-chain"]));
+      expect(error.message).toBe(NOT_PERMITTED);
+      expect(error.hint).toBeUndefined();
+    }
+  });
+
+  it("never names a course in human error output, even in a bound project", async () => {
+    process.stdout.isTTY = true;
+    writeFileSync(join(projectRoot, PROJECT_COURSE_FILENAME), JSON.stringify({ version: 1, course: "10xdevs3" }));
+    const outcomes: ApiResult<SkillGroupsResponse>[] = [
+      failure(403, "course_access_denied"),
+      failure(403, "skill_access_denied"),
+      failure(404, "course_not_found"),
+      ok({ groups: [] }),
+      ok({ groups: [groupSummary({ id: "other-chain" })] }),
+    ];
+    for (const outcome of outcomes) {
+      serveGroups(() => outcome);
+      const result = await run(["skill-group", "core-skill-chain"]);
+      expect(result.exitCode).toBeGreaterThan(0);
+      expect(humanText(result)).not.toMatch(/course/i);
     }
   });
 
@@ -352,7 +387,8 @@ describe("10x skill-group --install", () => {
     const first = await run(["skill-group", "core-skill-chain", "--install"]);
     expect(first.exitCode).toBeUndefined();
     expect(first.stdout).toBe("");
-    expect(first.stderr).toContain("Course: 10xdevs3 (from lesson m3l5)");
+    expect(first.stderr).toContain("From lesson m3l5");
+    expect(first.stderr).not.toMatch(/course/i);
     for (const name of MEMBERS) expect(first.stderr).toContain(`  [created] ${name}\n`);
     expect(first.stderr).not.toContain("group:core-skill-chain");
 
@@ -467,7 +503,10 @@ describe("10x skill-group --install", () => {
     const cases: [number, string, number, string][] = [
       [404, "skill_install_unsupported", 1, "skill_install_unsupported"],
       [403, "course_access_denied", 4, "course_access_denied"],
-      [404, "course_not_found", 2, "course_not_found"],
+      [403, "skill_access_denied", 4, "skill_access_denied"],
+      [403, "skill_locked", 4, "skill_locked"],
+      // Only a stale project binding can name an unknown course now.
+      [404, "course_not_found", 4, "course_not_found"],
       [500, "skill_group_incomplete", 1, "skill_group_incomplete"],
       [401, "unauthorized", 3, "auth_required"],
     ];
@@ -478,6 +517,64 @@ describe("10x skill-group --install", () => {
       expect(envelope(result).error.code).toBe(expected);
     }
     expect(existsSync(join(projectRoot, ".claude"))).toBe(false);
+  });
+
+  it("prints the support message for every access denial, with the code as received", async () => {
+    for (const [status, code] of [[403, "skill_access_denied"], [403, "course_access_denied"], [404, "course_not_found"]] as const) {
+      serveInstall(() => failure(status, code));
+      const result = await run(["skill-group", "core-skill-chain", "--install"]);
+      expect(result.exitCode).toBe(4);
+      const { error } = envelope(result);
+      expect(error.code).toBe(code);
+      expect(error.message).toBe(NOT_PERMITTED);
+    }
+  });
+
+  it("says when a locked group unlocks, or that it isn't available yet", async () => {
+    serveInstall(() => failure(403, "skill_locked", { module: 5, releaseAt: new Date(Date.now() + 3 * DAY).toISOString() }));
+    const future = envelope(await run(["skill-group", "core-skill-chain", "--install"]));
+    expect(future.error.code).toBe("skill_locked");
+    expect(future.error.message).toStartWith("'core-skill-chain' unlocks with module 5 on ");
+    expect(future.error.hint).toBe("Run '10x list' to see what's available now.");
+    serveInstall(() => failure(403, "skill_locked", { module: 5, releaseAt: new Date(Date.now() - 3 * DAY).toISOString() }));
+    const past = await run(["skill-group", "core-skill-chain", "--install"]);
+    expect(past.exitCode).toBe(4);
+    expect(envelope(past).error.message).toBe("'core-skill-chain' isn't available yet.");
+    expect(existsSync(join(projectRoot, ".claude"))).toBe(false);
+  });
+
+  it("installs through a license grant, taking the course from sourceCourse", async () => {
+    serveInstall(() => ok(groupSkills(MEMBERS, 1, { grantedBy: { kind: "license", id: "lic-123" }, sourceCourse: "10xdevs-3" })));
+    const result = await run(["skill-group", "core-skill-chain", "--install"]);
+    expect(result.exitCode).toBeUndefined();
+    const body = envelope(result);
+    expect(body.data.course).toBe("10xdevs3");
+    expect(body.data.grantedBy).toEqual({ kind: "license", id: "lic-123" });
+    for (const name of MEMBERS) expect(readFileSync(skillPath(name), "utf8")).toBe(skillContent(name));
+    expect(existsSync(join(projectRoot, PROJECT_COURSE_FILENAME))).toBe(false);
+  });
+
+  it("never names a course in human install errors, even in a bound project", async () => {
+    process.stdout.isTTY = true;
+    saveToolConfig({ tool: "claude-code" } as Parameters<typeof saveToolConfig>[0]);
+    writeFileSync(join(projectRoot, PROJECT_COURSE_FILENAME), JSON.stringify({ version: 1, course: "10xdevs3" }));
+    serveGroups(() => ok({ groups: [] }));
+    const outcomes: ApiResult<SkillGroupSkillsResponse>[] = [
+      failure(403, "skill_access_denied"),
+      failure(403, "course_access_denied"),
+      failure(404, "course_not_found"),
+      failure(403, "skill_locked", { module: 4, releaseAt: new Date(Date.now() + 5 * DAY).toISOString() }),
+      failure(403, "skill_locked", {}),
+      failure(404, "skill_group_not_found"),
+    ];
+    for (const outcome of outcomes) {
+      serveInstall(() => outcome);
+      const result = await run(["skill-group", "core-skill-chain", "--install"]);
+      expect(result.exitCode).toBeGreaterThan(0);
+      expect(result.stdout).toBe("");
+      expect(humanText(result)).not.toMatch(/course/i);
+    }
+    expect(installQueries.every(({ query }) => query.course === "10xdevs3")).toBe(true);
   });
 });
 

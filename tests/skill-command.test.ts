@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import cac from "cac";
@@ -168,13 +168,11 @@ describe("10x skill", () => {
     expect(queries.map((q) => q.lang)).toEqual(["pl", "pl"]);
   });
 
-  it("follows --course and the project's course", async () => {
+  it("follows the project's course", async () => {
     serve(success([overview("10x-plan")]));
-    expect(envelope(await run(["skill", "10x-plan", "--course", "10xdevs3"])).data.course).toBe("10xdevs3");
-    expect(queries[0]).toEqual({ course: "10xdevs3", lang: "en" });
     writeFileSync(join(tmp, ".10x-cli.json"), JSON.stringify({ version: 1, course: "10xdevs4" }));
     expect(envelope(await run(["skill", "10x-plan"])).data.course).toBe("10xdevs4");
-    expect(queries[1]).toEqual({ course: "10xdevs4", lang: "en" });
+    expect(queries[0]).toEqual({ course: "10xdevs4", lang: "en" });
   });
 
   it("rejects bad usage with exit 2 before calling the API", async () => {
@@ -208,7 +206,9 @@ describe("10x skill", () => {
     const cases: [number, string, number, string][] = [
       [404, "skill_overviews_unsupported", 1, "skill_overviews_unsupported"],
       [403, "course_access_denied", 4, "course_access_denied"],
-      [404, "course_not_found", 2, "course_not_found"],
+      [403, "skill_access_denied", 4, "skill_access_denied"],
+      // Only a stale project binding can name an unknown course now.
+      [404, "course_not_found", 4, "course_not_found"],
       [401, "unauthorized", 3, "auth_required"],
       [0, "network_error", 1, "network_error"],
       [500, "internal_error", 1, "internal_error"],
@@ -218,6 +218,71 @@ describe("10x skill", () => {
       const result = await run(["skill", "10x-plan"]);
       expect(result.exitCode).toBe(exitCode);
       expect(envelope(result).error.code).toBe(expected);
+    }
+  });
+
+  it("prints the support message when access is denied", async () => {
+    for (const [status, code] of [[403, "course_access_denied"], [403, "skill_access_denied"], [404, "course_not_found"]] as const) {
+      serve(failure(status, code));
+      const { error } = envelope(await run(["skill", "10x-plan"]));
+      expect(error.message).toBe("You are not permitted to install this skill. Contact the support team at kontakt@przeprogramowani.pl.");
+      expect(error.hint).toBeUndefined();
+    }
+  });
+
+  it("never names a course in human error output, even in a bound project", async () => {
+    process.stdout.isTTY = true;
+    writeFileSync(join(tmp, ".10x-cli.json"), JSON.stringify({ version: 1, course: "10xdevs4" }));
+    const outcomes = [
+      failure(403, "course_access_denied"),
+      failure(403, "skill_access_denied"),
+      failure(404, "course_not_found"),
+      success([]),
+      success([overview("kubernetes-operator")]),
+    ];
+    for (const outcome of outcomes) {
+      serve(outcome);
+      const result = await run(["skill", "10x-plan"]);
+      expect(result.exitCode).toBeGreaterThan(0);
+      expect(result.stderr.replace(/^ERROR [a-z0-9_]+: /gm, "")).not.toMatch(/course/i);
+    }
+  });
+});
+
+describe("--course is gone from skill and skill-group", () => {
+  const entry = join(import.meta.dir, "../src/index.ts");
+  function cli(args: string[]) {
+    const home = join(tmp, "spawn");
+    mkdirSync(home, { recursive: true });
+    const proc = Bun.spawnSync([process.execPath, entry, ...args], {
+      cwd: home,
+      env: { ...process.env, XDG_CONFIG_HOME: join(home, "config"), APPDATA: join(home, "config"), API_BASE_URL: "http://127.0.0.1:9" },
+    });
+    return { exitCode: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+  }
+
+  for (const argv of [
+    ["skill", "10x-plan", "--course", "10xdevs4"],
+    ["skill", "10x-plan", "--install", "--course", "10xdevs4"],
+    ["skill-group", "core-skill-chain", "--course", "10xdevs4"],
+    ["skill-group", "core-skill-chain", "--install", "--course", "10xdevs4"],
+  ]) {
+    it(`rejects '${argv.join(" ")}' as a usage error (exit 2)`, () => {
+      const result = cli(argv);
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toStartWith("ERROR usage:");
+      expect(result.stderr).toContain("--course");
+      expect(result.stdout).toBe("");
+    });
+  }
+
+  it("no longer lists --course in either command's usage", () => {
+    for (const command of ["skill", "skill-group"]) {
+      const result = cli([command, "--help"]);
+      expect(result.exitCode).toBe(0);
+      const help = result.stdout + result.stderr;
+      expect(help).toContain("--install");
+      expect(help).not.toContain("--course");
     }
   });
 });

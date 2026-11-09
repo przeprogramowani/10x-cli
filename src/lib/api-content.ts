@@ -443,7 +443,7 @@ export type SkillGroupSkillsResponse = paths["/api/skill-groups/{group}/skills"]
 export type SkillGroupSkill = SkillGroupSkillsResponse["skills"][number];
 
 export interface SkillContentQuery {
-  /** Course hint (`--course`, else the project binding). Without it the server picks the newest granted course. */
+  /** Course hint: the project binding only, never a user-chosen course. Without it the server picks from the caller's grants. */
   course?: string;
   tool: string;
   lang: string;
@@ -461,10 +461,11 @@ const SKILL_ROUTE_404_CODES: readonly string[] = ["skill_not_found", "skill_grou
 const RELEASE_ID_PATTERN = /^r-[a-f0-9]{64}$/;
 const RELEASE_HASH_PATTERN = /^[a-f0-9]{64}$/;
 
+/** A course grant, or a license grant whose id is opaque: nothing here assumes where a license comes from. */
 function isSkillGrant(value: unknown): value is SkillGrant {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const g = value as Record<string, unknown>;
-  return g["kind"] === "course" && isNonEmptyString(g["id"]);
+  return (g["kind"] === "course" || g["kind"] === "license") && isNonEmptyString(g["id"]);
 }
 
 function isSkillFiles(value: unknown): boolean {
@@ -477,9 +478,16 @@ function isSkillFiles(value: unknown): boolean {
 
 const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
 
+/**
+ * `sourceCourse` is optional only for a course grant from an older API, whose
+ * grant id is then the source course. A license says nothing about a course,
+ * so a license grant without `sourceCourse` is invalid.
+ */
 function hasServedFields(o: Record<string, unknown>): boolean {
-  return isSkillGrant(o["grantedBy"]) && isNonEmptyString(o["sourceLessonId"])
-    && isOptionalString(o["course"]) && isOptionalString(o["releaseId"]) && isOptionalString(o["releaseManifestHash"]);
+  const grant = o["grantedBy"];
+  if (!isSkillGrant(grant) || !isNonEmptyString(o["sourceLessonId"])) return false;
+  if (o["sourceCourse"] === undefined ? grant.kind !== "course" : !isNonEmptyString(o["sourceCourse"])) return false;
+  return isOptionalString(o["course"]) && isOptionalString(o["releaseId"]) && isOptionalString(o["releaseManifestHash"]);
 }
 
 export function validateSkillResponse(value: unknown): value is SkillResponse {
@@ -516,14 +524,27 @@ export function validateSkillGroupsResponse(value: unknown): value is SkillGroup
   });
 }
 
+/** What a served response says about its source; `sourceCourse` is absent only from an older API. */
+interface ServedSource {
+  grantedBy: SkillGrant;
+  sourceCourse?: string | undefined;
+}
+
+/** The course id whose release supplied the bytes: `sourceCourse`, else (older API) a course grant's id. */
+function sourceCourseId(data: ServedSource): string | undefined {
+  if (data.sourceCourse !== undefined) return data.sourceCourse;
+  return data.grantedBy.kind === "course" ? data.grantedBy.id : undefined;
+}
+
 /**
- * The course a skill response was served through, as a project course slug.
- * Validated responses always resolve: the fetchers reject grants this CLI
- * does not know.
+ * The course whose release supplied a skill response, as a project course
+ * slug. Validated responses always resolve: the fetchers reject sources this
+ * CLI does not know.
  */
-export function servedCourse(data: { grantedBy: SkillGrant }): ProjectCourse {
-  const course = normalizeProjectCourse(data.grantedBy.id);
-  if (!course) throw new Error(`Unsupported course grant: ${data.grantedBy.id}`);
+export function servedCourse(data: ServedSource): ProjectCourse {
+  const id = sourceCourseId(data);
+  const course = normalizeProjectCourse(id);
+  if (!course) throw new Error(`Unsupported source course: ${String(id)}`);
   return course;
 }
 
@@ -534,16 +555,17 @@ export function servedCourse(data: { grantedBy: SkillGrant }): ProjectCourse {
  * content carries no identity and cannot satisfy a selected release.
  */
 function skillReleaseMismatch(data: SkillResponse | SkillGroupSkillsResponse, query: SkillContentQuery): { code: string; error: string } | null {
-  const course = normalizeProjectCourse(data.grantedBy.id);
-  if (!course) return { code: "course_unsupported", error: `This CLI does not support ${data.grantedBy.id}. Update the CLI before writing its content.` };
-  if (query.course !== undefined && normalizeProjectCourse(query.course) !== course) return { code: "release_mismatch", error: "Signed content was served through a different course than requested." };
+  const id = sourceCourseId(data);
+  const course = normalizeProjectCourse(id);
+  if (!course) return { code: "course_unsupported", error: `This CLI does not support content from ${String(id)}. Update the CLI before writing it.` };
+  if (query.course !== undefined && normalizeProjectCourse(query.course) !== course) return { code: "release_mismatch", error: "Signed content comes from a different source than this project uses." };
   if (course === "10xdevs4") {
-    if (data.course !== "10xdevs4" || !RELEASE_ID_PATTERN.test(data.releaseId ?? "") || !RELEASE_HASH_PATTERN.test(data.releaseManifestHash ?? "")) return { code: "release_mismatch", error: "V4 content is missing a valid course/release/manifest identity." };
+    if (data.course !== "10xdevs4" || !RELEASE_ID_PATTERN.test(data.releaseId ?? "") || !RELEASE_HASH_PATTERN.test(data.releaseManifestHash ?? "")) return { code: "release_mismatch", error: "V4 content is missing a valid release/manifest identity." };
     const mismatch = query.release ? releaseMismatch(course, data, query.release) : null;
     return mismatch ? { code: "release_mismatch", error: mismatch } : null;
   }
   if (query.release) return { code: "release_mismatch", error: "A release was selected but the content is not release-pinned." };
-  if (data.course !== undefined || data.releaseId !== undefined || data.releaseManifestHash !== undefined) return { code: "release_mismatch", error: "Content carries a release identity its course does not use." };
+  if (data.course !== undefined || data.releaseId !== undefined || data.releaseManifestHash !== undefined) return { code: "release_mismatch", error: "Content carries a release identity its source does not use." };
   return null;
 }
 

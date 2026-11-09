@@ -3,7 +3,8 @@
  * skills (e.g. `core-skill-chain`): its title, summary and ordered members,
  * each with the problem it solves when an overview is published.
  *
- * Course scope and language follow `10x skill`. Read-only by default.
+ * Scope (the project's course only, no `--course`) and language follow
+ * `10x skill`; no human message names a course. Read-only by default.
  * `--install` writes every member into the project without naming a lesson
  * (see `lib/skill-install.ts`); `--dry-run` and `--tool` belong to that mode.
  */
@@ -13,12 +14,10 @@ import { fetchSkillGroups, fetchSkillOverviews, type SkillGroupSummary, type Ski
 import { requireAuth } from "../lib/auth-guard";
 import { paint, STYLE, wrapText } from "../lib/format";
 import { ExitCodes, type GlobalFlags, type OutputContext, output, outputError, resolveContext, sanitize, verbose } from "../lib/output";
-import { installStandalone } from "../lib/skill-install";
-import { type CourseScope, resolveCourseScope } from "./changelog";
+import { installStandalone, notPermittedMessage, projectCourseHint } from "../lib/skill-install";
 import { MAX_WIDTH, resolveLanguage, suggestSkills } from "./skill";
 
 interface SkillGroupFlags extends GlobalFlags {
-  course?: unknown;
   lang?: unknown;
   install?: boolean;
   dryRun?: boolean;
@@ -28,7 +27,6 @@ interface SkillGroupFlags extends GlobalFlags {
 export function registerSkillGroupCommand(cli: CAC): void {
   cli
     .command("skill-group <name>", "Explain a group of 10x skills, e.g. core-skill-chain, and install it with --install")
-    .option("--course <course>", "Look in one course (default: this project's course)")
     .option("--lang <lang>", "Language: en (default) or pl")
     .option("--install", "Install every skill of the group into this project")
     .option("--dry-run", "With --install: show what would be written without touching the filesystem")
@@ -60,21 +58,21 @@ export async function runSkillGroup(ctx: OutputContext, rawName: string, options
     return;
   }
   const lang = resolveLanguage(ctx, options.lang);
-  const scope = resolveCourseScope(ctx, options.course, process.cwd());
-  const courseQuery = scope.course !== undefined ? { course: scope.course } : {};
+  const course = projectCourseHint(ctx, process.cwd());
+  const courseQuery = course !== undefined ? { course } : {};
 
   const auth = await requireAuth(ctx);
 
   verbose(ctx, `fetching skill groups ${JSON.stringify({ ...courseQuery, lang })}`);
   const result = await fetchSkillGroups({ ...courseQuery, lang }, auth.access_token);
-  if (!result.ok) handleError(ctx, result.status, result.code, result.error, scope);
+  if (!result.ok) handleError(ctx, result.status, result.code, result.error);
 
   const groups = result.data.groups;
   const group = groups.find((item) => item.id === name);
-  if (!group) notFound(ctx, name, groups, scope);
+  if (!group) notFound(ctx, name, groups);
 
   if (ctx.json) {
-    output(ctx, "", { course: scope.course ?? null, group });
+    output(ctx, "", { course: course ?? null, group });
     return;
   }
   const problems = await memberProblems(ctx, auth.access_token, { ...courseQuery, lang });
@@ -94,34 +92,25 @@ async function memberProblems(ctx: OutputContext, token: string, query: { course
   return new Map();
 }
 
-function notFound(ctx: OutputContext, name: string, groups: SkillGroupSummary[], scope: CourseScope): never {
-  const where = scope.course ? ` in ${sanitize(scope.course)}` : "";
+function notFound(ctx: OutputContext, name: string, groups: SkillGroupSummary[]): never {
   if (groups.length === 0) {
-    outputError(ctx, "skill_group_not_found", `No skill groups are available${where}.`, ExitCodes.NOT_FOUND, "Use '10x skill <name>' to look up a single skill.");
+    outputError(ctx, "skill_group_not_found", "No skill groups are available.", ExitCodes.NOT_FOUND, "Use '10x skill <name>' to look up a single skill.");
   }
   const ids = groups.map((group) => group.id);
   const suggestions = suggestSkills(name, ids).map(sanitize);
   const hint = suggestions.length > 0
     ? `Did you mean: ${suggestions.join(", ")}?`
     : `Available groups: ${ids.map(sanitize).join(", ")}.`;
-  outputError(ctx, "skill_group_not_found", `No skill group named '${sanitize(name)}'${where}.`, ExitCodes.NOT_FOUND, hint);
+  outputError(ctx, "skill_group_not_found", `No skill group named '${sanitize(name)}'.`, ExitCodes.NOT_FOUND, hint);
 }
 
-function handleError(ctx: OutputContext, status: number, code: string, error: string, scope: CourseScope): never {
+function handleError(ctx: OutputContext, status: number, code: string, error: string): never {
   if (code === "skill_groups_unsupported") {
     outputError(ctx, code, "The 10x-toolkit API does not serve skill groups yet.", ExitCodes.ERROR, "Use '10x skill <name>' for single skills for now.");
   }
-  if (status === 403) {
-    outputError(
-      ctx,
-      "course_access_denied",
-      scope.course ? `Your account does not have access to ${sanitize(scope.course)}.` : "Your account has no active course access.",
-      ExitCodes.FORBIDDEN,
-      scope.source === "project" ? `This project uses ${sanitize(scope.course ?? "")}.` : undefined,
-    );
-  }
-  if (status === 404 && code === "course_not_found") {
-    outputError(ctx, "course_not_found", `Unknown course: ${sanitize(scope.course ?? "")}.`, ExitCodes.USAGE, "Use a course id such as '10xdevs4'.");
+  // Access denied, or a stale binding's unknown course: the install message, the code as received.
+  if (status === 403 || (status === 404 && code === "course_not_found")) {
+    outputError(ctx, code, notPermittedMessage("group"), ExitCodes.FORBIDDEN);
   }
   if (status === 401) {
     outputError(ctx, "auth_required", "Your session is no longer valid.", ExitCodes.AUTH_REQUIRED, "Run '10x auth' to log in again.");

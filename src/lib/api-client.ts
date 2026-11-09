@@ -111,6 +111,8 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   skill_group_incomplete: "No lesson currently delivers every skill of this group. Try again later or report this to the course team.",
   skill_install_unsupported: "The backend does not support installing skills without a lesson yet.",
   skill_groups_unsupported: "The backend does not serve skill groups yet.",
+  skill_locked: "This skill isn't available yet.",
+  skill_access_denied: "You are not permitted to install this skill. Contact the support team at kontakt@przeprogramowani.pl.",
   // Auth
   unauthorized: "You are not signed in. Run `10x auth` first.",
   no_membership: "No active course membership was found for this email.",

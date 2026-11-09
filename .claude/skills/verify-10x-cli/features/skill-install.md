@@ -15,7 +15,7 @@ already owns, follow a group that shrinks upstream, and never bind the project t
 - `install-managed` a skill a lesson owns is `managed_by_lesson` with that lesson and is not written.
 - `install-shrink` a member dropped upstream is removed, or kept when edited.
 - `install-no-binding` no `.10x-cli.json` is created; the manifest gets `skill:` / `group:` entries.
-- `install-errors` unknown names exit `5`, a denied course `4`, usage `2`, an older backend `1`.
+- `install-errors` unknown names exit `5`, denied access `4` (support message), usage `2` (incl. `--course`), an older backend `1`.
 - `install-older-cli` the previous published CLI keeps working on the same project.
 
 ## How to get to it (user POV)
@@ -31,7 +31,7 @@ Preconditions:
 - Baseline run with `$V seed-auth`; empty project dir. Repeat the recipe in a second run
   with `--tool codex` (files under `.agents/`, manifest `.agents/.10x-cli-manifest.json`).
 - The fake serves the three routes from lesson `m1l2`, which delivers the six chain skills
-  plus `verify-m1l2-skill`. No module-lock check applies to them.
+  plus `verify-m1l2-skill`. The fake applies no module lock, so `skill_locked` is not reachable here.
 
 - **Preview.** `$V snapshot before-dry`, `$V cli dry -- skill 10x-plan --install --tool claude-code --dry-run`,
   `$V snapshot after-dry`. Exit `0`; `data.result.dry_run` `true`; both `10x-plan` files
@@ -65,8 +65,10 @@ Preconditions:
   `preserved_local` (`locally_modified`). The `10x-frame` dir and its edit remain.
 - **Errors.** `skill 10x-pla --install …` exit `5` `skill_not_found`;
   `skill-group core-skil-chain --install …` exit `5` `skill_group_not_found`, hint
-  `Did you mean: core-skill-chain?`; `skill 10x-plan --install … --course 10xdevs4` exit `4`
-  `course_access_denied`; `--course nope` exit `2` `course_not_found`;
+  `Did you mean: core-skill-chain?`; `skill 10x-plan --install … --course 10xdevs4` exit `2`
+  `ERROR usage:` (no `--course` option); a project bound to `10xdevs4` (the fake's ungranted
+  course) exits `4` `course_access_denied` with "You are not permitted to install this skill.
+  Contact the support team at kontakt@przeprogramowani.pl.";
   `skill 10x-plan --dry-run` and `skill-group core-skill-chain --tool codex` exit `2`
   `install_required`.
 - **Older backend.** `curl -X POST "$api/__fake/skills/route?enabled=0"`: both installs exit
@@ -84,8 +86,7 @@ Preconditions:
 
 - Always pass `--tool`; without it a fresh project detects or prompts.
 - Typo suggestions for `10x skill` come from the overviews route, which serves only
-  `verify-fixture-skill`, so `10x-pla` gets no name suggestion (in a bound project the
-  hint suggests `--course` instead).
+  `verify-fixture-skill`, so `10x-pla` gets no name suggestion.
 - `--lang pl` returns English with `X-Content-Fallback: true` (the fixture is English only);
   `data.result.language` is `en`.
 - An older CLI's lesson write that touches the rules block (`get m1l1`) deletes the
