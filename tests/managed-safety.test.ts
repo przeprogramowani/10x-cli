@@ -74,9 +74,31 @@ describe("managed stale removal", () => {
     const link = join(root, target);
     mkdirSync(join(link, ".."), { recursive: true });
     symlinkSync(target.endsWith(".md") || target.endsWith(".json") ? join(destination, "value") : destination, link);
-    await expect(applyBundle(bundle(), root, { course: "10xdevs3" })).rejects.toThrow(/Unsafe/);
+    await expect(applyBundle(bundle(), root, { course: "10xdevs3" })).rejects.toMatchObject({ code: "unsafe_project_path", message: expect.stringContaining("symbolic link") });
     expect(readFileSync(join(destination, "value"), "utf8")).toBe("untouched");
     expect(existsSync(join(root, ".10x-cli.json"))).toBe(false);
+  });
+});
+
+describe("symlinked rules file", () => {
+  const linkClaudeToAgents = () => { writeFileSync(join(root, "AGENTS.md"), "# shared rules\n"); symlinkSync("AGENTS.md", join(root, "CLAUDE.md")); };
+  const skillOnly = (): LessonBundle => ({ ...bundle(), lessonId: "skill:a", module: 0, lesson: 0, prompts: [], configs: [], rules: [] });
+
+  it("a skill-only install neither reads nor rejects a symlinked CLAUDE.md", async () => {
+    linkClaudeToAgents();
+    await applyBundle(skillOnly(), root, { course: "10xdevs3", applyCourseRules: true, standalone: true, partial: true });
+    expect(readFileSync(skill(), "utf8")).toBe("upstream");
+    expect(fs.lstatSync(join(root, "CLAUDE.md")).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe("# shared rules\n");
+  });
+
+  it("a lesson that delivers rules names the link and suggests an @AGENTS.md import", async () => {
+    linkClaudeToAgents();
+    const error = await applyBundle(bundle(), root, { course: "10xdevs3" }).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "unsafe_project_path", message: "CLAUDE.md is a symbolic link to AGENTS.md. 10x never writes through symbolic links." });
+    expect((error as { hint?: string }).hint).toContain("printf '@AGENTS.md\\n' > CLAUDE.md");
+    expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe("# shared rules\n");
+    expect(existsSync(skill())).toBe(false);
   });
 });
 
@@ -181,7 +203,7 @@ describe("path validation for removals and writes", () => {
     const outside = join(root, "student-reference"); mkdirSync(outside);
     writeFileSync(join(outside, "support.md"), "external"); symlinkSync(outside, parent);
     const replacement = { ...removedBundle(), prompts: [{ name: "new", content: "new" }] };
-    await expect(applyBundle(replacement, root, { course: "10xdevs3" })).rejects.toThrow(/Unsafe/);
+    await expect(applyBundle(replacement, root, { course: "10xdevs3" })).rejects.toThrow(/symbolic link|needs a directory|not a regular file/);
     expect(readFileSync(join(outside, "support.md"), "utf8")).toBe("external");
     expect(existsSync(join(root, ".claude/prompts/new.md"))).toBe(false);
   });

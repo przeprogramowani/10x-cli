@@ -1,13 +1,41 @@
 import { randomUUID } from "node:crypto";
-import { linkSync, lstatSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { linkSync, lstatSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isManifest, MANIFEST_FILENAME } from "./manifest";
 import { LEGACY_PROFILES, PROFILES } from "./tool-profile";
 
 export const PROJECT_COURSE_FILENAME = ".10x-cli.json";
 export type ProjectCourse = "10xdevs3" | "10xdevs4";
 export class CourseBindingError extends Error {
-  constructor(public readonly code: "course_binding_invalid" | "course_binding_conflict" | "course_mismatch", message: string) { super(message); }
+  constructor(
+    public readonly code: "course_binding_invalid" | "course_binding_conflict" | "course_mismatch" | "unsafe_project_path",
+    message: string,
+    public readonly hint?: string,
+  ) { super(message); }
+}
+
+/**
+ * Why a project path is refused, and what to do about it. Symlinks are never
+ * followed, so the CLI cannot write outside the project through one.
+ */
+function unsafePathError(root: string, current: string, stat: { isSymbolicLink(): boolean; isDirectory(): boolean }, isLast: boolean): CourseBindingError {
+  const rel = relative(root, current) || ".";
+  if (stat.isSymbolicLink()) {
+    let target = "";
+    try { target = readlinkSync(current); } catch { /* unreadable link: name the path only */ }
+    const name = basename(current);
+    const linked = target ? `${rel} is a symbolic link to ${target}` : `${rel} is a symbolic link`;
+    const hint = name === "CLAUDE.md" && target && basename(target) === "AGENTS.md"
+      ? `Replace the link with a regular file that imports AGENTS.md, so AGENTS.md stays the single source: rm CLAUDE.md && printf '@AGENTS.md\\n' > CLAUDE.md`
+      : isLast
+        ? `Replace the link with a regular file${target ? ` (for example: rm ${rel} && cp ${target} ${rel})` : ""}, then run the command again.`
+        : `Replace the link with a real directory, then run the command again.`;
+    return new CourseBindingError("unsafe_project_path", `${linked}. 10x never writes through symbolic links.`, hint);
+  }
+  if (!isLast && !stat.isDirectory()) {
+    return new CourseBindingError("unsafe_project_path", `${rel} is a file, but 10x needs a directory there.`, `Move or rename ${rel}, then run the command again.`);
+  }
+  return new CourseBindingError("unsafe_project_path", `${rel} is not a regular file or directory.`, `Remove or rename ${rel}, then run the command again.`);
 }
 
 /** Historical API IDs are accepted only at the legacy import boundary. */
@@ -30,7 +58,7 @@ export function assertProjectPath(projectRoot: string, target: string): void {
     try { stat = lstatSync(current); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     if (stat.isSymbolicLink() || (i < parts.length && !stat.isDirectory()) || (i === parts.length && !stat.isFile() && !stat.isDirectory())) {
-      throw new CourseBindingError("course_binding_invalid", `Unsafe project path: ${current}`);
+      throw unsafePathError(root, current, stat, i === parts.length);
     }
   }
 }

@@ -110,7 +110,7 @@ export function resolveCourseScope(ctx: OutputContext, raw: unknown, projectRoot
     const { course } = inspectProjectCourse(projectRoot);
     return course ? { course, source: "project" } : { source: "none" };
   } catch (error) {
-    if (error instanceof CourseBindingError) outputError(ctx, error.code, error.message, ExitCodes.ERROR);
+    if (error instanceof CourseBindingError) outputError(ctx, error.code, error.message, ExitCodes.ERROR, error.hint);
     throw error;
   }
 }

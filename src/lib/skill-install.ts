@@ -92,7 +92,7 @@ export function projectCourseHint(ctx: OutputContext, projectRoot: string): Proj
   try {
     return inspectProjectCourse(projectRoot).course ?? undefined;
   } catch (error) {
-    if (error instanceof CourseBindingError) outputError(ctx, error.code, error.message, ExitCodes.ERROR);
+    if (error instanceof CourseBindingError) outputError(ctx, error.code, error.message, ExitCodes.ERROR, error.hint);
     throw error;
   }
 }

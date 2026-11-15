@@ -38,6 +38,10 @@ function inspectExisting(content: string, begin: string, end: string): { malform
 }
 
 export function planManagedRules(root: string, profile: ToolProfile, body: string | undefined, enabled: boolean, baseline?: ManagedRules): ManagedRulesPlan {
+  // Nothing to deliver and no opt-out to apply: the rules file is never
+  // written, so it is neither read nor checked (a symlinked CLAUDE.md must not
+  // block a skill-only install).
+  if (body === undefined && enabled) return { action: "unchanged", content: "", isConflict: false, next: baseline };
   const path = join(root, profile.rulesFile);
   assertProjectFilePath(root, path);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
