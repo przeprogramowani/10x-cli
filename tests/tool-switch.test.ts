@@ -200,7 +200,7 @@ describe("migrateArtifacts", () => {
     const linkPath = join(tmp, oldProfile.skillPath("code-review"));
     rmSync(linkPath);
     symlinkSync(realTarget, linkPath);
-    expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow(/Unsafe/);
+    expect(() => migrateArtifacts(tmp, orphan, newProfile)).toThrow(/symbolic link|needs a directory|not a regular file/);
     expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
     expect(readFileSync(realTarget, "utf8")).toBe("# real target\n");
     expect(existsSync(join(tmp, newProfile.skillPath("code-review")))).toBe(false);

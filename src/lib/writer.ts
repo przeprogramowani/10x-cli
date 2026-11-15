@@ -534,7 +534,9 @@ export function planBundle(
 
   const removed = computeRemovals(prevManifest, bundle, profile, projectRoot);
   const targets = [
-    join(manifestDir, MANIFEST_FILENAME), join(manifestDir, `${MANIFEST_FILENAME}.tmp`), rulesFilePath, buildUserBackupPath(rulesFilePath),
+    join(manifestDir, MANIFEST_FILENAME), join(manifestDir, `${MANIFEST_FILENAME}.tmp`),
+    // The rules file is only a target when this apply can write it.
+    ...(bundle.rules.length || !applyCourseRules ? [rulesFilePath, buildUserBackupPath(rulesFilePath)] : []),
     ...skills.flatMap((skill) => skill.files.flatMap((file) => [file.path, buildUserBackupPath(file.path)])),
     ...prompts.flatMap((prompt) => [prompt.path, buildUserBackupPath(prompt.path)]),
     ...configs.map((config) => config.path),

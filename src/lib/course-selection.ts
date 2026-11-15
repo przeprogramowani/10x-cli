@@ -36,7 +36,7 @@ export function tokenLacksCourse(token: string, selection: CourseSelection): boo
 
 export function reportCourseError(ctx: OutputContext, error: unknown): never {
   if (error instanceof CourseBindingError || error instanceof CourseSelectionError) {
-    outputError(ctx, error.code, error.message, error.code === "course_access_denied" ? ExitCodes.FORBIDDEN : error.code === "course_mismatch" ? ExitCodes.USAGE : ExitCodes.ERROR);
+    outputError(ctx, error.code, error.message, error.code === "course_access_denied" ? ExitCodes.FORBIDDEN : error.code === "course_mismatch" ? ExitCodes.USAGE : ExitCodes.ERROR, error instanceof CourseBindingError ? error.hint : undefined);
   }
   if (error instanceof RulesMarkerRepairError) {
     outputError(
