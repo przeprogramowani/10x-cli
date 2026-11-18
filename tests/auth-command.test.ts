@@ -455,6 +455,12 @@ describe("10x auth --method circle", () => {
       });
     }
 
+    it("403 says the email has neither a course nor a license", async () => {
+      authFlowMockState.circleStartImpl = () => startErr(403, "no_access", "server said no");
+      const { stdout } = await runAuth(["auth", "--method", "circle", "--email", TEST_EMAIL, "--json"]);
+      expect(expectErrorEnvelope(stdout, "no_access").message).toBe("This email has no active 10xDevs course or license.");
+    });
+
     it("429 with retry_after_s → hint names the wait and does not blame the email", async () => {
       authFlowMockState.circleStartImpl = () => ({
         ...startErr(429, "rate_limited", "slow down"),
@@ -513,7 +519,8 @@ describe("10x auth --method circle", () => {
       authFlowMockState.circlePollImpl = () => ({ kind: "denied", message: "no course" });
       const { stdout, exitCode } = await runCircle();
       expect(exitCode).toBe(4);
-      expectErrorEnvelope(stdout, "access_denied");
+      const err = expectErrorEnvelope(stdout, "access_denied");
+      expect(err.message).toBe("This email has no active 10xDevs course or license.");
       expect(existsSync(authFilePath())).toBe(false);
     });
 
@@ -649,6 +656,44 @@ describe("10x auth --method circle", () => {
       const { stdout } = await runAuth(["auth", "--status", "--json"]);
       const envelope = parseEnvelope<{ method?: string }>(stdout);
       expect(envelope.data && "method" in envelope.data).toBe(false);
+    });
+  });
+
+  describe("--status reports a license from the token claim", () => {
+    const claimToken = (claims: Record<string, unknown>) => `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+    const futureLicense = { id: "acme-2026-11", expiresAt: "2099-11-30T22:59:59.999Z" };
+    const localDate = new Date(futureLicense.expiresAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+    async function runHumanStatus(): Promise<CaptureResult> {
+      process.stdout.isTTY = true;
+      try { return await runAuth(["auth", "--status"]); } finally { process.stdout.isTTY = false; }
+    }
+
+    it("prints 'License: active until <local date>' and adds it to the JSON envelope", async () => {
+      saveAuth({ ...writeFutureAuth(), access_token: claimToken({ sub: "u", courses: [], license: futureLicense }) });
+      const human = await runHumanStatus();
+      expect(human.exitCode ?? 0).toBe(0);
+      expect(human.stderr).toContain(`License: active until ${localDate}.`);
+      const { stdout } = await runAuth(["auth", "--status", "--json"]);
+      const envelope = parseEnvelope<{ license?: { id: string; expires_at: string } }>(stdout);
+      expect(envelope.data?.license).toEqual({ id: futureLicense.id, expires_at: futureLicense.expiresAt });
+    });
+
+    it("course-only tokens show no License line and no license key", async () => {
+      saveAuth({ ...writeFutureAuth(), access_token: claimToken({ sub: "u", courses: ["10xdevs-4"] }) });
+      const human = await runHumanStatus();
+      expect(human.exitCode ?? 0).toBe(0);
+      expect(human.stderr).toContain("Signed in as student@example.com");
+      expect(human.stderr).not.toContain("License:");
+      const { stdout } = await runAuth(["auth", "--status", "--json"]);
+      const envelope = parseEnvelope<Record<string, unknown>>(stdout);
+      expect(envelope.data && "license" in envelope.data).toBe(false);
+    });
+
+    it("omits an already expired license claim instead of calling it active", async () => {
+      saveAuth({ ...writeFutureAuth(), access_token: claimToken({ sub: "u", courses: [], license: { id: "old", expiresAt: "2020-01-01T00:00:00Z" } }) });
+      const human = await runHumanStatus();
+      expect(human.stderr).not.toContain("License:");
     });
   });
 });

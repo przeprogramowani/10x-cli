@@ -163,6 +163,12 @@ describe("messageForApiError", () => {
     );
   });
 
+  it("maps a 403 no_access without a message to course-or-license wording", () => {
+    for (const error of ["no_access", "no_membership"]) {
+      expect(messageForApiError({ error })).toBe("This email has no active 10xDevs course or license.");
+    }
+  });
+
   it("returns undefined for an unknown error code (caller falls back)", () => {
     expect(messageForApiError({ error: "some_brand_new_code" })).toBeUndefined();
   });
