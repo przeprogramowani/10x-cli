@@ -1327,7 +1327,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description No active course membership */
+                /** @description No active course membership or license */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1523,7 +1523,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Membership revoked */
+                /** @description Course membership and license no longer active */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1587,7 +1587,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description No active course membership */
+                /** @description No active course membership or license */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1709,7 +1709,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Login denied — no active course membership */
+                /** @description Login denied — no active course membership or license */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1803,7 +1803,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Cross-origin request or no active course membership */
+                /** @description Cross-origin request or no active course membership or license */
                 403: {
                     headers: {
                         [name: string]: unknown;
