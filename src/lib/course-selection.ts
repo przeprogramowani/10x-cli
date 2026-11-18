@@ -11,8 +11,12 @@ export class CourseSelectionError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }
 
-export function selectCourse(discovery: CourseDiscovery, state: ProjectCourseState, explicit?: string, writing = false): CourseSelection {
+export const LICENSE_ONLY_MESSAGE = "Your license covers standalone skills and skill groups. Use `10x skill <name> --install` or `10x skill-group <name> --install`.";
+
+/** `licensed`: the token carries an active `license` claim (see tokenLicense). It only changes the wording when no course is granted. */
+export function selectCourse(discovery: CourseDiscovery, state: ProjectCourseState, explicit?: string, writing = false, licensed = false): CourseSelection {
   if (!validateCourseDiscovery(discovery)) throw new CourseSelectionError("discovery_invalid", "Invalid course discovery response.");
+  if (licensed && discovery.courses.length === 0) throw new CourseSelectionError("course_access_denied", LICENSE_ONLY_MESSAGE);
   const requested = explicit ?? state.course ?? discovery.defaultCourse;
   if (!requested) throw new CourseSelectionError(discovery.courses.length ? "course_unavailable" : "course_access_denied", discovery.courses.length ? "Your courses have no available published content yet." : "Your account has no active course access.");
   const selected = discovery.courses.find((course) => course.id === requested || course.slug === requested);
@@ -24,14 +28,35 @@ export function selectCourse(discovery: CourseDiscovery, state: ProjectCourseSta
   return { course: selected.slug, courseId: selected.id, reason: explicit !== undefined ? "explicit" : state.source === "binding" ? "project_binding" : state.source === "legacy" ? "legacy_manifest" : "backend_recommendation" };
 }
 
-/** Decode only to detect a stale claim, never to establish membership. Legacy tokens are checked live by the backend. */
-export function tokenLacksCourse(token: string, selection: CourseSelection): boolean {
+function decodeTokenPayload(token: string): Record<string, unknown> | undefined {
   try {
     const segment = token.split(".")[1];
-    if (!segment) return false;
-    const payload = JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as Record<string, unknown>;
-    return Array.isArray(payload.courses) && !payload.courses.includes(selection.courseId) && !payload.courses.includes(selection.course);
-  } catch { return false; }
+    if (!segment) return undefined;
+    const payload: unknown = JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
+    return payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : undefined;
+  } catch { return undefined; }
+}
+
+/** Decode only to detect a stale claim, never to establish membership. Legacy tokens are checked live by the backend. */
+export function tokenLacksCourse(token: string, selection: CourseSelection): boolean {
+  const payload = decodeTokenPayload(token);
+  return !!payload && Array.isArray(payload.courses) && !payload.courses.includes(selection.courseId) && !payload.courses.includes(selection.course);
+}
+
+export interface TokenLicense { id: string; expiresAt: string }
+
+/**
+ * The token's `license` claim while it is still active, else undefined. Decoded for wording only;
+ * the backend verifies the signature and decides access. A malformed or expired claim counts as none.
+ */
+export function tokenLicense(token: string, now: Date = new Date()): TokenLicense | undefined {
+  const license = decodeTokenPayload(token)?.license;
+  if (!license || typeof license !== "object") return undefined;
+  const { id, expiresAt } = license as Record<string, unknown>;
+  if (typeof id !== "string" || id.length === 0 || typeof expiresAt !== "string") return undefined;
+  const expiry = Date.parse(expiresAt);
+  if (!Number.isFinite(expiry) || expiry <= now.getTime()) return undefined;
+  return { id, expiresAt };
 }
 
 export function reportCourseError(ctx: OutputContext, error: unknown): never {
@@ -63,13 +88,13 @@ export async function resolveCourseSelection(
     let auth = await authenticate(ctx);
     let discovery = await discover(auth.access_token);
     if (!discovery.ok) outputError(ctx, discovery.code, discovery.error, discovery.status === 401 ? ExitCodes.AUTH_REQUIRED : discovery.status === 403 ? ExitCodes.FORBIDDEN : ExitCodes.ERROR);
-    const selected = selectCourse(discovery.data, state, options.explicit, options.writing);
+    const selected = selectCourse(discovery.data, state, options.explicit, options.writing, tokenLicense(auth.access_token) !== undefined);
     if (tokenLacksCourse(auth.access_token, selected)) {
       auth = await authenticate(ctx, { forceRefreshForToken: auth.access_token });
       discovery = await discover(auth.access_token);
       if (!discovery.ok) outputError(ctx, discovery.code, discovery.error, discovery.status === 401 ? ExitCodes.AUTH_REQUIRED : discovery.status === 403 ? ExitCodes.FORBIDDEN : ExitCodes.ERROR);
       // Retry the SAME selected course: publication or membership changes must not redirect the operation.
-      selectCourse(discovery.data, state, selected.course, options.writing);
+      selectCourse(discovery.data, state, selected.course, options.writing, tokenLicense(auth.access_token) !== undefined);
       if (tokenLacksCourse(auth.access_token, selected)) throw new CourseSelectionError("course_access_denied", "The refreshed session still does not grant the selected course. Sign in again.");
     }
     return { ...selected, auth };

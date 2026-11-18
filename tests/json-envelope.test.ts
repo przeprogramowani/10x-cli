@@ -266,6 +266,7 @@ describe("auth login JSON envelope", () => {
     ]);
     expect(exitCode).toBe(4);
     const err = assertErrorEnvelope(stdout, "no_access");
+    expect(err.message).toBe("This email has no active 10xDevs course or license.");
     expect(err.hint).toBeDefined();
     assertNoLeakage(stdout, { forbidEmail: FORBIDDEN_EMAIL });
   });

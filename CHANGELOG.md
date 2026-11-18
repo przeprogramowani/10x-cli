@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   opt-in is gone: `init` and `update` are registered unconditionally, appear
   in `--help`, and are documented in the README. The `experimental_locked`
   error envelope no longer exists (the gating module has been removed).
+- **Sign-in and course messages know about licenses.** A denied login (`no_access`)
+  now says the email has no active 10xDevs course or license. When a license-only
+  account runs `get`, `list` or `sync`, the CLI explains that its license covers
+  standalone skills and skill groups (`10x skill <name> --install`,
+  `10x skill-group <name> --install`); the error code stays `course_access_denied`.
+  `auth --status` adds `License: active until <date>` (and a `license` key in
+  JSON) while the token carries an active license. Course-only accounts see no
+  change.
 
 ### Added
 

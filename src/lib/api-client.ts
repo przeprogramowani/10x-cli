@@ -115,7 +115,8 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   skill_access_denied: "You are not permitted to install this skill. Contact the support team at kontakt@przeprogramowani.pl.",
   // Auth
   unauthorized: "You are not signed in. Run `10x auth` first.",
-  no_membership: "No active course membership was found for this email.",
+  no_access: "This email has no active 10xDevs course or license.",
+  no_membership: "This email has no active 10xDevs course or license.",
   invalid_refresh_token: "Your session has expired. Run `10x auth` again.",
   membership_revoked: "Your course membership has been revoked.",
   rate_limited: "Too many requests. Please slow down and try again shortly.",

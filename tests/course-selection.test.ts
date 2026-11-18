@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateCourseDiscovery, type CourseDiscovery } from "../src/lib/api-content";
-import { resolveCourseSelection, selectCourse, tokenLacksCourse } from "../src/lib/course-selection";
+import { LICENSE_ONLY_MESSAGE, resolveCourseSelection, selectCourse, tokenLacksCourse, tokenLicense } from "../src/lib/course-selection";
 import { requireAuth } from "../src/lib/auth-guard";
 import type { AuthData } from "../src/lib/config";
 
@@ -118,5 +118,44 @@ describe("stale-claim retry limits", () => {
     expect(calls).toBe(1);
     expect(discoveries).toBe(2);
     expect(JSON.parse(envelope).error.code).toBe("course_access_denied");
+  });
+});
+
+describe("license-only accounts", () => {
+  const claims = (value: Record<string, unknown>) => `header.${Buffer.from(JSON.stringify(value)).toString("base64url")}.signature`;
+  const active = { id: "acme-2026-11", expiresAt: "2099-11-30T22:59:59.999Z" };
+  it("reads only an active, well-formed license claim", () => {
+    expect(tokenLicense(claims({ courses: [], license: active }))).toEqual(active);
+    expect(tokenLicense(claims({ courses: ["10xdevs-4"] }))).toBeUndefined();
+    expect(tokenLicense(claims({ courses: [], license: { ...active, expiresAt: "2020-01-01T00:00:00Z" } }))).toBeUndefined();
+    for (const license of [null, "x", { id: "", expiresAt: active.expiresAt }, { id: "a" }, { id: "a", expiresAt: "nope" }]) expect(tokenLicense(claims({ license }))).toBeUndefined();
+    expect(tokenLicense("not-a-jwt")).toBeUndefined();
+  });
+  it("explains that a license covers standalone skills when no course is granted", () => {
+    for (const state of [none, { course: "10xdevs4", source: "binding" } as const]) {
+      try { selectCourse(discovery([], null), state, undefined, false, true); throw new Error("expected throw"); }
+      catch (error) { expect(error).toMatchObject({ code: "course_access_denied", message: LICENSE_ONLY_MESSAGE }); }
+    }
+    expect(LICENSE_ONLY_MESSAGE).toBe("Your license covers standalone skills and skill groups. Use `10x skill <name> --install` or `10x skill-group <name> --install`.");
+  });
+  it("leaves course holders and unlicensed accounts unchanged", () => {
+    expect(selectCourse(discovery(), none, undefined, false, true).course).toBe(v4.slug);
+    expect(() => selectCourse(discovery([], null), none)).toThrow(/no active course access/);
+  });
+  it("get/list/sync selection reports the license message with course_access_denied, exit 4", async () => {
+    const originalExit = process.exit;
+    const originalWrite = process.stdout.write;
+    let envelope = "";
+    let exitCode: number | undefined;
+    process.stdout.write = ((chunk: string | Uint8Array) => { envelope += String(chunk); return true; }) as typeof process.stdout.write;
+    process.exit = ((code?: number) => { exitCode = code; throw new Error("expected command exit"); }) as typeof process.exit;
+    try {
+      await expect(resolveCourseSelection({ json: true, verbose: false }, { projectRoot: root }, {
+        authenticate: async () => ({ ...auth([]), access_token: claims({ courses: [], license: active }) }),
+        discover: async () => ({ ok: true, status: 200, responseHeaders: new Headers(), rawBody: "", data: discovery([], null) }),
+      })).rejects.toThrow("expected command exit");
+    } finally { process.exit = originalExit; process.stdout.write = originalWrite; }
+    expect(exitCode).toBe(4);
+    expect(JSON.parse(envelope).error).toMatchObject({ code: "course_access_denied", message: LICENSE_ONLY_MESSAGE });
   });
 });

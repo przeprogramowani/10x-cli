@@ -22,6 +22,7 @@ import {
 } from "../lib/auth-flow";
 import { isExpired } from "../lib/auth-guard";
 import { fetchCourses } from "../lib/api-content";
+import { tokenLicense } from "../lib/course-selection";
 import {
   ExitCodes,
   type GlobalFlags,
@@ -102,14 +103,18 @@ async function runStatus(ctx: OutputContext): Promise<void> {
   const access = await fetchCourses(auth.access_token);
   const accessMessage = access.ok ? `Available courses: ${access.data.courses.filter((course) => course.available).map((course) => course.slug).join(", ") || "none"}.` : `Course access could not be checked (${access.code}).`;
   const methodMessage = auth.method ? ` Signed in via ${describeMethod(auth.method)}.` : "";
+  // Wording only: an expired or malformed claim is omitted rather than shown as active.
+  const license = tokenLicense(auth.access_token);
+  const licenseMessage = license ? ` License: active until ${formatLocalDate(license.expiresAt)}.` : "";
   output(
     ctx,
-    `Signed in as ${auth.email} — session expires ${formatExpiry(expiresAt)}. ${accessMessage}${methodMessage}`,
+    `Signed in as ${auth.email} — session expires ${formatExpiry(expiresAt)}. ${accessMessage}${licenseMessage}${methodMessage}`,
     {
       email: auth.email,
       expires_at: auth.expires_at,
       is_valid: true,
       ...(auth.method ? { method: auth.method } : {}),
+      ...(license ? { license: { id: license.id, expires_at: license.expiresAt } } : {}),
       access_checked: access.ok,
       ...(access.ok ? { courses: access.data.courses, defaultCourse: access.data.defaultCourse } : { access_error: { code: access.code, message: access.error } }),
     },
@@ -126,6 +131,11 @@ async function runStatus(ctx: OutputContext): Promise<void> {
  */
 function describeMethod(method: AuthMethod): string {
   return method === "circle" ? "Circle message" : "email magic link";
+}
+
+/** Calendar date in the user's local time zone, e.g. "November 30, 2027". */
+function formatLocalDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
 function formatExpiry(expiresAt: Date): string {
@@ -344,7 +354,7 @@ async function runCircleLogin(ctx: OutputContext, email: string): Promise<void> 
     outputError(
       ctx,
       "access_denied",
-      "This email has no active 10xDevs course membership, so the login was denied.",
+      "This email has no active 10xDevs course or license.",
       ExitCodes.FORBIDDEN,
       "Enroll at https://10xdevs.pl, then run '10x auth --method circle' again.",
     );
@@ -389,7 +399,7 @@ function handleCircleStartError(
     outputError(
       ctx,
       "no_access",
-      "This email has no active 10xDevs course membership.",
+      "This email has no active 10xDevs course or license.",
       ExitCodes.FORBIDDEN,
       "Enroll at https://10xdevs.pl, then run '10x auth --method circle' again.",
     );
@@ -558,7 +568,7 @@ function handleLoginError(
     outputError(
       ctx,
       "no_access",
-      "This email has no active 10xDevs course membership.",
+      "This email has no active 10xDevs course or license.",
       ExitCodes.FORBIDDEN,
       "Enroll at https://10xdevs.pl, then run '10x auth' again.",
     );
